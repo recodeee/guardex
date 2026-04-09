@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+if [[ -z "$branch" ]]; then
+  exit 0
+fi
+
+if [[ "${ALLOW_COMMIT_ON_PROTECTED_BRANCH:-0}" == "1" ]]; then
+  exit 0
+fi
+
+is_vscode_source_control_commit=0
+if [[ -n "${VSCODE_GIT_IPC_HANDLE:-}" ]] || [[ -n "${VSCODE_GIT_ASKPASS_NODE:-}" ]] || [[ -n "${VSCODE_IPC_HOOK_CLI:-}" ]]; then
+  is_vscode_source_control_commit=1
+fi
+
+if [[ "$branch" == "dev" || "$branch" == "main" || "$branch" == "master" ]]; then
+  if [[ "$is_vscode_source_control_commit" == "1" ]]; then
+    exit 0
+  fi
+
+  git_dir="$(git rev-parse --git-dir)"
+  if [[ -f "$git_dir/MERGE_HEAD" ]]; then
+    exit 0
+  fi
+
+  cat >&2 <<'MSG'
+[agent-branch-guard] Direct commits on protected branches are blocked.
+Use an agent branch first:
+  bash scripts/agent-branch-start.sh "<task-or-plan>" "<agent-name>"
+After finishing work:
+  bash scripts/agent-branch-finish.sh
+
+Temporary bypass (not recommended):
+  ALLOW_COMMIT_ON_PROTECTED_BRANCH=1 git commit ...
+MSG
+  exit 1
+fi
+
+if [[ "$branch" == agent/* ]]; then
+  if ! python3 scripts/agent-file-locks.py validate --branch "$branch" --staged; then
+    cat >&2 <<'MSG'
+[agent-branch-guard] Agent branch commits require file ownership locks.
+Claim files first:
+  python3 scripts/agent-file-locks.py claim --branch "$(git rev-parse --abbrev-ref HEAD)" <file...>
+MSG
+    exit 1
+  fi
+fi
+
+if command -v pre-commit >/dev/null 2>&1 && [[ -f .pre-commit-config.yaml ]]; then
+  pre-commit run --hook-stage pre-commit
+fi
