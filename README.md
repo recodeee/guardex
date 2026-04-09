@@ -1,5 +1,7 @@
 # musafety
 
+[![npm version](https://img.shields.io/npm/v/musafety?color=cb3837&logo=npm)](https://www.npmjs.com/package/musafety)
+
 Simple, hardened multi-agent safety setup for any git repo.
 
 > [!WARNING]
@@ -10,6 +12,8 @@ Simple, hardened multi-agent safety setup for any git repo.
 ```sh
 npm i -g musafety
 ```
+
+Package page: https://www.npmjs.com/package/musafety
 
 ## Fast setup (recommended)
 
