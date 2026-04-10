@@ -62,6 +62,10 @@ That one command runs:
 
 ![musafety setup success screenshot](https://raw.githubusercontent.com/recodeecom/multiagent-safety/main/docs/images/setup-success.svg)
 
+## Status logs screenshot
+
+![musafety status command logs screenshot](https://raw.githubusercontent.com/recodeecom/multiagent-safety/main/docs/images/status-tools-logs.svg)
+
 ## Workflow protocol screenshots
 
 ### 1) Start isolated agent branch/worktree
