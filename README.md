@@ -121,7 +121,8 @@ Use this exact checklist to setup multi-agent safety in this repository for Code
 ## Basic commands
 
 ```sh
-musafety setup [--target <path>] [--dry-run] [--yes-global-install|--no-global-install]
+musafety status [--target <path>] [--json]
+musafety setup [--target <path>] [--dry-run] [--yes-global-install|--no-global-install] [--no-gitignore]
 musafety copy-prompt
 musafety protect list [--target <path>]
 musafety protect add <branch...> [--target <path>]
@@ -134,7 +135,8 @@ bash scripts/agent-worktree-prune.sh --base dev   # manual stale worktree cleanu
 bash scripts/openspec/init-plan-workspace.sh <plan-slug>   # optional OpenSpec plan scaffold
 ```
 
-No command defaults to `musafety setup`.
+No command defaults to `musafety status` (non-mutating health/status view).
+`musafety status` reports CLI/runtime info, global OMX/OpenSpec service status, and repo safety service state.
 
 - Interactive setup: prompts for Y/N approval before global OMX/OpenSpec install.
 - Interactive prompt is strict (`[y/n]`) and waits for explicit answer.
@@ -143,8 +145,8 @@ No command defaults to `musafety setup`.
 ## Advanced commands
 
 ```sh
-musafety install [--target <path>] [--force] [--skip-agents] [--skip-package-json] [--dry-run]
-musafety fix [--target <path>] [--dry-run] [--keep-stale-locks]
+musafety install [--target <path>] [--force] [--skip-agents] [--skip-package-json] [--no-gitignore] [--dry-run]
+musafety fix [--target <path>] [--dry-run] [--keep-stale-locks] [--no-gitignore]
 musafety scan [--target <path>] [--json]
 ```
 
@@ -211,6 +213,8 @@ multiagent.protectedBranches
 - unapproved deletions of claimed files
 - risky stale/missing lock state
 - accidental loss of critical guardrail files
+- setup also writes a managed `.gitignore` block so generated musafety scripts/hooks stay out of normal git status noise by default
+  - pass `--no-gitignore` if you want to keep tracking these files in git
 
 ## Files it installs
 

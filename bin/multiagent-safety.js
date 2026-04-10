@@ -53,6 +53,18 @@ const CRITICAL_GUARDRAIL_PATHS = new Set([
 
 const LOCK_FILE_RELATIVE = '.omx/state/agent-file-locks.json';
 const AGENTS_MARKER_START = '<!-- multiagent-safety:START -->';
+const GITIGNORE_MARKER_START = '# multiagent-safety:START';
+const GITIGNORE_MARKER_END = '# multiagent-safety:END';
+const MANAGED_GITIGNORE_PATHS = [
+  'scripts/agent-branch-start.sh',
+  'scripts/agent-branch-finish.sh',
+  'scripts/agent-worktree-prune.sh',
+  'scripts/agent-file-locks.py',
+  'scripts/install-agent-git-hooks.sh',
+  'scripts/openspec/init-plan-workspace.sh',
+  '.githooks/pre-commit',
+  LOCK_FILE_RELATIVE,
+];
 const COMMAND_TYPO_ALIASES = new Map([
   ['relaese', 'release'],
   ['realaese', 'release'],
@@ -62,6 +74,7 @@ const COMMAND_TYPO_ALIASES = new Map([
   ['scna', 'scan'],
 ]);
 const SUGGESTIBLE_COMMANDS = [
+  'status',
   'setup',
   'copy-prompt',
   'protect',
@@ -108,25 +121,46 @@ const AI_SETUP_PROMPT = `Use this exact checklist to setup multi-agent safety in
    musafety sync
 `;
 
-function usage() {
-  console.log(`${TOOL_NAME} v${packageJson.version}
+function runtimeVersion() {
+  return `${packageJson.name}/${packageJson.version} ${process.platform}-${process.arch} node-${process.version}`;
+}
 
-Simple usage (recommended):
-  ${TOOL_NAME} setup [--target <path>] [--dry-run] [--yes-global-install|--no-global-install]
-  ${TOOL_NAME} copy-prompt
-  ${TOOL_NAME} protect <list|add|remove|set|reset> [branches...] [--target <path>]
-  ${TOOL_NAME} sync [--check] [--target <path>] [--base <branch>] [--strategy rebase|merge]
-  ${TOOL_NAME} release
+function usage(options = {}) {
+  const { outsideGitRepo = false } = options;
 
-Advanced:
-  ${TOOL_NAME} install [--target <path>] [--force] [--skip-agents] [--skip-package-json] [--dry-run]
-  ${TOOL_NAME} fix [--target <path>] [--dry-run] [--keep-stale-locks] [--skip-agents] [--skip-package-json]
-  ${TOOL_NAME} scan [--target <path>] [--json]
+  console.log(`A command-line tool that sets up hardened multi-agent safety for git repositories.
 
-Notes:
-  - Running ${TOOL_NAME} with no command defaults to: ${TOOL_NAME} setup
+VERSION
+  ${runtimeVersion()}
+
+USAGE
+  $ ${TOOL_NAME} [COMMAND]
+
+COMMANDS
+  status             Show musafety CLI + service health without modifying files
+  setup              Install + repair guardrails in a git repo (supports --no-gitignore)
+  copy-prompt        Print the AI-ready setup checklist
+  protect            Manage protected branches (list/add/remove/set/reset)
+  sync               Check or sync agent branches with origin/<base>
+  install            Install templates/locks/hooks without running full setup (supports --no-gitignore)
+  fix                Repair broken or missing guardrail files/config (supports --no-gitignore)
+  scan               Report safety issues and exit non-zero on findings
+  print-agents-snippet  Print the AGENTS.md snippet template
+  release            Publish musafety from maintainer release repo
+  help               Show this help output
+  version            Print musafety version
+
+NOTES
+  - Running ${TOOL_NAME} with no command defaults to: ${TOOL_NAME} status
   - ${TOOL_NAME} setup asks for Y/N approval before global installs
   - ${LEGACY_NAME} command name is still supported as an alias`);
+
+  if (outsideGitRepo) {
+    console.log(`
+[${TOOL_NAME}] No git repository detected in current directory.
+[${TOOL_NAME}] Start from a repo root, or pass an explicit target:
+  ${TOOL_NAME} setup --target <path-to-git-repo>`);
+  }
 }
 
 function run(cmd, args, options = {}) {
@@ -155,6 +189,12 @@ function resolveRepoRoot(targetPath) {
     );
   }
   return result.stdout.trim();
+}
+
+function isGitRepo(targetPath) {
+  const resolvedTarget = path.resolve(targetPath || process.cwd());
+  const result = run('git', ['-C', resolvedTarget, 'rev-parse', '--show-toplevel']);
+  return result.status === 0;
 }
 
 function toDestinationPath(relativeTemplatePath) {
@@ -364,6 +404,44 @@ function ensureAgentsSnippet(repoRoot, dryRun) {
   return { status: 'updated', file: 'AGENTS.md' };
 }
 
+function ensureManagedGitignore(repoRoot, dryRun) {
+  const gitignorePath = path.join(repoRoot, '.gitignore');
+  const managedBlock = [
+    GITIGNORE_MARKER_START,
+    ...MANAGED_GITIGNORE_PATHS,
+    GITIGNORE_MARKER_END,
+  ].join('\n');
+  const managedRegex = new RegExp(
+    `${GITIGNORE_MARKER_START.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${GITIGNORE_MARKER_END.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+    'm',
+  );
+
+  if (!fs.existsSync(gitignorePath)) {
+    if (!dryRun) {
+      fs.writeFileSync(gitignorePath, `${managedBlock}\n`, 'utf8');
+    }
+    return { status: 'created', file: '.gitignore', note: 'added musafety-managed entries' };
+  }
+
+  const existing = fs.readFileSync(gitignorePath, 'utf8');
+  if (managedRegex.test(existing)) {
+    const next = existing.replace(managedRegex, managedBlock);
+    if (next === existing) {
+      return { status: 'unchanged', file: '.gitignore' };
+    }
+    if (!dryRun) {
+      fs.writeFileSync(gitignorePath, next, 'utf8');
+    }
+    return { status: 'updated', file: '.gitignore', note: 'refreshed musafety-managed entries' };
+  }
+
+  const separator = existing.endsWith('\n') ? '\n' : '\n\n';
+  if (!dryRun) {
+    fs.writeFileSync(gitignorePath, `${existing}${separator}${managedBlock}\n`, 'utf8');
+  }
+  return { status: 'updated', file: '.gitignore', note: 'appended musafety-managed entries' };
+}
+
 function configureHooks(repoRoot, dryRun) {
   if (dryRun) {
     return { status: 'would-set', key: 'core.hooksPath', value: '.githooks' };
@@ -417,6 +495,10 @@ function parseCommonArgs(rawArgs, defaults) {
     }
     if (arg === '--no-global-install') {
       options.noGlobalInstall = true;
+      continue;
+    }
+    if (arg === '--no-gitignore') {
+      options.skipGitignore = true;
       continue;
     }
 
@@ -913,6 +995,9 @@ function runInstallInternal(options) {
   }
 
   operations.push(ensureLockRegistry(repoRoot, Boolean(options.dryRun)));
+  if (!options.skipGitignore) {
+    operations.push(ensureManagedGitignore(repoRoot, Boolean(options.dryRun)));
+  }
 
   if (!options.skipPackageJson) {
     operations.push(ensurePackageScripts(repoRoot, Boolean(options.dryRun)));
@@ -936,6 +1021,9 @@ function runFixInternal(options) {
   }
 
   operations.push(ensureLockRegistry(repoRoot, Boolean(options.dryRun)));
+  if (!options.skipGitignore) {
+    operations.push(ensureManagedGitignore(repoRoot, Boolean(options.dryRun)));
+  }
 
   const lockState = lockStateOrError(repoRoot);
   if (!lockState.ok) {
@@ -1138,12 +1226,97 @@ function setExitCodeFromScan(scan) {
   process.exitCode = 0;
 }
 
+function status(rawArgs) {
+  const options = parseCommonArgs(rawArgs, {
+    target: process.cwd(),
+    json: false,
+  });
+
+  const toolchain = detectGlobalToolchainPackages();
+  const services = GLOBAL_TOOLCHAIN_PACKAGES.map((pkg) => {
+    if (!toolchain.ok) {
+      return { name: pkg, status: 'unknown' };
+    }
+    return {
+      name: pkg,
+      status: toolchain.installed.includes(pkg) ? 'active' : 'inactive',
+    };
+  });
+
+  const targetPath = path.resolve(options.target);
+  const inGitRepo = isGitRepo(targetPath);
+  const scanResult = inGitRepo ? runScanInternal({ target: targetPath, json: false }) : null;
+  const repoServiceStatus = scanResult
+    ? (scanResult.errors === 0 && scanResult.warnings === 0 ? 'active' : 'degraded')
+    : 'inactive';
+
+  const payload = {
+    cli: {
+      name: packageJson.name,
+      version: packageJson.version,
+      runtime: runtimeVersion(),
+    },
+    services,
+    repo: {
+      target: targetPath,
+      inGitRepo,
+      serviceStatus: repoServiceStatus,
+      scan: scanResult
+        ? {
+          repoRoot: scanResult.repoRoot,
+          branch: scanResult.branch,
+          errors: scanResult.errors,
+          warnings: scanResult.warnings,
+          findings: scanResult.findings.length,
+        }
+        : null,
+    },
+    detectionError: toolchain.ok ? null : toolchain.error,
+  };
+
+  if (options.json) {
+    process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
+    process.exitCode = 0;
+    return;
+  }
+
+  console.log(`[${TOOL_NAME}] CLI: ${payload.cli.runtime}`);
+  if (!toolchain.ok) {
+    console.log(`[${TOOL_NAME}] ⚠️ Could not detect global services: ${toolchain.error}`);
+  }
+
+  console.log(`[${TOOL_NAME}] Global services:`);
+  for (const service of services) {
+    console.log(`  - ${service.name}: ${service.status}`);
+  }
+
+  if (!scanResult) {
+    console.log(`[${TOOL_NAME}] Repo safety service: inactive (no git repository at target).`);
+    process.exitCode = 0;
+    return;
+  }
+
+  console.log(`[${TOOL_NAME}] Repo: ${scanResult.repoRoot}`);
+  console.log(`[${TOOL_NAME}] Branch: ${scanResult.branch}`);
+  if (scanResult.errors === 0 && scanResult.warnings === 0) {
+    console.log(`[${TOOL_NAME}] Repo safety service: active.`);
+  } else {
+    console.log(
+      `[${TOOL_NAME}] Repo safety service: degraded (${scanResult.errors} error(s), ${scanResult.warnings} warning(s)).`,
+    );
+    console.log(`[${TOOL_NAME}] Run '${TOOL_NAME} scan' for detailed findings.`);
+  }
+
+  process.exitCode = 0;
+}
+
 function install(rawArgs) {
   const options = parseCommonArgs(rawArgs, {
     target: process.cwd(),
     force: false,
     skipAgents: false,
     skipPackageJson: false,
+    skipGitignore: false,
     dryRun: false,
   });
 
@@ -1163,6 +1336,7 @@ function fix(rawArgs) {
     dropStaleLocks: true,
     skipAgents: false,
     skipPackageJson: false,
+    skipGitignore: false,
     dryRun: false,
   });
 
@@ -1193,6 +1367,7 @@ function setup(rawArgs) {
     force: false,
     skipAgents: false,
     skipPackageJson: false,
+    skipGitignore: false,
     dryRun: false,
     yesGlobalInstall: false,
     noGlobalInstall: false,
@@ -1227,6 +1402,7 @@ function setup(rawArgs) {
     dropStaleLocks: true,
     skipAgents: options.skipAgents,
     skipPackageJson: options.skipPackageJson,
+    skipGitignore: options.skipGitignore,
   });
   printOperations('Setup/fix', fixPayload, options.dryRun);
 
@@ -1596,7 +1772,7 @@ function main() {
   const args = process.argv.slice(2);
 
   if (args.length === 0) {
-    setup([]);
+    status([]);
     return;
   }
 
@@ -1610,6 +1786,11 @@ function main() {
 
   if (command === '--version' || command === '-v' || command === 'version') {
     console.log(packageJson.version);
+    return;
+  }
+
+  if (command === 'status') {
+    status(rest);
     return;
   }
 

@@ -145,6 +145,7 @@ test('setup provisions workflow files and repo config', () => {
     'scripts/openspec/init-plan-workspace.sh',
     '.githooks/pre-commit',
     '.omx/state/agent-file-locks.json',
+    '.gitignore',
     'AGENTS.md',
   ];
 
@@ -164,6 +165,14 @@ test('setup provisions workflow files and repo config', () => {
   const agentsContent = fs.readFileSync(path.join(repoDir, 'AGENTS.md'), 'utf8');
   assert.equal(agentsContent.includes('<!-- multiagent-safety:START -->'), true);
 
+  const gitignoreContent = fs.readFileSync(path.join(repoDir, '.gitignore'), 'utf8');
+  assert.match(gitignoreContent, /# multiagent-safety:START/);
+  assert.match(gitignoreContent, /scripts\/agent-branch-start\.sh/);
+  assert.match(gitignoreContent, /scripts\/agent-file-locks\.py/);
+  assert.match(gitignoreContent, /\.githooks\/pre-commit/);
+  assert.match(gitignoreContent, /\.omx\/state\/agent-file-locks\.json/);
+  assert.match(gitignoreContent, /# multiagent-safety:END/);
+
   result = runCmd('git', ['config', '--get', 'core.hooksPath'], repoDir);
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout.trim(), '.githooks');
@@ -172,12 +181,68 @@ test('setup provisions workflow files and repo config', () => {
   assert.equal(secondRun.status, 0, secondRun.stderr || secondRun.stdout);
 });
 
-test('default invocation runs setup', () => {
+test('default invocation runs non-mutating status output', () => {
   const repoDir = initRepo();
 
   const result = runNode([], repoDir);
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.equal(fs.existsSync(path.join(repoDir, '.githooks', 'pre-commit')), true);
+  assert.match(result.stdout, /\[musafety\] CLI:/);
+  assert.match(result.stdout, /\[musafety\] Global services:/);
+  assert.match(result.stdout, /\[musafety\] Repo safety service:/);
+  assert.equal(fs.existsSync(path.join(repoDir, '.githooks', 'pre-commit')), false);
+});
+
+test('default invocation outside git repo reports inactive repo service', () => {
+  const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'musafety-non-repo-'));
+
+  const result = runNode([], outsideDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /\[musafety\] CLI:/);
+  assert.match(result.stdout, /\[musafety\] Global services:/);
+  assert.match(result.stdout, /Repo safety service: inactive/);
+});
+
+test('status --json returns cli, services, and repo summary', () => {
+  const repoDir = initRepo();
+
+  const result = runNode(['status', '--target', repoDir, '--json'], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+
+  const parsed = JSON.parse(result.stdout);
+  assert.equal(parsed.cli.name, 'musafety');
+  assert.equal(typeof parsed.cli.version, 'string');
+  assert.equal(Array.isArray(parsed.services), true);
+  assert.equal(parsed.repo.inGitRepo, true);
+  assert.equal(typeof parsed.repo.serviceStatus, 'string');
+  assert.equal(parsed.repo.scan.repoRoot, repoDir);
+});
+
+test('setup appends managed gitignore block without clobbering existing entries', () => {
+  const repoDir = initRepo();
+  fs.writeFileSync(path.join(repoDir, '.gitignore'), 'node_modules/\n.DS_Store\n', 'utf8');
+
+  let result = runNode(['setup', '--target', repoDir, '--no-global-install'], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+
+  const first = fs.readFileSync(path.join(repoDir, '.gitignore'), 'utf8');
+  assert.match(first, /node_modules\//);
+  assert.match(first, /# multiagent-safety:START/);
+  assert.match(first, /# multiagent-safety:END/);
+
+  result = runNode(['setup', '--target', repoDir, '--no-global-install'], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+
+  const second = fs.readFileSync(path.join(repoDir, '.gitignore'), 'utf8');
+  const blockStarts = second.match(/# multiagent-safety:START/g) || [];
+  assert.equal(blockStarts.length, 1, 'managed gitignore block should be unique');
+});
+
+test('setup --no-gitignore skips creating managed gitignore block', () => {
+  const repoDir = initRepo();
+
+  const result = runNode(['setup', '--target', repoDir, '--no-global-install', '--no-gitignore'], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(fs.existsSync(path.join(repoDir, '.gitignore')), false);
 });
 
 test('protect command manages configured protected branches', () => {
