@@ -65,7 +65,7 @@ That one command runs:
 
 ## Status logs screenshot
 
-![musafety status command logs screenshot](https://raw.githubusercontent.com/recodeecom/multiagent-safety/main/docs/images/status-tools-logs.svg)
+![musafety service status screenshot](https://raw.githubusercontent.com/recodeecom/multiagent-safety/main/docs/images/musafety-service-status.svg)
 
 ## AI helper skills installed by setup/doctor
 

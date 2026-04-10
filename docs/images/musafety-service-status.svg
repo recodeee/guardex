@@ -1,0 +1,29 @@
+<svg width="1600" height="860" viewBox="0 0 1600 860" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1600" height="860" fill="#090E17"/>
+  <rect x="18" y="18" width="1564" height="824" rx="10" fill="#000000" stroke="#1F2937"/>
+
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="36">
+    <text x="36" y="72" fill="#22C55E">deadpool@recodee:~/KFB-WIRELESS-CLIP-TESTER/GUI$ musafety</text>
+  </g>
+
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="34" fill="#F9FAFB">
+    <text x="36" y="126">[musafety] CLI: musafety/0.4.7 linux-x64 node-v22.22.0</text>
+    <text x="36" y="172">[musafety] Global services:</text>
+    <text x="72" y="216">- ● oh-my-codex: active</text>
+    <text x="72" y="260">- ● @fission-ai/openspec: active</text>
+    <text x="36" y="304">[musafety] Repo safety service: ● active.</text>
+    <text x="36" y="348">[musafety] Repo: /home/deadpool/KFB-WIRELESS-CLIP-TESTER/GUI</text>
+    <text x="36" y="392">[musafety] Branch: ksskkfb02</text>
+    <text x="36" y="436" fill="#06B6D4">musafety-tools logs:</text>
+
+    <text x="72" y="480" fill="#86EFAC">├─ USAGE</text>
+    <text x="112" y="524">$ musafety &lt;command&gt; [options]</text>
+
+    <text x="72" y="568" fill="#86EFAC">├─ COMMANDS</text>
+    <text x="112" y="612">status                Show musafety CLI + service health without modifying files</text>
+    <text x="112" y="656">setup                 Install + repair guardrails in a git repo (supports --no-gitignore)</text>
+    <text x="112" y="700">doctor                Repair safety setup drift, then verify repo safety</text>
+    <text x="112" y="744">copy-prompt           Print the AI-ready setup checklist</text>
+    <text x="112" y="788">...</text>
+  </g>
+</svg>
