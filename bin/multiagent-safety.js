@@ -288,7 +288,8 @@ NOTES
   - Short alias: ${SHORT_TOOL_NAME}
   - ${SHORT_TOOL_NAME} init is an alias of ${SHORT_TOOL_NAME} setup
   - ${TOOL_NAME} setup asks for Y/N approval before global installs
-  - In initialized repos, setup/install/fix/doctor block in-place writes on protected main by default
+  - In initialized repos, setup/install/fix block in-place writes on protected main by default
+  - doctor auto-starts a sandbox agent branch/worktree when run on protected main
   - Legacy command aliases are still supported: ${LEGACY_NAMES.join(', ')}`);
 
   if (outsideGitRepo) {
@@ -671,32 +672,137 @@ function hasGuardexBootstrapFiles(repoRoot) {
   return required.every((relativePath) => fs.existsSync(path.join(repoRoot, relativePath)));
 }
 
-function assertProtectedMainWriteAllowed(options, commandName) {
+function protectedBaseWriteBlock(options) {
   if (options.dryRun || options.allowProtectedBaseWrite) {
-    return;
+    return null;
   }
 
   const repoRoot = resolveRepoRoot(options.target);
   if (!hasGuardexBootstrapFiles(repoRoot)) {
-    return;
+    return null;
   }
 
   const branch = currentBranchName(repoRoot);
   if (branch !== 'main') {
-    return;
+    return null;
   }
 
   const protectedBranches = readProtectedBranches(repoRoot);
   if (!protectedBranches.includes(branch)) {
+    return null;
+  }
+
+  return {
+    repoRoot,
+    branch,
+  };
+}
+
+function assertProtectedMainWriteAllowed(options, commandName) {
+  const blocked = protectedBaseWriteBlock(options);
+  if (!blocked) {
     return;
   }
 
   throw new Error(
-    `${commandName} blocked on protected branch '${branch}' in an initialized repo.\n` +
-    `Keep local '${branch}' pull-only: start an agent branch/worktree first:\n` +
+    `${commandName} blocked on protected branch '${blocked.branch}' in an initialized repo.\n` +
+    `Keep local '${blocked.branch}' pull-only: start an agent branch/worktree first:\n` +
     `  bash scripts/agent-branch-start.sh "<task>" "codex"\n` +
     `Override once only when intentional: --allow-protected-base-write`,
   );
+}
+
+function extractAgentBranchStartMetadata(output) {
+  const branchMatch = String(output || '').match(/^\[agent-branch-start\] Created branch: (.+)$/m);
+  const worktreeMatch = String(output || '').match(/^\[agent-branch-start\] Worktree: (.+)$/m);
+  return {
+    branch: branchMatch ? branchMatch[1].trim() : '',
+    worktreePath: worktreeMatch ? worktreeMatch[1].trim() : '',
+  };
+}
+
+function resolveSandboxTarget(repoRoot, worktreePath, targetPath) {
+  const resolvedTarget = path.resolve(targetPath);
+  const relativeTarget = path.relative(repoRoot, resolvedTarget);
+  if (relativeTarget.startsWith('..') || path.isAbsolute(relativeTarget)) {
+    throw new Error(`doctor target must stay inside repo root when sandboxing: ${resolvedTarget}`);
+  }
+  if (!relativeTarget || relativeTarget === '.') {
+    return worktreePath;
+  }
+  return path.join(worktreePath, relativeTarget);
+}
+
+function buildSandboxDoctorArgs(options, sandboxTarget) {
+  const args = ['doctor', '--target', sandboxTarget];
+  if (options.dryRun) args.push('--dry-run');
+  if (options.skipAgents) args.push('--skip-agents');
+  if (options.skipPackageJson) args.push('--skip-package-json');
+  if (options.skipGitignore) args.push('--no-gitignore');
+  if (!options.dropStaleLocks) args.push('--keep-stale-locks');
+  if (options.json) args.push('--json');
+  return args;
+}
+
+function runDoctorInSandbox(options, blocked) {
+  const startScript = path.join(blocked.repoRoot, 'scripts', 'agent-branch-start.sh');
+  if (!fs.existsSync(startScript)) {
+    throw new Error(
+      `doctor sandbox fallback is unavailable because '${startScript}' is missing.\n` +
+      `Run '${SHORT_TOOL_NAME} setup --allow-protected-base-write' once to restore branch-start tooling.`,
+    );
+  }
+
+  const startResult = run('bash', [
+    startScript,
+    '--task',
+    `${SHORT_TOOL_NAME}-doctor`,
+    '--agent',
+    SHORT_TOOL_NAME,
+    '--base',
+    blocked.branch,
+  ], { cwd: blocked.repoRoot });
+  if (startResult.error) {
+    throw startResult.error;
+  }
+  if (startResult.status !== 0) {
+    throw new Error((startResult.stderr || startResult.stdout || 'failed to start doctor sandbox').trim());
+  }
+
+  const metadata = extractAgentBranchStartMetadata(startResult.stdout);
+  if (!metadata.worktreePath) {
+    throw new Error(`Failed to parse sandbox worktree from agent-branch-start output:\n${startResult.stdout}`);
+  }
+
+  const sandboxTarget = resolveSandboxTarget(blocked.repoRoot, metadata.worktreePath, options.target);
+  const nestedResult = run(
+    process.execPath,
+    [__filename, ...buildSandboxDoctorArgs(options, sandboxTarget)],
+    { cwd: metadata.worktreePath },
+  );
+  if (nestedResult.error) {
+    throw nestedResult.error;
+  }
+
+  if (options.json) {
+    if (nestedResult.stdout) process.stdout.write(nestedResult.stdout);
+    if (nestedResult.stderr) process.stderr.write(nestedResult.stderr);
+  } else {
+    console.log(
+      `[${TOOL_NAME}] doctor detected protected branch '${blocked.branch}'. ` +
+      `Running repairs in sandbox branch '${metadata.branch || 'agent/<auto>'}'.`,
+    );
+    if (startResult.stdout) process.stdout.write(startResult.stdout);
+    if (startResult.stderr) process.stderr.write(startResult.stderr);
+    if (nestedResult.stdout) process.stdout.write(nestedResult.stdout);
+    if (nestedResult.stderr) process.stderr.write(nestedResult.stderr);
+  }
+
+  if (typeof nestedResult.status === 'number') {
+    process.exitCode = nestedResult.status;
+    return;
+  }
+  process.exitCode = 1;
 }
 
 function parseTargetFlag(rawArgs, defaultTarget = process.cwd()) {
@@ -1893,6 +1999,12 @@ function doctor(rawArgs) {
     json: false,
     allowProtectedBaseWrite: false,
   });
+
+  const blocked = protectedBaseWriteBlock(options);
+  if (blocked) {
+    runDoctorInSandbox(options, blocked);
+    return;
+  }
 
   assertProtectedMainWriteAllowed(options, 'doctor');
   const fixPayload = runFixInternal(options);

@@ -289,6 +289,42 @@ test('install blocks in-place maintenance writes on protected main unless overri
   assert.match(result.stderr, /install blocked on protected branch 'main'/);
 });
 
+test('doctor on protected main auto-runs in a sandbox branch/worktree', () => {
+  const repoDir = initRepoOnBranch('main');
+  seedCommit(repoDir);
+  attachOriginRemoteForBranch(repoDir, 'main');
+
+  let result = runNode(['setup', '--target', repoDir, '--no-global-install'], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+
+  result = runCmd('git', ['add', '.'], repoDir);
+  assert.equal(result.status, 0, result.stderr);
+  result = runCmd('git', ['commit', '-m', 'apply gx setup'], repoDir, {
+    ALLOW_COMMIT_ON_PROTECTED_BRANCH: '1',
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  result = runCmd('git', ['push', 'origin', 'main'], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+
+  fs.rmSync(path.join(repoDir, 'scripts', 'agent-branch-finish.sh'));
+
+  result = runNode(['doctor', '--target', repoDir], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /doctor detected protected branch 'main'/);
+  const createdBranch = extractCreatedBranch(result.stdout);
+  const createdWorktree = extractCreatedWorktree(result.stdout);
+  assert.match(createdBranch, /^agent\/gx\/.+-gx-doctor$/);
+  assert.equal(fs.existsSync(path.join(createdWorktree, 'scripts', 'agent-branch-finish.sh')), true);
+
+  const rootStatus = runCmd('git', ['status', '--short', '--untracked-files=no'], repoDir);
+  assert.equal(rootStatus.status, 0, rootStatus.stderr || rootStatus.stdout);
+  assert.equal(rootStatus.stdout.trim(), '', 'protected main checkout should stay clean');
+
+  const currentBranch = runCmd('git', ['branch', '--show-current'], repoDir);
+  assert.equal(currentBranch.status, 0, currentBranch.stderr || currentBranch.stdout);
+  assert.equal(currentBranch.stdout.trim(), 'main');
+});
+
 test('setup pre-commit blocks codex session commits on non-agent branches by default', () => {
   const repoDir = initRepo();
 
