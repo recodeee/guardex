@@ -259,6 +259,22 @@ test('setup pre-commit blocks codex session commits on non-agent branches by def
   assert.match(result.stderr, /\[codex-branch-guard\] Codex agent commit blocked on non-agent branch\./);
 });
 
+test('setup pre-commit detects codex commit attempts on protected main and requires GuardeX sub-branch', () => {
+  const repoDir = initRepoOnBranch('main');
+
+  let result = runNode(['setup', '--target', repoDir], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+
+  fs.writeFileSync(path.join(repoDir, 'notes-main.txt'), 'hello from main\n', 'utf8');
+  result = runCmd('git', ['add', 'notes-main.txt'], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+
+  result = runCmd('git', ['commit', '-m', 'codex protected commit'], repoDir, { CODEX_THREAD_ID: 'test-thread' });
+  assert.notEqual(result.status, 0, result.stdout);
+  assert.match(result.stderr, /\[guardex-preedit-guard\] Codex edit\/commit detected on a protected branch\./);
+  assert.match(result.stderr, /bash scripts\/codex-agent\.sh/);
+});
+
 test('setup agent-branch-start requires --allow-in-place when using --in-place', () => {
   const repoDir = initRepo();
 
