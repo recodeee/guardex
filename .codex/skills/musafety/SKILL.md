@@ -32,5 +32,4 @@ musafety scan
 
 - Prefer `musafety doctor` for one-step repair + verification.
 - Keep agent work isolated (`agent/*` branches + lock claims).
-- For one-command Codex sandbox startup, use `bash scripts/codex-agent.sh "<task>" "<agent-name>"`.
 - Do not bypass protected branch safeguards unless explicitly required.

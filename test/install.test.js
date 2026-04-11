@@ -27,10 +27,15 @@ function runNodeWithEnv(args, cwd, extraEnv) {
 }
 
 function runCmd(cmd, args, cwd, options = {}) {
+  const sanitizedEnv = { ...process.env };
+  delete sanitizedEnv.CODEX_THREAD_ID;
+  delete sanitizedEnv.OMX_SESSION_ID;
+  delete sanitizedEnv.CODEX_CI;
+
   return cp.spawnSync(cmd, args, {
     cwd,
     encoding: 'utf8',
-    env: { ...process.env, ...(options.env || options) },
+    env: { ...sanitizedEnv, ...(options.env || options) },
   });
 }
 
@@ -154,6 +159,7 @@ test('setup provisions workflow files and repo config', () => {
   const requiredFiles = [
     'scripts/agent-branch-start.sh',
     'scripts/agent-branch-finish.sh',
+    'scripts/codex-agent.sh',
     'scripts/agent-worktree-prune.sh',
     'scripts/agent-file-locks.py',
     'scripts/install-agent-git-hooks.sh',
@@ -171,6 +177,7 @@ test('setup provisions workflow files and repo config', () => {
   }
 
   const packageJson = JSON.parse(fs.readFileSync(path.join(repoDir, 'package.json'), 'utf8'));
+  assert.equal(packageJson.scripts['agent:codex'], 'bash ./scripts/codex-agent.sh');
   assert.equal(packageJson.scripts['agent:branch:start'], 'bash ./scripts/agent-branch-start.sh');
   assert.equal(packageJson.scripts['agent:plan:init'], 'bash ./scripts/openspec/init-plan-workspace.sh');
   assert.equal(packageJson.scripts['agent:protect:list'], 'musafety protect list');
@@ -185,8 +192,10 @@ test('setup provisions workflow files and repo config', () => {
   const gitignoreContent = fs.readFileSync(path.join(repoDir, '.gitignore'), 'utf8');
   assert.match(gitignoreContent, /# multiagent-safety:START/);
   assert.match(gitignoreContent, /scripts\/agent-branch-start\.sh/);
+  assert.match(gitignoreContent, /scripts\/codex-agent\.sh/);
   assert.match(gitignoreContent, /scripts\/agent-file-locks\.py/);
   assert.match(gitignoreContent, /\.githooks\/pre-commit/);
+  assert.match(gitignoreContent, /oh-my-codex\//);
   assert.match(gitignoreContent, /\.codex\/skills\/musafety\/SKILL\.md/);
   assert.match(gitignoreContent, /\.claude\/commands\/musafety\.md/);
   assert.match(gitignoreContent, /\.omx\/state\/agent-file-locks\.json/);
@@ -198,6 +207,38 @@ test('setup provisions workflow files and repo config', () => {
 
   const secondRun = runNode(['setup', '--target', repoDir], repoDir);
   assert.equal(secondRun.status, 0, secondRun.stderr || secondRun.stdout);
+});
+
+test('setup pre-commit blocks codex session commits on non-agent branches by default', () => {
+  const repoDir = initRepo();
+
+  let result = runNode(['setup', '--target', repoDir], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+
+  result = runCmd('git', ['checkout', '-b', 'feature/codex-test'], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+
+  fs.writeFileSync(path.join(repoDir, 'notes.txt'), 'hello\n', 'utf8');
+  result = runCmd('git', ['add', 'notes.txt'], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+
+  result = runCmd('git', ['commit', '-m', 'codex non-agent commit'], repoDir, { CODEX_THREAD_ID: 'test-thread' });
+  assert.notEqual(result.status, 0, result.stdout);
+  assert.match(result.stderr, /\[codex-branch-guard\] Codex agent commit blocked on non-agent branch\./);
+});
+
+test('setup agent-branch-start requires --allow-in-place when using --in-place', () => {
+  const repoDir = initRepo();
+
+  let result = runNode(['setup', '--target', repoDir], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+
+  seedCommit(repoDir);
+
+  result = runCmd('bash', ['scripts/agent-branch-start.sh', 'demo', 'bot', 'dev', '--in-place'], repoDir);
+  assert.notEqual(result.status, 0, result.stdout);
+  assert.match(result.stderr, /--in-place is blocked by default/);
+  assert.match(result.stderr, /--in-place --allow-in-place/);
 });
 
 test('default invocation runs non-mutating status output', () => {
@@ -265,6 +306,14 @@ exit 1
   assert.match(result.stdout, /Latest\s+:\s+9\.9\.9/);
   assert.match(result.stdout, /Updated to latest published version/);
   assert.equal(fs.existsSync(markerPath), true, 'expected self-update command to run');
+});
+
+test('self-update prompt defaults to no when approval is not preconfigured', () => {
+  const source = fs.readFileSync(cliPath, 'utf8');
+  assert.match(
+    source,
+    /promptYesNo\(\s*`Update now\?\s*\(\$\{NPM_BIN\} i -g \$\{packageJson\.name\}@latest\)`\s*,\s*false,\s*\)/s,
+  );
 });
 
 test('status --json returns cli, services, and repo summary', () => {
@@ -376,6 +425,103 @@ test('pre-commit blocks protected branch commits even from VS Code Source Contro
   );
   assert.equal(hookResult.status, 1, hookResult.stderr || hookResult.stdout);
   assert.match(hookResult.stderr, /Direct commits on protected branches are blocked/);
+});
+
+test('codex-agent launches codex inside a fresh sandbox worktree', () => {
+  const repoDir = initRepo();
+  seedCommit(repoDir);
+
+  const setupResult = runNode(['setup', '--target', repoDir, '--no-global-install'], repoDir);
+  assert.equal(setupResult.status, 0, setupResult.stderr || setupResult.stdout);
+
+  const fakeBin = fs.mkdtempSync(path.join(os.tmpdir(), 'musafety-fake-codex-'));
+  const fakeCodexPath = path.join(fakeBin, 'codex');
+  fs.writeFileSync(
+    fakeCodexPath,
+    `#!/usr/bin/env bash\n` +
+      `pwd > "${'${MUSAFETY_TEST_CODEX_CWD}'}"\n` +
+      `echo "$@" > "${'${MUSAFETY_TEST_CODEX_ARGS}'}"\n`,
+    'utf8',
+  );
+  fs.chmodSync(fakeCodexPath, 0o755);
+
+  const cwdMarker = path.join(repoDir, '.codex-agent-cwd');
+  const argsMarker = path.join(repoDir, '.codex-agent-args');
+  const launch = runCmd(
+    'bash',
+    ['scripts/codex-agent.sh', 'launch-task', 'planner', 'dev', '--model', 'gpt-5.4-mini'],
+    repoDir,
+    {
+      PATH: `${fakeBin}:${process.env.PATH}`,
+      MUSAFETY_TEST_CODEX_CWD: cwdMarker,
+      MUSAFETY_TEST_CODEX_ARGS: argsMarker,
+    },
+  );
+  assert.equal(launch.status, 0, launch.stderr || launch.stdout);
+  assert.match(launch.stdout, /\[codex-agent\] Launching codex in sandbox:/);
+
+  const launchedCwd = fs.readFileSync(cwdMarker, 'utf8').trim();
+  assert.match(
+    launchedCwd,
+    new RegExp(`${escapeRegexLiteral(repoDir)}/\\.omx/agent-worktrees/agent__planner__`),
+  );
+
+  const launchedArgs = fs.readFileSync(argsMarker, 'utf8').trim();
+  assert.match(launchedArgs, /--model gpt-5\.4-mini/);
+
+  const branchResult = runCmd('git', ['-C', launchedCwd, 'branch', '--show-current'], repoDir);
+  assert.equal(branchResult.status, 0, branchResult.stderr || branchResult.stdout);
+  assert.match(branchResult.stdout.trim(), /^agent\/planner\//);
+});
+
+test('codex-agent supports --codex-bin override before positional arguments', () => {
+  const repoDir = initRepo();
+  seedCommit(repoDir);
+
+  const setupResult = runNode(['setup', '--target', repoDir, '--no-global-install'], repoDir);
+  assert.equal(setupResult.status, 0, setupResult.stderr || setupResult.stdout);
+
+  const fakeBin = fs.mkdtempSync(path.join(os.tmpdir(), 'musafety-fake-codex-bin-'));
+  const fakeCodexPath = path.join(fakeBin, 'my-codex');
+  fs.writeFileSync(
+    fakeCodexPath,
+    `#!/usr/bin/env bash\n` +
+      `pwd > "${'${MUSAFETY_TEST_CODEX_CWD}'}"\n` +
+      `echo "$@" > "${'${MUSAFETY_TEST_CODEX_ARGS}'}"\n`,
+    'utf8',
+  );
+  fs.chmodSync(fakeCodexPath, 0o755);
+
+  const cwdMarker = path.join(repoDir, '.codex-agent-cwd-override');
+  const argsMarker = path.join(repoDir, '.codex-agent-args-override');
+  const launch = runCmd(
+    'bash',
+    [
+      'scripts/codex-agent.sh',
+      '--codex-bin',
+      fakeCodexPath,
+      'launch-task',
+      'planner',
+      'dev',
+      '--model',
+      'gpt-5.4-mini',
+    ],
+    repoDir,
+    {
+      MUSAFETY_TEST_CODEX_CWD: cwdMarker,
+      MUSAFETY_TEST_CODEX_ARGS: argsMarker,
+    },
+  );
+  assert.equal(launch.status, 0, launch.stderr || launch.stdout);
+  assert.match(launch.stdout, /\[codex-agent\] Launching .* in sandbox:/);
+
+  const launchedCwd = fs.readFileSync(cwdMarker, 'utf8').trim();
+  assert.match(
+    launchedCwd,
+    new RegExp(`${escapeRegexLiteral(repoDir)}/\\.omx/agent-worktrees/agent__planner__`),
+  );
+  const launchedArgs = fs.readFileSync(argsMarker, 'utf8').trim();
+  assert.match(launchedArgs, /--model gpt-5\.4-mini/);
 });
 
 test('sync command rebases current agent branch onto latest origin/dev', () => {

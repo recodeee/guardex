@@ -27,6 +27,7 @@ const TEMPLATE_ROOT = path.resolve(__dirname, '..', 'templates');
 const TEMPLATE_FILES = [
   'scripts/agent-branch-start.sh',
   'scripts/agent-branch-finish.sh',
+  'scripts/codex-agent.sh',
   'scripts/agent-worktree-prune.sh',
   'scripts/agent-file-locks.py',
   'scripts/install-agent-git-hooks.sh',
@@ -39,6 +40,7 @@ const TEMPLATE_FILES = [
 const EXECUTABLE_RELATIVE_PATHS = new Set([
   'scripts/agent-branch-start.sh',
   'scripts/agent-branch-finish.sh',
+  'scripts/codex-agent.sh',
   'scripts/agent-worktree-prune.sh',
   'scripts/agent-file-locks.py',
   'scripts/install-agent-git-hooks.sh',
@@ -61,11 +63,13 @@ const GITIGNORE_MARKER_END = '# multiagent-safety:END';
 const MANAGED_GITIGNORE_PATHS = [
   'scripts/agent-branch-start.sh',
   'scripts/agent-branch-finish.sh',
+  'scripts/codex-agent.sh',
   'scripts/agent-worktree-prune.sh',
   'scripts/agent-file-locks.py',
   'scripts/install-agent-git-hooks.sh',
   'scripts/openspec/init-plan-workspace.sh',
   '.githooks/pre-commit',
+  'oh-my-codex/',
   '.codex/skills/musafety/SKILL.md',
   '.claude/commands/musafety.md',
   LOCK_FILE_RELATIVE,
@@ -132,6 +136,7 @@ const AI_SETUP_PROMPT = `Use this exact checklist to setup multi-agent safety in
    musafety doctor
 
 4) Confirm next safe agent workflow commands:
+   bash scripts/codex-agent.sh "task" "agent-name"
    bash scripts/agent-branch-start.sh "task" "agent-name"
    python3 scripts/agent-file-locks.py claim --branch "$(git rev-parse --abbrev-ref HEAD)" <file...>
    bash scripts/agent-branch-finish.sh --branch "$(git rev-parse --abbrev-ref HEAD)"
@@ -150,6 +155,7 @@ const AI_SETUP_PROMPT = `Use this exact checklist to setup multi-agent safety in
 const AI_SETUP_COMMANDS = `npm i -g musafety
 musafety setup
 musafety doctor
+bash scripts/codex-agent.sh "task" "agent-name"
 bash scripts/agent-branch-start.sh "task" "agent-name"
 python3 scripts/agent-file-locks.py claim --branch "$(git rev-parse --abbrev-ref HEAD)" <file...>
 bash scripts/agent-branch-finish.sh --branch "$(git rev-parse --abbrev-ref HEAD)"
@@ -462,6 +468,7 @@ function ensurePackageScripts(repoRoot, dryRun) {
   }
 
   const wantedScripts = {
+    'agent:codex': 'bash ./scripts/codex-agent.sh',
     'agent:branch:start': 'bash ./scripts/agent-branch-start.sh',
     'agent:branch:finish': 'bash ./scripts/agent-branch-finish.sh',
     'agent:cleanup': 'bash ./scripts/agent-worktree-prune.sh --base dev',
@@ -1259,7 +1266,7 @@ function maybeSelfUpdateBeforeStatus() {
     ? autoApproval
     : promptYesNo(
       `Update now? (${NPM_BIN} i -g ${packageJson.name}@latest)`,
-      true,
+      false,
     );
 
   if (!shouldUpdate) {

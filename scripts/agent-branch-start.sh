@@ -1,13 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-TASK_NAME="task"
-AGENT_NAME="agent"
-BASE_BRANCH="dev"
+TASK_NAME="${1:-task}"
+AGENT_NAME="${2:-agent}"
+BASE_BRANCH="${3:-dev}"
 WORKTREE_MODE=1
-ALLOW_IN_PLACE=0
 WORKTREE_ROOT_REL=".omx/agent-worktrees"
-POSITIONAL_ARGS=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -27,51 +25,24 @@ while [[ $# -gt 0 ]]; do
       WORKTREE_MODE=0
       shift
       ;;
-    --allow-in-place)
-      ALLOW_IN_PLACE=1
-      shift
-      ;;
     --worktree-root)
       WORKTREE_ROOT_REL="${2:-.omx/agent-worktrees}"
       shift 2
       ;;
     --)
       shift
-      while [[ $# -gt 0 ]]; do
-        POSITIONAL_ARGS+=("$1")
-        shift
-      done
       break
       ;;
     -*)
       echo "[agent-branch-start] Unknown option: $1" >&2
-      echo "Usage: $0 [task] [agent] [base] [--in-place --allow-in-place] [--worktree-root <path>]" >&2
+      echo "Usage: $0 [task] [agent] [base] [--in-place] [--worktree-root <path>]" >&2
       exit 1
       ;;
     *)
-      POSITIONAL_ARGS+=("$1")
-      shift
+      break
       ;;
   esac
 done
-
-if [[ "${#POSITIONAL_ARGS[@]}" -gt 3 ]]; then
-  echo "[agent-branch-start] Too many positional arguments." >&2
-  echo "Usage: $0 [task] [agent] [base] [--in-place --allow-in-place] [--worktree-root <path>]" >&2
-  exit 1
-fi
-
-if [[ "${#POSITIONAL_ARGS[@]}" -ge 1 ]]; then
-  TASK_NAME="${POSITIONAL_ARGS[0]}"
-fi
-
-if [[ "${#POSITIONAL_ARGS[@]}" -ge 2 ]]; then
-  AGENT_NAME="${POSITIONAL_ARGS[1]}"
-fi
-
-if [[ "${#POSITIONAL_ARGS[@]}" -ge 3 ]]; then
-  BASE_BRANCH="${POSITIONAL_ARGS[2]}"
-fi
 
 sanitize_slug() {
   local raw="$1"
@@ -112,12 +83,6 @@ if git show-ref --verify --quiet "refs/heads/${branch_name}"; then
 fi
 
 if [[ "$WORKTREE_MODE" -eq 0 ]]; then
-  if [[ "$ALLOW_IN_PLACE" -ne 1 ]]; then
-    echo "[agent-branch-start] --in-place is blocked by default to prevent accidental edits on protected branches." >&2
-    echo "[agent-branch-start] If you really need it, pass both: --in-place --allow-in-place" >&2
-    exit 1
-  fi
-
   if ! git diff --quiet || ! git diff --cached --quiet; then
     echo "[agent-branch-start] Working tree is not clean. Commit/stash changes before starting an in-place branch." >&2
     exit 1

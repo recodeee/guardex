@@ -128,6 +128,7 @@ Example output:
 npm i -g musafety
 musafety setup
 musafety doctor
+bash scripts/codex-agent.sh "task" "agent-name"
 bash scripts/agent-branch-start.sh "task" "agent-name"
 python3 scripts/agent-file-locks.py claim --branch "$(git rev-parse --abbrev-ref HEAD)" <file...>
 bash scripts/agent-branch-finish.sh --branch "$(git rev-parse --abbrev-ref HEAD)"
@@ -157,6 +158,7 @@ Use this exact checklist to setup multi-agent safety in this repository for Code
    musafety doctor
 
 4) Confirm next safe agent workflow commands:
+   bash scripts/codex-agent.sh "task" "agent-name"
    bash scripts/agent-branch-start.sh "task" "agent-name"
    python3 scripts/agent-file-locks.py claim --branch "$(git rev-parse --abbrev-ref HEAD)" <file...>
    bash scripts/agent-branch-finish.sh --branch "$(git rev-parse --abbrev-ref HEAD)"
@@ -195,7 +197,7 @@ bash scripts/openspec/init-plan-workspace.sh <plan-slug>   # optional OpenSpec p
 No command defaults to `musafety status` (non-mutating health/status view).
 `musafety status` reports CLI/runtime info, global OMX/OpenSpec service status, and repo safety service state.
 When run in an interactive terminal, default `musafety` checks npm for a newer version first
-and asks `[Y/n]` whether to update immediately (default is `Y`).
+and asks `[y/N]` whether to update immediately (default is `N`).
 
 - Interactive setup: prompts for Y/N approval before global OMX/OpenSpec install.
 - Interactive prompt is strict (`[y/n]`) and waits for explicit answer.
@@ -270,11 +272,14 @@ multiagent.protectedBranches
 
 - direct commits to protected branches (defaults: `dev`, `main`, `master`; configurable via `musafety protect ...`)
 - protected-branch commits are blocked regardless of commit client (including VS Code Source Control)
+- Codex-session commits on non-`agent/*` branches are blocked by default (`multiagent.codexRequireAgentBranch=true`)
 - overlapping file ownership between agents
 - unapproved deletions of claimed files
 - risky stale/missing lock state
 - accidental loss of critical guardrail files
+- in-place branch bootstrap requires explicit opt-in (`--in-place --allow-in-place`)
 - setup also writes a managed `.gitignore` block so generated musafety scripts/hooks stay out of normal git status noise by default
+  - includes `oh-my-codex/` by default to keep local OMX source clones out of repo status
   - pass `--no-gitignore` if you want to keep tracking these files in git
 
 ## Files it installs
@@ -282,6 +287,7 @@ multiagent.protectedBranches
 ```text
 scripts/agent-branch-start.sh
 scripts/agent-branch-finish.sh
+scripts/codex-agent.sh
 scripts/agent-worktree-prune.sh
 scripts/agent-file-locks.py
 scripts/install-agent-git-hooks.sh

@@ -1,6 +1,6 @@
 {
   "name": "musafety",
-  "version": "0.4.7",
+  "version": "5.0.0",
   "description": "Simple setup command for hardened multi-agent collaboration safety in git repos.",
   "license": "MIT",
   "preferGlobal": true,
@@ -9,7 +9,24 @@
     "multiagent-safety": "bin/multiagent-safety.js"
   },
   "scripts": {
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "agent:codex": "bash ./scripts/codex-agent.sh",
+    "agent:branch:start": "bash ./scripts/agent-branch-start.sh",
+    "agent:branch:finish": "bash ./scripts/agent-branch-finish.sh",
+    "agent:cleanup": "bash ./scripts/agent-worktree-prune.sh --base dev",
+    "agent:hooks:install": "bash ./scripts/install-agent-git-hooks.sh",
+    "agent:locks:claim": "python3 ./scripts/agent-file-locks.py claim",
+    "agent:locks:allow-delete": "python3 ./scripts/agent-file-locks.py allow-delete",
+    "agent:locks:release": "python3 ./scripts/agent-file-locks.py release",
+    "agent:locks:status": "python3 ./scripts/agent-file-locks.py status",
+    "agent:plan:init": "bash ./scripts/openspec/init-plan-workspace.sh",
+    "agent:protect:list": "musafety protect list",
+    "agent:branch:sync": "musafety sync",
+    "agent:branch:sync:check": "musafety sync --check",
+    "agent:safety:setup": "musafety setup",
+    "agent:safety:scan": "musafety scan",
+    "agent:safety:fix": "musafety fix",
+    "agent:safety:doctor": "musafety doctor"
   },
   "engines": {
     "node": ">=18"
