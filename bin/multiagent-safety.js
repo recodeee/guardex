@@ -1262,12 +1262,12 @@ function maybeSelfUpdateBeforeStatus() {
     return;
   }
 
-  const shouldUpdate = autoApproval != null
-    ? autoApproval
-    : promptYesNo(
+  const shouldUpdate = interactive
+    ? promptYesNo(
       `Update now? (${NPM_BIN} i -g ${packageJson.name}@latest)`,
       false,
-    );
+    )
+    : autoApproval;
 
   if (!shouldUpdate) {
     console.log(`[${TOOL_NAME}] Skipped update.`);
