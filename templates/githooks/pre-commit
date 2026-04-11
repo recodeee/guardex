@@ -2,12 +2,25 @@
 set -euo pipefail
 
 branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+if [[ -z "$branch" || "$branch" == "HEAD" ]]; then
+  branch="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+fi
 if [[ -z "$branch" ]]; then
   exit 0
 fi
 
 if [[ "${ALLOW_COMMIT_ON_PROTECTED_BRANCH:-0}" == "1" ]]; then
   exit 0
+fi
+
+is_unborn_branch=0
+if ! git rev-parse --verify HEAD >/dev/null 2>&1; then
+  is_unborn_branch=1
+fi
+
+is_codex_session=0
+if [[ -n "${CODEX_THREAD_ID:-}" || -n "${OMX_SESSION_ID:-}" || "${CODEX_CI:-0}" == "1" ]]; then
+  is_codex_session=1
 fi
 
 protected_branches_raw="${MUSAFETY_PROTECTED_BRANCHES:-$(git config --get multiagent.protectedBranches || true)}"
@@ -24,7 +37,57 @@ for protected_branch in $protected_branches_raw; do
   fi
 done
 
+codex_require_agent_branch_raw="${MUSAFETY_CODEX_REQUIRE_AGENT_BRANCH:-$(git config --get multiagent.codexRequireAgentBranch || true)}"
+if [[ -z "$codex_require_agent_branch_raw" ]]; then
+  codex_require_agent_branch_raw="true"
+fi
+codex_require_agent_branch="$(printf '%s' "$codex_require_agent_branch_raw" | tr '[:upper:]' '[:lower:]')"
+
+should_require_codex_agent_branch=0
+case "$codex_require_agent_branch" in
+  1|true|yes|on) should_require_codex_agent_branch=1 ;;
+  0|false|no|off) should_require_codex_agent_branch=0 ;;
+  *) should_require_codex_agent_branch=1 ;;
+esac
+
+if [[ "$should_require_codex_agent_branch" == "1" && "${MUSAFETY_ALLOW_CODEX_ON_NON_AGENT:-0}" != "1" ]]; then
+  if [[ "$is_codex_session" == "1" && "$branch" != agent/* ]]; then
+    if [[ "$is_protected_branch" == "1" ]]; then
+      cat >&2 <<'MSG'
+[guardex-preedit-guard] Codex edit/commit detected on a protected branch.
+GuardeX requires Codex work to run from an isolated agent/* branch.
+Start the sub-branch/worktree with:
+  bash scripts/codex-agent.sh "<task-or-plan>" "<agent-name>"
+Or manually:
+  bash scripts/agent-branch-start.sh "<task-or-plan>" "<agent-name>"
+Then commit from the created agent/* branch.
+
+Temporary bypass (not recommended):
+  MUSAFETY_ALLOW_CODEX_ON_NON_AGENT=1 git commit ...
+MSG
+      exit 1
+    fi
+
+    cat >&2 <<'MSG'
+[codex-branch-guard] Codex agent commit blocked on non-agent branch.
+Use isolated branch/worktree first:
+  bash scripts/agent-branch-start.sh "<task-or-plan>" "<agent-name>"
+Then commit from the created agent/* branch.
+
+Temporary bypass (not recommended):
+  MUSAFETY_ALLOW_CODEX_ON_NON_AGENT=1 git commit ...
+Disable this rule for a repo (not recommended):
+  git config multiagent.codexRequireAgentBranch false
+MSG
+    exit 1
+  fi
+fi
+
 if [[ "$is_protected_branch" == "1" ]]; then
+  if [[ "$is_unborn_branch" == "1" && "$is_codex_session" != "1" ]]; then
+    exit 0
+  fi
+
   git_dir="$(git rev-parse --git-dir)"
   if [[ -f "$git_dir/MERGE_HEAD" ]]; then
     exit 0
@@ -41,41 +104,6 @@ Temporary bypass (not recommended):
   ALLOW_COMMIT_ON_PROTECTED_BRANCH=1 git commit ...
 MSG
   exit 1
-fi
-
-codex_require_agent_branch_raw="${MUSAFETY_CODEX_REQUIRE_AGENT_BRANCH:-$(git config --get multiagent.codexRequireAgentBranch || true)}"
-if [[ -z "$codex_require_agent_branch_raw" ]]; then
-  codex_require_agent_branch_raw="true"
-fi
-codex_require_agent_branch="$(printf '%s' "$codex_require_agent_branch_raw" | tr '[:upper:]' '[:lower:]')"
-
-should_require_codex_agent_branch=0
-case "$codex_require_agent_branch" in
-  1|true|yes|on) should_require_codex_agent_branch=1 ;;
-  0|false|no|off) should_require_codex_agent_branch=0 ;;
-  *) should_require_codex_agent_branch=1 ;;
-esac
-
-if [[ "$should_require_codex_agent_branch" == "1" && "${MUSAFETY_ALLOW_CODEX_ON_NON_AGENT:-0}" != "1" ]]; then
-  is_codex_session=0
-  if [[ -n "${CODEX_THREAD_ID:-}" || -n "${OMX_SESSION_ID:-}" || "${CODEX_CI:-0}" == "1" ]]; then
-    is_codex_session=1
-  fi
-
-  if [[ "$is_codex_session" == "1" && "$branch" != agent/* ]]; then
-    cat >&2 <<'MSG'
-[codex-branch-guard] Codex agent commit blocked on non-agent branch.
-Use isolated branch/worktree first:
-  bash scripts/agent-branch-start.sh "<task-or-plan>" "<agent-name>"
-Then commit from the created agent/* branch.
-
-Temporary bypass (not recommended):
-  MUSAFETY_ALLOW_CODEX_ON_NON_AGENT=1 git commit ...
-Disable this rule for a repo (not recommended):
-  git config multiagent.codexRequireAgentBranch false
-MSG
-    exit 1
-  fi
 fi
 
 if [[ "$branch" == agent/* ]]; then

@@ -111,11 +111,13 @@ By default this writes:
 
 #### Real VS Code Source Control example (after `gx setup`)
 
+![GuardeX real VS Code Source Control layout](./docs/images/workflow-vscode-guardex-real.png)
+
 This is the exact layout you should expect in VS Code Source Control after setup
 and a few `agent-branch-start` runs:
 
 ```text
-multiagent-safety (main)
+GuardeX (your preferred local branch: main/dev)
 agent_codex_<timestamp>-<snapshot>-<task>
 agent_bot_<timestamp>-<snapshot>-<task>
 agent_bot_<timestamp>-<snapshot>-<task>
@@ -347,6 +349,7 @@ multiagent.protectedBranches
 - direct commits to protected branches (defaults: `dev`, `main`, `master`; configurable via `gx protect ...`)
 - protected-branch commits are blocked regardless of commit client (including VS Code Source Control)
 - Codex-session commits on non-`agent/*` branches are blocked by default (`multiagent.codexRequireAgentBranch=true`)
+- Codex commits attempted on protected branches trigger `guardex-preedit-guard` and require starting work via `scripts/codex-agent.sh`
 - overlapping file ownership between agents
 - unapproved deletions of claimed files
 - risky stale/missing lock state
