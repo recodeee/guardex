@@ -763,11 +763,11 @@ exit 1
   assert.equal(fs.existsSync(markerPath), true, 'expected self-update command to run');
 });
 
-test('self-update prompt defaults to no when approval is not preconfigured', () => {
+test('self-update prompt requires explicit y/n when approval is not preconfigured', () => {
   const source = fs.readFileSync(cliPath, 'utf8');
   assert.match(
     source,
-    /const shouldUpdate = interactive\s*\?\s*promptYesNo\(\s*`Update now\?\s*\(\$\{NPM_BIN\} i -g \$\{packageJson\.name\}@latest\)`\s*,\s*false,\s*\)\s*:\s*autoApproval;/s,
+    /const shouldUpdate = interactive\s*\?\s*promptYesNoStrict\(\s*`Update now\?\s*\(\$\{NPM_BIN\} i -g \$\{packageJson\.name\}@latest\)`\s*,?\s*\)\s*:\s*autoApproval;/s,
   );
 });
 

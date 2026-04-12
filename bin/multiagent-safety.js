@@ -1769,6 +1769,12 @@ function isInteractiveTerminal() {
   return Boolean(process.stdin.isTTY && process.stdout.isTTY);
 }
 
+const stdinWaitArray = new Int32Array(new SharedArrayBuffer(4));
+
+function sleepSyncMs(milliseconds) {
+  Atomics.wait(stdinWaitArray, 0, 0, milliseconds);
+}
+
 function readSingleLineFromStdin() {
   let input = '';
   const buffer = Buffer.alloc(1);
@@ -1777,11 +1783,19 @@ function readSingleLineFromStdin() {
     let bytesRead = 0;
     try {
       bytesRead = fs.readSync(process.stdin.fd, buffer, 0, 1);
-    } catch {
+    } catch (error) {
+      if (error && ['EAGAIN', 'EWOULDBLOCK', 'EINTR'].includes(error.code)) {
+        sleepSyncMs(15);
+        continue;
+      }
       return input;
     }
 
     if (bytesRead === 0) {
+      if (process.stdin.isTTY) {
+        sleepSyncMs(15);
+        continue;
+      }
       return input;
     }
 
@@ -1921,9 +1935,8 @@ function maybeSelfUpdateBeforeStatus() {
   }
 
   const shouldUpdate = interactive
-    ? promptYesNo(
+    ? promptYesNoStrict(
       `Update now? (${NPM_BIN} i -g ${packageJson.name}@latest)`,
-      false,
     )
     : autoApproval;
 
