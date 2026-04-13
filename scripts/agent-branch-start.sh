@@ -141,6 +141,32 @@ resolve_protected_branches() {
   printf '%s' "$raw"
 }
 
+resolve_default_base_branch() {
+  local root="$1"
+  local configured_base preferred_base current_branch
+
+  configured_base="$(git -C "$root" config --get multiagent.baseBranch || true)"
+  if [[ -n "$configured_base" ]]; then
+    printf '%s' "$configured_base"
+    return 0
+  fi
+
+  preferred_base="${MUSAFETY_BASE_BRANCH_DEFAULT:-dev}"
+  if git -C "$root" show-ref --verify --quiet "refs/remotes/origin/${preferred_base}" \
+    || git -C "$root" show-ref --verify --quiet "refs/heads/${preferred_base}"; then
+    printf '%s' "$preferred_base"
+    return 0
+  fi
+
+  current_branch="$(git -C "$root" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+  if [[ -n "$current_branch" && "$current_branch" != "HEAD" ]]; then
+    printf '%s' "$current_branch"
+    return 0
+  fi
+
+  printf '%s' "$preferred_base"
+}
+
 is_protected_branch_name() {
   local branch="$1"
   local protected_raw="$2"
@@ -195,17 +221,7 @@ if [[ "$BASE_BRANCH_EXPLICIT" -eq 1 && -z "$BASE_BRANCH" ]]; then
 fi
 
 if [[ "$BASE_BRANCH_EXPLICIT" -eq 0 ]]; then
-  configured_base="$(git -C "$repo_root" config --get multiagent.baseBranch || true)"
-  if [[ -n "$configured_base" ]]; then
-    BASE_BRANCH="$configured_base"
-  else
-    current_branch="$(git -C "$repo_root" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
-    if [[ -n "$current_branch" && "$current_branch" != "HEAD" ]]; then
-      BASE_BRANCH="$current_branch"
-    else
-      BASE_BRANCH="dev"
-    fi
-  fi
+  BASE_BRANCH="$(resolve_default_base_branch "$repo_root")"
 fi
 
 if git show-ref --verify --quiet "refs/remotes/origin/${BASE_BRANCH}"; then

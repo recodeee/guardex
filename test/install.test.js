@@ -291,6 +291,7 @@ test('review-bot-watch script prints help after setup', () => {
   const helpResult = runCmd('bash', ['scripts/review-bot-watch.sh', '--help'], repoDir);
   assert.equal(helpResult.status, 0, helpResult.stderr || helpResult.stdout);
   assert.match(helpResult.stdout, /Continuously monitor GitHub pull requests targeting a base branch/);
+  assert.match(helpResult.stdout, /default: multiagent\.baseBranch or dev/);
 });
 
 test('review-bot-watch uses explicit codex-agent flags for argument parsing compatibility', () => {
@@ -635,12 +636,14 @@ test('setup agent-branch-start supports explicit snapshot override without codex
   assert.match(result.stdout, /Created branch: agent\/bot\/prod-snapshot-one-ship-fix(?:-\d+)?/);
 });
 
-test('setup agent-branch-start defaults base to current branch and stores per-branch base metadata', () => {
-  const repoDir = initRepoOnBranch('main');
+test('setup agent-branch-start defaults base to configured\/dev and keeps current checkout unchanged', () => {
+  const repoDir = initRepo();
   seedCommit(repoDir);
-  attachOriginRemoteForBranch(repoDir, 'main');
+  attachOriginRemote(repoDir);
+  let result = runCmd('git', ['checkout', '-b', 'main'], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
 
-  let result = runNode(['setup', '--target', repoDir, '--no-global-install'], repoDir);
+  result = runNode(['setup', '--target', repoDir, '--no-global-install'], repoDir);
   assert.equal(result.status, 0, result.stderr || result.stdout);
 
   result = runCmd('git', ['add', '.'], repoDir);
@@ -649,21 +652,26 @@ test('setup agent-branch-start defaults base to current branch and stores per-br
     ALLOW_COMMIT_ON_PROTECTED_BRANCH: '1',
   });
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  result = runCmd('git', ['push', 'origin', 'main'], repoDir);
-  assert.equal(result.status, 0, result.stderr || result.stdout);
-
   result = runCmd('bash', ['scripts/agent-branch-start.sh', 'auto-base', 'bot'], repoDir);
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const agentBranch = extractCreatedBranch(result.stdout);
   const agentWorktree = extractCreatedWorktree(result.stdout);
 
-  const upstream = runCmd('git', ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'], agentWorktree);
+  const upstream = runCmd(
+    'git',
+    ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'],
+    agentWorktree,
+  );
   assert.equal(upstream.status, 0, upstream.stderr || upstream.stdout);
-  assert.equal(upstream.stdout.trim(), 'origin/main');
+  assert.equal(upstream.stdout.trim(), 'origin/dev');
 
   const storedBase = runCmd('git', ['config', '--get', `branch.${agentBranch}.musafetyBase`], repoDir);
   assert.equal(storedBase.status, 0, storedBase.stderr || storedBase.stdout);
-  assert.equal(storedBase.stdout.trim(), 'main');
+  assert.equal(storedBase.stdout.trim(), 'dev');
+
+  const currentBranch = runCmd('git', ['branch', '--show-current'], repoDir);
+  assert.equal(currentBranch.status, 0, currentBranch.stderr || currentBranch.stdout);
+  assert.equal(currentBranch.stdout.trim(), 'main');
 });
 
 test('agent-branch-start moves protected-branch local changes into the new agent worktree', () => {
@@ -1102,6 +1110,62 @@ test('codex-agent launches codex inside a fresh sandbox worktree and keeps branc
   const launchedBranch = extractCreatedBranch(launch.stdout);
   const branchResult = runCmd('git', ['show-ref', '--verify', '--quiet', `refs/heads/${launchedBranch}`], repoDir);
   assert.equal(branchResult.status, 0, 'agent branch should remain after default codex-agent run');
+});
+
+test('codex-agent defaults to configured/dev base and keeps current checkout branch unchanged', () => {
+  const repoDir = initRepo();
+  seedCommit(repoDir);
+  attachOriginRemote(repoDir);
+  let result = runCmd('git', ['checkout', '-b', 'main'], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+
+  result = runNode(['setup', '--target', repoDir, '--no-global-install'], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  result = runCmd('git', ['add', '.'], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  result = runCmd('git', ['commit', '-m', 'apply gx setup'], repoDir, {
+    ALLOW_COMMIT_ON_PROTECTED_BRANCH: '1',
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+
+  const fakeBin = fs.mkdtempSync(path.join(os.tmpdir(), 'musafety-fake-codex-default-base-'));
+  const fakeCodexPath = path.join(fakeBin, 'codex');
+  fs.writeFileSync(
+    fakeCodexPath,
+    `#!/usr/bin/env bash\n` +
+      `pwd > "${'${MUSAFETY_TEST_CODEX_CWD}'}"\n` +
+      `echo "$@" > "${'${MUSAFETY_TEST_CODEX_ARGS}'}"\n`,
+    'utf8',
+  );
+  fs.chmodSync(fakeCodexPath, 0o755);
+
+  const cwdMarker = path.join(repoDir, '.codex-agent-default-base-cwd');
+  const argsMarker = path.join(repoDir, '.codex-agent-default-base-args');
+  const launch = runCmd(
+    'bash',
+    ['scripts/codex-agent.sh', 'launch-task', 'planner', '--model', 'gpt-5.4-mini'],
+    repoDir,
+    {
+      PATH: `${fakeBin}:${process.env.PATH}`,
+      MUSAFETY_TEST_CODEX_CWD: cwdMarker,
+      MUSAFETY_TEST_CODEX_ARGS: argsMarker,
+    },
+  );
+  assert.equal(launch.status, 0, launch.stderr || launch.stdout);
+  const launchedBranch = extractCreatedBranch(launch.stdout);
+  const launchedCwd = fs.readFileSync(cwdMarker, 'utf8').trim();
+
+  const upstream = runCmd('git', ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'], launchedCwd);
+  assert.equal(upstream.status, 0, upstream.stderr || upstream.stdout);
+  assert.equal(upstream.stdout.trim(), 'origin/dev');
+
+  const storedBase = runCmd('git', ['config', '--get', `branch.${launchedBranch}.musafetyBase`], repoDir);
+  assert.equal(storedBase.status, 0, storedBase.stderr || storedBase.stdout);
+  assert.equal(storedBase.stdout.trim(), 'dev');
+
+  const currentBranch = runCmd('git', ['branch', '--show-current'], repoDir);
+  assert.equal(currentBranch.status, 0, currentBranch.stderr || currentBranch.stdout);
+  assert.equal(currentBranch.stdout.trim(), 'main');
 });
 
 test('codex-agent supports --codex-bin override before positional arguments', () => {

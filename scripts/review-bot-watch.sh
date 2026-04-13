@@ -18,7 +18,7 @@ Continuously monitor GitHub pull requests targeting a base branch and dispatch
 one Codex-agent task per newly opened/updated PR.
 
 Options:
-  --base <branch>            Base branch to watch (default: current branch)
+  --base <branch>            Base branch to watch (default: multiagent.baseBranch or dev)
   --interval <seconds>       Poll interval (default: 30)
   --agent <name>             Agent name for codex-agent (default: guardex-review-bot)
   --task-prefix <prefix>     Task prefix for codex-agent branches (default: review-merge)
@@ -117,6 +117,16 @@ fi
 repo_root="$(git rev-parse --show-toplevel)"
 
 if [[ -z "$BASE_BRANCH" ]]; then
+  BASE_BRANCH="$(git -C "$repo_root" config --get multiagent.baseBranch 2>/dev/null || true)"
+fi
+if [[ -z "$BASE_BRANCH" ]]; then
+  preferred_base="${MUSAFETY_BASE_BRANCH_DEFAULT:-dev}"
+  if git -C "$repo_root" show-ref --verify --quiet "refs/remotes/origin/${preferred_base}" \
+    || git -C "$repo_root" show-ref --verify --quiet "refs/heads/${preferred_base}"; then
+    BASE_BRANCH="$preferred_base"
+  fi
+fi
+if [[ -z "$BASE_BRANCH" || "$BASE_BRANCH" == "HEAD" ]]; then
   BASE_BRANCH="$(git -C "$repo_root" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
 fi
 if [[ -z "$BASE_BRANCH" || "$BASE_BRANCH" == "HEAD" ]]; then
