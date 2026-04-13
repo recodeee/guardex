@@ -127,6 +127,7 @@ const SUGGESTIBLE_COMMANDS = [
   'setup',
   'init',
   'doctor',
+  'review',
   'report',
   'copy-prompt',
   'copy-commands',
@@ -161,8 +162,7 @@ const CLI_COMMAND_DESCRIPTIONS = [
   ['version', 'Print GuardeX version'],
 ];
 const AGENT_BOT_DESCRIPTIONS = [
-  ['review', 'Monitor open PRs targeting current branch and dispatch codex-agent review flow'],
-  ['start', 'bash scripts/review-bot-watch.sh --interval 30'],
+  ['review', 'Start PR monitor + codex-agent review flow (default interval: 30s)'],
 ];
 
 const AI_SETUP_PROMPT = `Use this exact checklist to setup GuardeX (Guardian T-Rex for your repo) in this repository for Codex or Claude.
@@ -184,7 +184,10 @@ const AI_SETUP_PROMPT = `Use this exact checklist to setup GuardeX (Guardian T-R
 3) If setup reports warnings/errors, repair + re-check:
    gx doctor
 
-4) Confirm next safe agent workflow commands:
+4) Optional: start continuous PR monitor from this repo:
+   gx review --interval 30
+
+5) Confirm next safe agent workflow commands:
    bash scripts/codex-agent.sh "task" "agent-name"
    bash scripts/agent-branch-start.sh "task" "agent-name"
    python3 scripts/agent-file-locks.py claim --branch "$(git rev-parse --abbrev-ref HEAD)" <file...>
@@ -196,17 +199,17 @@ const AI_SETUP_PROMPT = `Use this exact checklist to setup GuardeX (Guardian T-R
      Remove them explicitly when done:
      gx cleanup --branch "$(git rev-parse --abbrev-ref HEAD)"
 
-5) Optional: create OpenSpec planning workspace:
+6) Optional: create OpenSpec planning workspace:
    bash scripts/openspec/init-plan-workspace.sh "<plan-slug>"
 
-6) Optional: protect extra branches:
+7) Optional: protect extra branches:
    gx protect add release staging
 
-7) Optional: sync your current agent branch with latest base branch:
+8) Optional: sync your current agent branch with latest base branch:
    gx sync --check
    gx sync
 
-8) Optional (GitHub remote cleanup): enable:
+9) Optional (GitHub remote cleanup): enable:
    Settings -> General -> Pull Requests -> Automatically delete head branches
 `;
 
@@ -214,6 +217,7 @@ const AI_SETUP_COMMANDS = `npm i -g @imdeadpool/guardex
 gh --version
 gx setup
 gx doctor
+gx review --interval 30
 bash scripts/codex-agent.sh "task" "agent-name"
 bash scripts/agent-branch-start.sh "task" "agent-name"
 python3 scripts/agent-file-locks.py claim --branch "$(git rev-parse --abbrev-ref HEAD)" <file...>
@@ -361,6 +365,7 @@ NOTES
   - ${SHORT_TOOL_NAME} init is an alias of ${SHORT_TOOL_NAME} setup
   - ${TOOL_NAME} setup asks for Y/N approval before global installs
   - ${TOOL_NAME} setup checks GitHub CLI (gh) and prints install guidance if missing
+  - For other repos: ${SHORT_TOOL_NAME} setup --target <repo-path> then ${SHORT_TOOL_NAME} doctor --target <repo-path>
   - In initialized repos, setup/install/fix block in-place writes on protected main by default
   - doctor auto-runs in a sandbox agent branch/worktree on protected main and tries auto-finish PR flow
   - agent-branch-finish merges by default and keeps agent branches/worktrees until explicit cleanup
@@ -371,7 +376,8 @@ NOTES
     console.log(`
 [${TOOL_NAME}] No git repository detected in current directory.
 [${TOOL_NAME}] Start from a repo root, or pass an explicit target:
-  ${TOOL_NAME} setup --target <path-to-git-repo>`);
+  ${TOOL_NAME} setup --target <path-to-git-repo>
+  ${TOOL_NAME} doctor --target <path-to-git-repo>`);
   }
 }
 
@@ -1484,6 +1490,18 @@ function parseTargetFlag(rawArgs, defaultTarget = process.cwd()) {
   }
 
   return { target, args: remaining };
+}
+
+function parseReviewArgs(rawArgs) {
+  const parsed = parseTargetFlag(rawArgs, process.cwd());
+  const passthroughArgs = [...parsed.args];
+  if (passthroughArgs[0] === 'start') {
+    passthroughArgs.shift();
+  }
+  return {
+    target: parsed.target,
+    passthroughArgs,
+  };
 }
 
 function parseReportArgs(rawArgs) {
@@ -2926,6 +2944,27 @@ function doctor(rawArgs) {
   setExitCodeFromScan(scanResult);
 }
 
+function review(rawArgs) {
+  const options = parseReviewArgs(rawArgs);
+  const repoRoot = resolveRepoRoot(options.target);
+  const reviewScriptPath = path.join(repoRoot, 'scripts', 'review-bot-watch.sh');
+  if (!fs.existsSync(reviewScriptPath)) {
+    throw new Error(
+      `Missing review bot script: ${reviewScriptPath}\n` +
+      `Run '${SHORT_TOOL_NAME} setup --target ${repoRoot}' then '${SHORT_TOOL_NAME} doctor --target ${repoRoot}'.`,
+    );
+  }
+
+  const result = run('bash', [reviewScriptPath, ...options.passthroughArgs], { cwd: repoRoot });
+  if (isSpawnFailure(result)) {
+    throw result.error;
+  }
+
+  if (result.stdout) process.stdout.write(result.stdout);
+  if (result.stderr) process.stderr.write(result.stderr);
+  process.exitCode = typeof result.status === 'number' ? result.status : 1;
+}
+
 function report(rawArgs) {
   const options = parseReportArgs(rawArgs);
   const subcommand = options.subcommand || 'help';
@@ -3514,6 +3553,11 @@ function main() {
 
   if (command === 'doctor') {
     doctor(rest);
+    return;
+  }
+
+  if (command === 'review') {
+    review(rest);
     return;
   }
 
