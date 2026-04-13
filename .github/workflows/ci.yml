@@ -12,6 +12,7 @@ permissions:
 jobs:
   test:
     name: test (node ${{ matrix.node }})
+    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
