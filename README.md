@@ -107,6 +107,9 @@ gx protect remove release
 gx sync --check
 gx sync
 
+# continuously monitor open PRs targeting current branch and dispatch codex-agent review/merge tasks
+bash scripts/review-bot-watch.sh --interval 30
+
 # cleanup merged agent branches/worktrees
 gx cleanup
 
@@ -114,6 +117,21 @@ gx cleanup
 gx scan
 gx report scorecard --repo github.com/recodeecom/multiagent-safety
 ```
+
+### Continuous Codex PR monitor (local codex-auth session)
+
+Run this in your local shell to keep watching PRs targeting the current branch (or `--base <branch>`):
+
+```sh
+bash scripts/review-bot-watch.sh --interval 30
+```
+
+Useful flags:
+
+- `--base main` watch a specific base branch
+- `--only-pr 123` process only one PR
+- `--once` run one polling cycle and exit
+- `--retry-failed` retry failed PRs without waiting for a new head SHA
 
 ## Important behavior defaults
 
@@ -187,6 +205,7 @@ codex-auth current
 scripts/agent-branch-start.sh
 scripts/agent-branch-finish.sh
 scripts/codex-agent.sh
+scripts/review-bot-watch.sh
 scripts/agent-worktree-prune.sh
 scripts/agent-file-locks.py
 scripts/install-agent-git-hooks.sh

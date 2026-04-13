@@ -42,6 +42,7 @@ const TEMPLATE_FILES = [
   'scripts/agent-branch-start.sh',
   'scripts/agent-branch-finish.sh',
   'scripts/codex-agent.sh',
+  'scripts/review-bot-watch.sh',
   'scripts/agent-worktree-prune.sh',
   'scripts/agent-file-locks.py',
   'scripts/install-agent-git-hooks.sh',
@@ -56,6 +57,7 @@ const EXECUTABLE_RELATIVE_PATHS = new Set([
   'scripts/agent-branch-start.sh',
   'scripts/agent-branch-finish.sh',
   'scripts/codex-agent.sh',
+  'scripts/review-bot-watch.sh',
   'scripts/agent-worktree-prune.sh',
   'scripts/agent-file-locks.py',
   'scripts/install-agent-git-hooks.sh',
@@ -83,6 +85,7 @@ const MANAGED_GITIGNORE_PATHS = [
   'scripts/agent-branch-start.sh',
   'scripts/agent-branch-finish.sh',
   'scripts/codex-agent.sh',
+  'scripts/review-bot-watch.sh',
   'scripts/agent-worktree-prune.sh',
   'scripts/agent-file-locks.py',
   'scripts/install-agent-git-hooks.sh',
@@ -532,6 +535,7 @@ function ensurePackageScripts(repoRoot, dryRun) {
 
   const wantedScripts = {
     'agent:codex': 'bash ./scripts/codex-agent.sh',
+    'agent:review:watch': 'bash ./scripts/review-bot-watch.sh',
     'agent:branch:start': 'bash ./scripts/agent-branch-start.sh',
     'agent:branch:finish': 'bash ./scripts/agent-branch-finish.sh',
     'agent:cleanup': `${SHORT_TOOL_NAME} cleanup`,

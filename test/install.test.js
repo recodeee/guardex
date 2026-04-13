@@ -216,6 +216,7 @@ test('setup provisions workflow files and repo config', () => {
     'scripts/agent-branch-start.sh',
     'scripts/agent-branch-finish.sh',
     'scripts/codex-agent.sh',
+    'scripts/review-bot-watch.sh',
     'scripts/agent-worktree-prune.sh',
     'scripts/agent-file-locks.py',
     'scripts/install-agent-git-hooks.sh',
@@ -235,6 +236,7 @@ test('setup provisions workflow files and repo config', () => {
 
   const packageJson = JSON.parse(fs.readFileSync(path.join(repoDir, 'package.json'), 'utf8'));
   assert.equal(packageJson.scripts['agent:codex'], 'bash ./scripts/codex-agent.sh');
+  assert.equal(packageJson.scripts['agent:review:watch'], 'bash ./scripts/review-bot-watch.sh');
   assert.equal(packageJson.scripts['agent:branch:start'], 'bash ./scripts/agent-branch-start.sh');
   assert.equal(packageJson.scripts['agent:plan:init'], 'bash ./scripts/openspec/init-plan-workspace.sh');
   assert.equal(packageJson.scripts['agent:protect:list'], 'gx protect list');
@@ -251,6 +253,7 @@ test('setup provisions workflow files and repo config', () => {
   assert.match(gitignoreContent, /# multiagent-safety:START/);
   assert.match(gitignoreContent, /scripts\/agent-branch-start\.sh/);
   assert.match(gitignoreContent, /scripts\/codex-agent\.sh/);
+  assert.match(gitignoreContent, /scripts\/review-bot-watch\.sh/);
   assert.match(gitignoreContent, /scripts\/agent-file-locks\.py/);
   assert.match(gitignoreContent, /\.githooks\/pre-commit/);
   assert.match(gitignoreContent, /\.githooks\/pre-push/);
@@ -277,6 +280,17 @@ test('init aliases setup and provisions workflow files', () => {
   assert.equal(fs.existsSync(path.join(repoDir, 'scripts', 'agent-branch-start.sh')), true);
   assert.equal(fs.existsSync(path.join(repoDir, 'scripts', 'agent-branch-finish.sh')), true);
   assert.equal(fs.existsSync(path.join(repoDir, 'AGENTS.md')), true);
+});
+
+test('review-bot-watch script prints help after setup', () => {
+  const repoDir = initRepo();
+
+  const setupResult = runNode(['setup', '--target', repoDir, '--no-global-install'], repoDir);
+  assert.equal(setupResult.status, 0, setupResult.stderr || setupResult.stdout);
+
+  const helpResult = runCmd('bash', ['scripts/review-bot-watch.sh', '--help'], repoDir);
+  assert.equal(helpResult.status, 0, helpResult.stderr || helpResult.stdout);
+  assert.match(helpResult.stdout, /Continuously monitor GitHub pull requests targeting a base branch/);
 });
 
 test('setup blocks in-place maintenance writes on protected main after initialization', () => {
