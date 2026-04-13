@@ -239,6 +239,10 @@ npm pack --dry-run
 
 ## Release notes
 
+### v5.0.7
+
+- Bumped package version from `5.0.6` to `5.0.7` to stay one patch ahead for the next npm publish.
+
 ### v5.0.6
 
 - `gx cleanup` and auto-finish cleanup now prune clean agent worktrees by default, so VS Code Source Control focuses on your local branch plus worktrees with active changes.
