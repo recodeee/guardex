@@ -7,6 +7,7 @@ DRY_RUN=0
 FORCE_DIRTY=0
 DELETE_BRANCHES=0
 DELETE_REMOTE_BRANCHES=0
+ONLY_DIRTY_WORKTREES=0
 TARGET_BRANCH=""
 
 if [[ -n "$BASE_BRANCH" ]]; then
@@ -36,13 +37,17 @@ while [[ $# -gt 0 ]]; do
       DELETE_REMOTE_BRANCHES=1
       shift
       ;;
+    --only-dirty-worktrees)
+      ONLY_DIRTY_WORKTREES=1
+      shift
+      ;;
     --branch)
       TARGET_BRANCH="${2:-}"
       shift 2
       ;;
     *)
       echo "[agent-worktree-prune] Unknown argument: $1" >&2
-      echo "Usage: $0 [--base <branch>] [--dry-run] [--force-dirty] [--delete-branches] [--delete-remote-branches] [--branch <agent/...>]" >&2
+      echo "Usage: $0 [--base <branch>] [--dry-run] [--force-dirty] [--delete-branches] [--delete-remote-branches] [--only-dirty-worktrees] [--branch <agent/...>]" >&2
       exit 1
       ;;
   esac
@@ -165,6 +170,8 @@ process_entry() {
       if [[ "$DELETE_BRANCHES" -eq 1 ]]; then
         remove_reason="merged-agent-branch"
       fi
+    elif [[ "$ONLY_DIRTY_WORKTREES" -eq 1 ]] && is_clean_worktree "$wt"; then
+      remove_reason="clean-agent-worktree"
     fi
   elif [[ "$branch" == __agent_integrate_* || "$branch" == __source-probe-* ]]; then
     remove_reason="temporary-worktree"

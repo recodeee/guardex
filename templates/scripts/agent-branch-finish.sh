@@ -545,7 +545,7 @@ if [[ "$CLEANUP_AFTER_MERGE" -eq 1 ]]; then
   fi
 
   if [[ -x "${repo_root}/scripts/agent-worktree-prune.sh" ]]; then
-    prune_args=(--base "$BASE_BRANCH" --delete-branches)
+    prune_args=(--base "$BASE_BRANCH" --only-dirty-worktrees --delete-branches)
     if [[ "$DELETE_REMOTE_BRANCH" -eq 1 ]]; then
       prune_args+=(--delete-remote-branches)
     fi

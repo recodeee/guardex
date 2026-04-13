@@ -110,7 +110,7 @@ gx sync
 # continuously monitor open PRs targeting current branch and dispatch codex-agent review/merge tasks
 bash scripts/review-bot-watch.sh --interval 30
 
-# cleanup merged agent branches/worktrees
+# cleanup merged agent branches and hide clean stale agent worktrees
 gx cleanup
 
 # scan/report
@@ -238,6 +238,12 @@ npm pack --dry-run
 ```
 
 ## Release notes
+
+### v5.0.6
+
+- `gx cleanup` and auto-finish cleanup now prune clean agent worktrees by default, so VS Code Source Control focuses on your local branch plus worktrees with active changes.
+- Added `gx cleanup --keep-clean-worktrees` to opt out and keep clean worktrees visible.
+- Bumped package version from `5.0.5` to `5.0.6` for the next npm publish.
 
 ### v5.0.5
 

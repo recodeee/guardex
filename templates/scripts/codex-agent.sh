@@ -419,7 +419,7 @@ if [[ -x "${repo_root}/scripts/agent-worktree-prune.sh" ]]; then
     prune_args+=(--base "$BASE_BRANCH")
   fi
   if [[ "$AUTO_CLEANUP" -eq 1 && "$auto_finish_completed" -eq 1 ]]; then
-    prune_args+=(--delete-branches --delete-remote-branches)
+    prune_args+=(--only-dirty-worktrees --delete-branches --delete-remote-branches)
   fi
   if ! bash "${repo_root}/scripts/agent-worktree-prune.sh" "${prune_args[@]}"; then
     echo "[codex-agent] Warning: automatic worktree cleanup failed." >&2

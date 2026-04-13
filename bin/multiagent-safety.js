@@ -1851,6 +1851,7 @@ function parseCleanupArgs(rawArgs) {
     dryRun: false,
     forceDirty: false,
     keepRemote: false,
+    keepCleanWorktrees: false,
   };
 
   for (let index = 0; index < rawArgs.length; index += 1) {
@@ -1892,6 +1893,10 @@ function parseCleanupArgs(rawArgs) {
     }
     if (arg === '--keep-remote') {
       options.keepRemote = true;
+      continue;
+    }
+    if (arg === '--keep-clean-worktrees') {
+      options.keepCleanWorktrees = true;
       continue;
     }
     throw new Error(`Unknown option: ${arg}`);
@@ -3028,6 +3033,9 @@ function cleanup(rawArgs) {
   }
   if (options.dryRun) {
     args.push('--dry-run');
+  }
+  if (!options.keepCleanWorktrees) {
+    args.push('--only-dirty-worktrees');
   }
   args.push('--delete-branches');
   if (!options.keepRemote) {

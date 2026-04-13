@@ -2266,6 +2266,30 @@ test('worktree prune preserves dirty agent worktrees unless --force-dirty is use
   assert.equal(fs.existsSync(worktreePath), false, 'dirty worktree should be removable with --force-dirty');
 });
 
+test('worktree prune --only-dirty-worktrees removes clean agent worktrees but keeps unmerged branch refs', () => {
+  const repoDir = initRepo();
+  let result = runNode(['setup', '--target', repoDir, '--no-global-install'], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  seedCommit(repoDir);
+
+  const worktreePath = path.join(repoDir, '.omx', 'agent-worktrees', 'agent__test-clean-worktree-prune');
+  result = runCmd('git', ['worktree', 'add', '-b', 'agent/test-clean-worktree-prune', worktreePath, 'dev'], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+
+  fs.writeFileSync(path.join(worktreePath, 'unmerged.txt'), 'keep branch, drop clean worktree\n', 'utf8');
+  result = runCmd('git', ['-C', worktreePath, 'add', 'unmerged.txt'], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  result = runCmd('git', ['-C', worktreePath, 'commit', '-m', 'unmerged clean worktree commit'], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+
+  result = runCmd('bash', ['scripts/agent-worktree-prune.sh', '--only-dirty-worktrees'], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(fs.existsSync(worktreePath), false, 'clean agent worktree should be removed');
+
+  const branchResult = runCmd('git', ['show-ref', '--verify', '--quiet', 'refs/heads/agent/test-clean-worktree-prune'], repoDir);
+  assert.equal(branchResult.status, 0, 'unmerged branch ref should remain');
+});
+
 test('cleanup command removes merged agent branch/worktree and remote ref', () => {
   const repoDir = initRepo();
   seedCommit(repoDir);
@@ -2296,6 +2320,31 @@ test('cleanup command removes merged agent branch/worktree and remote ref', () =
   const remoteBranch = runCmd('git', ['ls-remote', '--heads', 'origin', 'agent/test-cleanup'], repoDir);
   assert.equal(remoteBranch.stdout.trim(), '', 'cleanup should remove remote branch');
   assert.equal(fs.existsSync(worktreePath), false, 'cleanup should remove worktree');
+});
+
+test('cleanup command keeps unmerged agent branch refs but removes clean agent worktrees', () => {
+  const repoDir = initRepo();
+  seedCommit(repoDir);
+
+  let result = runNode(['setup', '--target', repoDir, '--no-global-install'], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+
+  const worktreePath = path.join(repoDir, '.omx', 'agent-worktrees', 'agent__cleanup-keep-branch');
+  result = runCmd('git', ['worktree', 'add', '-b', 'agent/test-cleanup-keep-branch', worktreePath, 'dev'], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+
+  fs.writeFileSync(path.join(worktreePath, 'feature.txt'), 'feature branch commit\n', 'utf8');
+  result = runCmd('git', ['-C', worktreePath, 'add', 'feature.txt'], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  result = runCmd('git', ['-C', worktreePath, 'commit', '-m', 'feature commit'], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+
+  result = runNode(['cleanup', '--target', repoDir, '--branch', 'agent/test-cleanup-keep-branch', '--keep-remote'], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(fs.existsSync(worktreePath), false, 'cleanup should remove clean worktree by default');
+
+  const localBranch = runCmd('git', ['show-ref', '--verify', '--quiet', 'refs/heads/agent/test-cleanup-keep-branch'], repoDir);
+  assert.equal(localBranch.status, 0, 'cleanup should keep unmerged local branch');
 });
 
 test('release fails outside the maintainer repo path', () => {
