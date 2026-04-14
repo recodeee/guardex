@@ -1139,6 +1139,53 @@ test('agent-branch-start hydrates codex-agent helper into new worktrees when mis
   assert.equal((mode & 0o111) !== 0, true, 'hydrated codex-agent helper should be executable');
 });
 
+test('agent-branch-start links dependency node_modules directories into new worktrees when present', () => {
+  const repoDir = initRepo();
+  seedCommit(repoDir);
+
+  let result = runNode(['setup', '--target', repoDir, '--no-global-install'], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+
+  result = runCmd('git', ['add', '.'], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  result = runCmd('git', ['commit', '-m', 'apply gx setup'], repoDir, {
+    ALLOW_COMMIT_ON_PROTECTED_BRANCH: '1',
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+
+  const infoExcludePath = path.join(repoDir, '.git', 'info', 'exclude');
+  fs.appendFileSync(infoExcludePath, '\napps/frontend/node_modules\napps/backend/node_modules\n', 'utf8');
+
+  const dependencyDirs = ['node_modules', 'apps/frontend/node_modules', 'apps/backend/node_modules'];
+  for (const relativeDir of dependencyDirs) {
+    const sourceDir = path.join(repoDir, relativeDir);
+    fs.mkdirSync(sourceDir, { recursive: true });
+    fs.writeFileSync(path.join(sourceDir, '.musafety-link-marker'), 'present\n', 'utf8');
+  }
+
+  result = runCmd('bash', ['scripts/agent-branch-start.sh', 'hydrate-deps', 'bot'], repoDir, {
+    MUSAFETY_PROTECTED_BRANCHES: 'main',
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /Linked dependency dir in worktree: node_modules/);
+  assert.match(result.stdout, /Linked dependency dir in worktree: apps\/frontend\/node_modules/);
+  assert.match(result.stdout, /Linked dependency dir in worktree: apps\/backend\/node_modules/);
+
+  const createdWorktree = extractCreatedWorktree(result.stdout);
+  for (const relativeDir of dependencyDirs) {
+    const sourceDir = path.join(repoDir, relativeDir);
+    const linkedDir = path.join(createdWorktree, relativeDir);
+    assert.equal(fs.existsSync(linkedDir), true, `worktree path should exist: ${relativeDir}`);
+    assert.equal(fs.lstatSync(linkedDir).isSymbolicLink(), true, `worktree path should be a symlink: ${relativeDir}`);
+    assert.equal(fs.readlinkSync(linkedDir), sourceDir, `symlink should target source dependency dir: ${relativeDir}`);
+    assert.equal(
+      fs.existsSync(path.join(linkedDir, '.musafety-link-marker')),
+      true,
+      `symlink should expose source contents: ${relativeDir}`,
+    );
+  }
+});
+
 test('agent-branch-finish infers base from source branch metadata and updates main worktree', () => {
   const repoDir = initRepoOnBranch('main');
   seedCommit(repoDir);

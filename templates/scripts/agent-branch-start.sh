@@ -193,6 +193,26 @@ hydrate_local_helper_in_worktree() {
   echo "[agent-branch-start] Hydrated local helper in worktree: ${relative_path}"
 }
 
+hydrate_dependency_dir_symlink_in_worktree() {
+  local repo="$1"
+  local worktree="$2"
+  local relative_path="$3"
+  local source_path="${repo}/${relative_path}"
+  local target_path="${worktree}/${relative_path}"
+
+  if [[ ! -d "$source_path" ]]; then
+    return 0
+  fi
+
+  if [[ -e "$target_path" ]]; then
+    return 0
+  fi
+
+  mkdir -p "$(dirname "$target_path")"
+  ln -s "$source_path" "$target_path"
+  echo "[agent-branch-start] Linked dependency dir in worktree: ${relative_path}"
+}
+
 initialize_openspec_plan_workspace() {
   local repo="$1"
   local worktree="$2"
@@ -341,6 +361,9 @@ if [[ -n "$auto_transfer_stash_ref" ]]; then
 fi
 
 hydrate_local_helper_in_worktree "$repo_root" "$worktree_path" "scripts/codex-agent.sh"
+hydrate_dependency_dir_symlink_in_worktree "$repo_root" "$worktree_path" "node_modules"
+hydrate_dependency_dir_symlink_in_worktree "$repo_root" "$worktree_path" "apps/frontend/node_modules"
+hydrate_dependency_dir_symlink_in_worktree "$repo_root" "$worktree_path" "apps/backend/node_modules"
 if ! initialize_openspec_plan_workspace "$repo_root" "$worktree_path" "$openspec_plan_slug"; then
   exit 1
 fi

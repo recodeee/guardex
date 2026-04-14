@@ -328,6 +328,10 @@ npm pack --dry-run
 
 ## Release notes
 
+### v5.0.10
+
+- Bumped package version from `5.0.9` to `5.0.10` for the next npm publish.
+
 ### v5.0.9
 
 - Enforced OpenSpec workspace bootstrap for sandbox agent execution: `scripts/codex-agent.sh` now initializes `openspec/plan/<agent-branch-slug>/` before launching Codex, and `scripts/agent-branch-start.sh` supports `MUSAFETY_OPENSPEC_AUTO_INIT` plus `MUSAFETY_OPENSPEC_PLAN_SLUG`.
