@@ -629,7 +629,7 @@ exit 1
   assert.equal(rootStatus.stdout.trim(), '', 'protected main checkout should stay clean');
 });
 
-test('doctor on protected main reports auto-finish pending when PR merge policy blocks immediate merge', () => {
+test('doctor on protected main fails when sandbox PR is not merged', () => {
   const repoDir = initRepoOnBranch('main');
   seedCommit(repoDir);
   attachOriginRemoteForBranch(repoDir, 'main');
@@ -658,7 +658,7 @@ test('doctor on protected main reports auto-finish pending when PR merge policy 
   result = runCmd('git', ['push', 'origin', 'main'], repoDir);
   assert.equal(result.status, 0, result.stderr || result.stdout);
 
-  const ghLogPath = path.join(repoDir, 'gh-calls-pending.log');
+  const ghLogPath = path.join(repoDir, 'gh-calls-unmerged.log');
   const { fakePath: fakeGhPath } = createFakeGhScript(`
 echo "$*" >> "${ghLogPath}"
 if [[ "$1" == "auth" && "$2" == "status" ]]; then
@@ -669,19 +669,18 @@ if [[ "$1" == "pr" && "$2" == "create" ]]; then
 fi
 if [[ "$1" == "pr" && "$2" == "view" ]]; then
   if [[ " $* " == *" --json url "* ]]; then
-    echo "https://example.test/pr/doctor-autofinish-pending"
+    echo "https://example.test/pr/doctor-autofinish-unmerged"
+    exit 0
+  fi
+  if [[ " $* " == *" --json state,mergedAt,url "* ]]; then
+    printf "CLOSED\\x1f\\x1fhttps://example.test/pr/doctor-autofinish-unmerged\\n"
     exit 0
   fi
   echo "unexpected gh pr view args: $*" >&2
   exit 1
 fi
 if [[ "$1" == "pr" && "$2" == "merge" ]]; then
-  if [[ " $* " == *" --auto "* ]]; then
-    echo "GraphQL: Pull request Auto merge is not allowed for this repository (enablePullRequestAutoMerge)" >&2
-    exit 1
-  fi
   echo "X Pull request recodeecom/musafety#999 is not mergeable: the base branch policy prohibits the merge." >&2
-  echo "To have the pull request merged after all the requirements have been met, add the --auto flag." >&2
   exit 1
 fi
 echo "unexpected gh args: $*" >&2
@@ -689,15 +688,15 @@ exit 1
 `);
 
   result = runNodeWithEnv(['doctor', '--target', repoDir], repoDir, { MUSAFETY_GH_BIN: fakeGhPath });
-  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.notEqual(result.status, 0, result.stderr || result.stdout);
   const ghCalls = fs.readFileSync(ghLogPath, 'utf8');
   assert.match(ghCalls, /pr merge/);
-  assert.match(ghCalls, /pr merge .* --auto/);
+  assert.match(ghCalls, /pr view .* --json state,mergedAt,url/);
+  assert.doesNotMatch(ghCalls, /pr merge .* --auto/);
   const combinedOutput = `${result.stdout}\n${result.stderr}`;
-  assert.match(combinedOutput, /\[guardex\] Auto-finish pending for sandbox branch/);
-  assert.match(combinedOutput, /PR: https:\/\/example\.test\/pr\/doctor-autofinish-pending/);
+  assert.match(combinedOutput, /PR closed without merge; cannot continue auto-finish/);
+  assert.match(combinedOutput, /\[guardex\] Auto-finish flow failed for sandbox branch/);
   assert.doesNotMatch(combinedOutput, /Auto-finish flow completed for sandbox branch/);
-  assert.match(combinedOutput, /Merge pending review\/check policy/);
 });
 
 test('doctor auto-finishes clean pending agent branches against the current local base branch', () => {
@@ -748,7 +747,7 @@ if [[ "$1" == "pr" && "$2" == "view" ]]; then
     exit 0
   fi
   if [[ " $* " == *" --json state,mergedAt,url "* ]]; then
-    printf "OPEN\\t\\t%s\\n" "https://example.test/pr/doctor-auto-finish-ready"
+    printf "OPEN\\x1f\\x1f%s\\n" "https://example.test/pr/doctor-auto-finish-ready"
     exit 0
   fi
   echo "unexpected gh pr view args: $*" >&2
@@ -1965,7 +1964,7 @@ if [[ "$1" == "pr" && "$2" == "create" ]]; then
 fi
 if [[ "$1" == "pr" && "$2" == "view" ]]; then
   if [[ " $* " == *" --json state,mergedAt,url "* ]]; then
-    printf 'MERGED\\t2026-04-13T00:00:00Z\\thttps://example.test/pr/autocommit-retry\\n'
+    printf 'MERGED\\x1f2026-04-13T00:00:00Z\\x1fhttps://example.test/pr/autocommit-retry\\n'
     exit 0
   fi
   if [[ " $* " == *" --json url "* ]]; then
@@ -2435,9 +2434,9 @@ if [[ "$1" == "pr" && "$2" == "view" ]]; then
       attempts="$(cat "${'${MUSAFETY_TEST_GH_MERGE_STATE}'}")"
     fi
     if [[ "$attempts" -ge 2 ]]; then
-      echo -e "MERGED\\t2026-04-12T00:00:00Z\\thttps://example.test/pr/2"
+      echo -e "MERGED\\x1f2026-04-12T00:00:00Z\\x1fhttps://example.test/pr/2"
     else
-      echo -e "OPEN\\t\\thttps://example.test/pr/2"
+      echo -e "OPEN\\x1f\\x1fhttps://example.test/pr/2"
     fi
     exit 0
   fi

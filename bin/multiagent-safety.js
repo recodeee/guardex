@@ -1186,6 +1186,14 @@ function hasOriginRemote(repoRoot) {
   return run('git', ['-C', repoRoot, 'remote', 'get-url', 'origin']).status === 0;
 }
 
+function originRemoteLooksLikeGithub(repoRoot) {
+  const originUrl = readGitConfig(repoRoot, 'remote.origin.url');
+  if (!originUrl) {
+    return false;
+  }
+  return /github\.com[:/]/i.test(originUrl);
+}
+
 function isCommandAvailable(commandName) {
   return run('which', [commandName]).status === 0;
 }
@@ -1217,6 +1225,13 @@ function finishDoctorSandboxBranch(blocked, metadata) {
       note: 'origin remote missing; skipped auto-finish',
     };
   }
+  const explicitGhBin = Boolean(String(process.env.MUSAFETY_GH_BIN || '').trim());
+  if (!explicitGhBin && !originRemoteLooksLikeGithub(blocked.repoRoot)) {
+    return {
+      status: 'skipped',
+      note: 'origin remote is not GitHub; skipped auto-finish PR flow',
+    };
+  }
 
   const ghBin = process.env.MUSAFETY_GH_BIN || 'gh';
   if (!isCommandAvailable(ghBin)) {
@@ -1234,10 +1249,15 @@ function finishDoctorSandboxBranch(blocked, metadata) {
     };
   }
 
+  const rawWaitTimeoutSeconds = Number.parseInt(process.env.MUSAFETY_FINISH_WAIT_TIMEOUT_SECONDS || '1800', 10);
+  const waitTimeoutSeconds =
+    Number.isFinite(rawWaitTimeoutSeconds) && rawWaitTimeoutSeconds >= 30 ? rawWaitTimeoutSeconds : 1800;
+  const finishTimeoutMs = Math.max(180_000, (waitTimeoutSeconds + 60) * 1000);
+
   const finishResult = run(
     'bash',
-    [finishScript, '--branch', metadata.branch, '--via-pr'],
-    { cwd: metadata.worktreePath, timeout: 180_000 },
+    [finishScript, '--branch', metadata.branch, '--via-pr', '--wait-for-merge'],
+    { cwd: metadata.worktreePath, timeout: finishTimeoutMs },
   );
   if (isSpawnFailure(finishResult)) {
     return {
@@ -1497,7 +1517,18 @@ function runDoctorInSandbox(options, blocked) {
   }
 
   if (typeof nestedResult.status === 'number') {
-    process.exitCode = nestedResult.status;
+    let exitCode = nestedResult.status;
+    if (exitCode === 0 && autoCommitResult.status === 'failed') {
+      exitCode = 1;
+    }
+    if (
+      exitCode === 0 &&
+      autoCommitResult.status === 'committed' &&
+      (finishResult.status === 'failed' || finishResult.status === 'pending')
+    ) {
+      exitCode = 1;
+    }
+    process.exitCode = exitCode;
     return;
   }
   process.exitCode = 1;
@@ -1920,6 +1951,12 @@ function autoFinishReadyAgentBranches(repoRoot, options = {}) {
     summary.details.push('Skipped auto-finish sweep (origin remote missing).');
     return summary;
   }
+  const explicitGhBin = Boolean(String(process.env.MUSAFETY_GH_BIN || '').trim());
+  if (!explicitGhBin && !originRemoteLooksLikeGithub(repoRoot)) {
+    summary.enabled = false;
+    summary.details.push('Skipped auto-finish sweep (origin remote is not GitHub).');
+    return summary;
+  }
 
   const ghBin = process.env.MUSAFETY_GH_BIN || 'gh';
   if (run(ghBin, ['--version']).status !== 0) {
@@ -1979,6 +2016,7 @@ function autoFinishReadyAgentBranches(repoRoot, options = {}) {
       '--base',
       baseBranch,
       '--via-pr',
+      '--wait-for-merge',
       '--cleanup',
     ];
     const finishResult = run('bash', finishArgs, { cwd: repoRoot });

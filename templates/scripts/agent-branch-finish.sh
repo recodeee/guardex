@@ -338,7 +338,7 @@ is_local_branch_delete_error() {
 
 read_pr_state() {
   local state_line
-  state_line="$("$GH_BIN" pr view "$SOURCE_BRANCH" --json state,mergedAt,url --jq '[.state, (.mergedAt // ""), (.url // "")] | @tsv' 2>/dev/null || true)"
+  state_line="$("$GH_BIN" pr view "$SOURCE_BRANCH" --json state,mergedAt,url --jq '[.state, (.mergedAt // ""), (.url // "")] | join("\u001f")' 2>/dev/null || true)"
   if [[ -z "$state_line" ]]; then
     return 1
   fi
@@ -346,7 +346,7 @@ read_pr_state() {
   local parsed_state=""
   local parsed_merged_at=""
   local parsed_url=""
-  IFS=$'\t' read -r parsed_state parsed_merged_at parsed_url <<< "$state_line"
+  IFS=$'\x1f' read -r parsed_state parsed_merged_at parsed_url <<< "$state_line"
   PR_STATE="$parsed_state"
   PR_MERGED_AT="$parsed_merged_at"
   if [[ -n "$parsed_url" ]]; then
