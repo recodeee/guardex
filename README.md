@@ -287,6 +287,23 @@ If you enabled global OpenSpec install during setup (`@fission-ai/openspec`), us
 
 - [`docs/openspec-getting-started.md`](./docs/openspec-getting-started.md)
 
+Default core flow:
+
+```text
+/opsx:propose <change-name> -> /opsx:apply -> /opsx:archive
+```
+
+Optional expanded flow:
+
+```sh
+openspec config profile <profile-name>
+openspec update
+```
+
+```text
+/opsx:new <change-name> -> /opsx:ff or /opsx:continue -> /opsx:apply -> /opsx:verify -> /opsx:archive
+```
+
 ### OpenSpec in agent sub-branches
 
 - `scripts/codex-agent.sh` enforces an OpenSpec workspace before it launches Codex in each sandbox branch/worktree.

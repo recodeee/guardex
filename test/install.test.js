@@ -250,6 +250,8 @@ test('setup provisions workflow files and repo config', () => {
 
   let result = runNode(['setup', '--target', repoDir], repoDir);
   assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /OpenSpec core workflow: \/opsx:propose -> \/opsx:apply -> \/opsx:archive/);
+  assert.match(result.stdout, /OpenSpec guide: docs\/openspec-getting-started\.md/);
 
   const requiredFiles = [
     '.omx',
@@ -2873,6 +2875,9 @@ test('copy-prompt outputs AI setup instructions', () => {
   assert.match(result.stdout, /gx setup/);
   assert.match(result.stdout, /gx init/);
   assert.match(result.stdout, /Codex or Claude/);
+  assert.match(result.stdout, /OpenSpec default change flow \(core profile\)/);
+  assert.match(result.stdout, /\/opsx:propose <change-name>/);
+  assert.match(result.stdout, /openspec config profile <profile-name>/);
   assert.match(result.stdout, /scripts\/agent-file-locks.py claim/);
   assert.match(result.stdout, /For every new user message\/task, repeat the same cycle/);
 });
@@ -2886,6 +2891,8 @@ test('copy-commands outputs command-only checklist', () => {
   assert.match(result.stdout, /gx setup/);
   assert.match(result.stdout, /gx doctor/);
   assert.match(result.stdout, /scripts\/agent-file-locks.py claim/);
+  assert.match(result.stdout, /^openspec config profile <profile-name>$/m);
+  assert.match(result.stdout, /^openspec update$/m);
   assert.match(result.stdout, /gx sync --check/);
   assert.doesNotMatch(result.stdout, /Use this exact checklist/);
 });
