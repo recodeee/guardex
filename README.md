@@ -124,11 +124,20 @@ gx sync
 # continuously monitor open PRs targeting current branch and dispatch codex-agent review/merge tasks
 gx review --interval 30
 
+# start both background bots for this repo (review + cleanup)
+gx agents start
+
+# stop both background bots for this repo
+gx agents stop
+
 # auto-commit finished agent branches and open/merge PR flow in one pass
 gx finish --all
 
 # cleanup merged agent branches and hide clean stale agent worktrees
 gx cleanup
+
+# run continuous stale-branch cleanup bot (default idle threshold: 10 minutes)
+gx cleanup --watch --interval 60
 
 # scan/report
 gx scan
@@ -151,6 +160,37 @@ Useful flags:
 - `--retry-failed` retry failed PRs without waiting for a new head SHA
 
 Note: the monitor dispatches Codex through explicit `--task/--agent/--base` flags for compatibility with both older and newer `scripts/codex-agent.sh` argument parsing.
+
+### Continuous stale branch cleanup bot
+
+Use this to auto-prune idle `agent/*` worktrees created by Codex while keeping active worktrees untouched.
+
+```sh
+# watch cleanup loop every minute (default idle threshold is 10 minutes when --watch is enabled)
+gx cleanup --watch --interval 60
+
+# one-shot cleanup for branches idle at least 10 minutes
+gx cleanup --idle-minutes 10
+
+# run a single watch cycle (helpful for cron/CI checks)
+gx cleanup --watch --once --interval 60
+```
+
+### Repo Agent Supervisor (start both bots with one command)
+
+```sh
+# starts review bot + cleanup bot in background for the current repo
+gx agents start
+
+# optional tuning
+gx agents start --review-interval 30 --cleanup-interval 60 --idle-minutes 10
+
+# show whether both bots are running for this repo
+gx agents status
+
+# stop both bots and clear repo-local state
+gx agents stop
+```
 
 ## Important behavior defaults
 

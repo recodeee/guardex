@@ -9,6 +9,10 @@ DELETE_BRANCHES=0
 DELETE_REMOTE_BRANCHES=0
 ONLY_DIRTY_WORKTREES=0
 TARGET_BRANCH=""
+IDLE_MINUTES=0
+NOW_EPOCH_RAW="${MUSAFETY_PRUNE_NOW_EPOCH:-}"
+IDLE_SECONDS=0
+NOW_EPOCH=0
 
 if [[ -n "$BASE_BRANCH" ]]; then
   BASE_BRANCH_EXPLICIT=1
@@ -45,9 +49,13 @@ while [[ $# -gt 0 ]]; do
       TARGET_BRANCH="${2:-}"
       shift 2
       ;;
+    --idle-minutes)
+      IDLE_MINUTES="${2:-}"
+      shift 2
+      ;;
     *)
       echo "[agent-worktree-prune] Unknown argument: $1" >&2
-      echo "Usage: $0 [--base <branch>] [--dry-run] [--force-dirty] [--delete-branches] [--delete-remote-branches] [--only-dirty-worktrees] [--branch <agent/...>]" >&2
+      echo "Usage: $0 [--base <branch>] [--dry-run] [--force-dirty] [--delete-branches] [--delete-remote-branches] [--only-dirty-worktrees] [--branch <agent/...>] [--idle-minutes <minutes>]" >&2
       exit 1
       ;;
   esac
@@ -103,6 +111,16 @@ if [[ -n "$TARGET_BRANCH" && "$TARGET_BRANCH" != agent/* ]]; then
   exit 1
 fi
 
+if [[ ! "$IDLE_MINUTES" =~ ^[0-9]+$ ]]; then
+  echo "[agent-worktree-prune] --idle-minutes must be an integer >= 0." >&2
+  exit 1
+fi
+
+if [[ -n "$NOW_EPOCH_RAW" && ! "$NOW_EPOCH_RAW" =~ ^[0-9]+$ ]]; then
+  echo "[agent-worktree-prune] MUSAFETY_PRUNE_NOW_EPOCH must be a unix timestamp integer." >&2
+  exit 1
+fi
+
 if [[ "$BASE_BRANCH_EXPLICIT" -eq 0 ]]; then
   BASE_BRANCH="$(resolve_base_branch)"
 fi
@@ -115,6 +133,13 @@ fi
 if ! git -C "$repo_root" show-ref --verify --quiet "refs/heads/${BASE_BRANCH}"; then
   echo "[agent-worktree-prune] Base branch not found: ${BASE_BRANCH}" >&2
   exit 1
+fi
+
+IDLE_SECONDS=$((IDLE_MINUTES * 60))
+if [[ -n "$NOW_EPOCH_RAW" ]]; then
+  NOW_EPOCH="$NOW_EPOCH_RAW"
+else
+  NOW_EPOCH="$(date +%s)"
 fi
 
 run_cmd() {
@@ -165,6 +190,71 @@ select_unique_worktree_path() {
     suffix=$((suffix + 1))
   done
   printf '%s' "$candidate"
+}
+
+read_branch_activity_epoch() {
+  local branch="$1"
+  local wt="${2:-}"
+  local activity_epoch=""
+
+  activity_epoch="$(
+    git -C "$repo_root" reflog show --format='%ct' -n 1 "refs/heads/${branch}" 2>/dev/null \
+      | head -n 1 \
+      | tr -d '[:space:]'
+  )"
+  if [[ -z "$activity_epoch" ]]; then
+    activity_epoch="$(
+      git -C "$repo_root" log -1 --format='%ct' "$branch" 2>/dev/null \
+        | head -n 1 \
+        | tr -d '[:space:]'
+    )"
+  fi
+
+  if [[ -n "$wt" && -d "$wt" ]]; then
+    local lock_file="${wt}/.omx/state/agent-file-locks.json"
+    if [[ -f "$lock_file" ]]; then
+      local lock_mtime=""
+      lock_mtime="$(stat -c %Y "$lock_file" 2>/dev/null || stat -f %m "$lock_file" 2>/dev/null || true)"
+      if [[ "$lock_mtime" =~ ^[0-9]+$ ]]; then
+        if [[ -z "$activity_epoch" || "$lock_mtime" -gt "$activity_epoch" ]]; then
+          activity_epoch="$lock_mtime"
+        fi
+      fi
+    fi
+  fi
+
+  printf '%s' "$activity_epoch"
+}
+
+skipped_recent=0
+
+branch_idle_gate() {
+  local branch="$1"
+  local wt="$2"
+  local reason="$3"
+  if [[ "$IDLE_SECONDS" -le 0 ]]; then
+    return 0
+  fi
+  if [[ -z "$branch" ]]; then
+    return 0
+  fi
+
+  local last_activity_epoch=""
+  last_activity_epoch="$(read_branch_activity_epoch "$branch" "$wt")"
+  if [[ ! "$last_activity_epoch" =~ ^[0-9]+$ ]]; then
+    return 0
+  fi
+
+  local idle_age=$((NOW_EPOCH - last_activity_epoch))
+  if [[ "$idle_age" -lt 0 ]]; then
+    idle_age=0
+  fi
+  if [[ "$idle_age" -lt "$IDLE_SECONDS" ]]; then
+    skipped_recent=$((skipped_recent + 1))
+    echo "[agent-worktree-prune] Skipping recent branch (${reason}): ${branch} (idle=${idle_age}s < ${IDLE_SECONDS}s)"
+    return 1
+  fi
+  return 0
 }
 
 relocated_foreign=0
@@ -273,6 +363,10 @@ process_entry() {
     return
   fi
 
+  if ! branch_idle_gate "$branch" "$wt" "$remove_reason"; then
+    return
+  fi
+
   if [[ "$FORCE_DIRTY" -ne 1 ]] && ! is_clean_worktree "$wt"; then
     skipped_dirty=$((skipped_dirty + 1))
     echo "[agent-worktree-prune] Skipping dirty worktree (${remove_reason}): ${wt}"
@@ -339,6 +433,9 @@ if [[ "$DELETE_BRANCHES" -eq 1 ]]; then
     if branch_has_worktree "$branch"; then
       continue
     fi
+    if ! branch_idle_gate "$branch" "" "stale-merged-branch"; then
+      continue
+    fi
     if git -C "$repo_root" merge-base --is-ancestor "$branch" "$BASE_BRANCH"; then
       if run_cmd git -C "$repo_root" branch -d "$branch" >/dev/null 2>&1; then
         removed_branches=$((removed_branches + 1))
@@ -356,7 +453,7 @@ fi
 
 run_cmd git -C "$repo_root" worktree prune
 
-echo "[agent-worktree-prune] Summary: base=${BASE_BRANCH}, removed_worktrees=${removed_worktrees}, removed_branches=${removed_branches}, skipped_active=${skipped_active}, skipped_dirty=${skipped_dirty}"
+echo "[agent-worktree-prune] Summary: base=${BASE_BRANCH}, idle_minutes=${IDLE_MINUTES}, removed_worktrees=${removed_worktrees}, removed_branches=${removed_branches}, skipped_active=${skipped_active}, skipped_dirty=${skipped_dirty}, skipped_recent=${skipped_recent}"
 if [[ "$relocated_foreign" -gt 0 || "$skipped_foreign" -gt 0 ]]; then
   echo "[agent-worktree-prune] Foreign routing: relocated=${relocated_foreign}, skipped=${skipped_foreign}"
 fi
@@ -365,4 +462,7 @@ if [[ "$skipped_active" -gt 0 ]]; then
 fi
 if [[ "$skipped_dirty" -gt 0 ]]; then
   echo "[agent-worktree-prune] Tip: dirty worktrees were preserved. Clean/finish them first, or pass --force-dirty to remove anyway." >&2
+fi
+if [[ "$IDLE_SECONDS" -gt 0 && "$skipped_recent" -gt 0 ]]; then
+  echo "[agent-worktree-prune] Tip: recent branches were preserved by --idle-minutes=${IDLE_MINUTES}. Re-run later or lower the threshold." >&2
 fi

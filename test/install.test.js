@@ -194,6 +194,29 @@ function extractOpenSpecPlanSlug(output) {
   return match[1].trim();
 }
 
+function isPidAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) {
+    return false;
+  }
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (_error) {
+    return false;
+  }
+}
+
+function waitForPidExit(pid, timeoutMs = 3_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!isPidAlive(pid)) {
+      return true;
+    }
+    cp.spawnSync('sleep', ['0.1'], { encoding: 'utf8' });
+  }
+  return !isPidAlive(pid);
+}
+
 function sanitizeSlug(value, fallback = 'task') {
   const slug = String(value || '')
     .toLowerCase()
@@ -1181,7 +1204,7 @@ test('default invocation runs non-mutating status output', () => {
     result.stdout,
     /AGENT BOT\n\s+review\s+Start PR monitor \+ codex-agent review flow \(default interval: 30s\)/,
   );
-  assert.doesNotMatch(result.stdout, /AGENT BOT[\s\S]*\n\s+start\s+/);
+  assert.match(result.stdout, /AGENT BOT[\s\S]*\n\s+agents\s+Start\/stop both review and cleanup bots for this repo/);
   assert.equal(fs.existsSync(path.join(repoDir, '.githooks', 'pre-commit')), false);
 });
 
@@ -1217,6 +1240,68 @@ test('review command explains setup + doctor steps when script is missing in tar
     result.stderr,
     new RegExp(`Run 'gx setup --target ${escapeRegexLiteral(repoDir)}' then 'gx doctor --target ${escapeRegexLiteral(repoDir)}'`),
   );
+});
+
+test('agents command starts review+cleanup bots for the target repo and stops them', () => {
+  const repoDir = initRepo();
+  seedCommit(repoDir);
+  const scriptsDir = path.join(repoDir, 'scripts');
+  fs.mkdirSync(scriptsDir, { recursive: true });
+
+  const reviewScriptPath = path.join(scriptsDir, 'review-bot-watch.sh');
+  fs.writeFileSync(
+    reviewScriptPath,
+    '#!/usr/bin/env bash\n' +
+      'set -euo pipefail\n' +
+      'while true; do sleep 60; done\n',
+    'utf8',
+  );
+  fs.chmodSync(reviewScriptPath, 0o755);
+
+  const pruneScriptPath = path.join(scriptsDir, 'agent-worktree-prune.sh');
+  fs.writeFileSync(
+    pruneScriptPath,
+    '#!/usr/bin/env bash\n' +
+      'set -euo pipefail\n' +
+      'exit 0\n',
+    'utf8',
+  );
+  fs.chmodSync(pruneScriptPath, 0o755);
+
+  let result = runNode(
+    [
+      'agents',
+      'start',
+      '--target',
+      repoDir,
+      '--review-interval',
+      '31',
+      '--cleanup-interval',
+      '47',
+      '--idle-minutes',
+      '12',
+    ],
+    repoDir,
+  );
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /Started repo agents/);
+
+  const statePath = path.join(repoDir, '.omx', 'state', 'agents-bots.json');
+  assert.equal(fs.existsSync(statePath), true, 'agents start should create state file');
+  const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+  assert.equal(state.repoRoot, repoDir);
+  assert.equal(state.review.intervalSeconds, 31);
+  assert.equal(state.cleanup.intervalSeconds, 47);
+  assert.equal(state.cleanup.idleMinutes, 12);
+  assert.equal(isPidAlive(state.review.pid), true, 'review bot pid should be alive after start');
+  assert.equal(isPidAlive(state.cleanup.pid), true, 'cleanup bot pid should be alive after start');
+
+  result = runNode(['agents', 'stop', '--target', repoDir], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /Stopped repo agents/);
+  assert.equal(waitForPidExit(state.review.pid), true, 'review bot pid should exit after stop');
+  assert.equal(waitForPidExit(state.cleanup.pid), true, 'cleanup bot pid should exit after stop');
+  assert.equal(fs.existsSync(statePath), false, 'agents stop should remove state file');
 });
 
 test('finish command auto-commits dirty agent worktree and runs PR finish flow for the branch', () => {
@@ -3013,6 +3098,39 @@ test('worktree prune reroutes foreign worktrees to the owning repo .omx root', (
   assert.match(commonDirResult.stdout.trim(), new RegExp(`${escapeRegexLiteral(foreignRepoDir)}/\\.git$`));
 });
 
+test('worktree prune --idle-minutes preserves recent branch activity and prunes stale idle branches', () => {
+  const repoDir = initRepo();
+  let result = runNode(['setup', '--target', repoDir, '--no-global-install'], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  seedCommit(repoDir);
+
+  const worktreePath = path.join(repoDir, '.omx', 'agent-worktrees', 'agent__idle-threshold');
+  result = runCmd('git', ['worktree', 'add', '-b', 'agent/test-idle-threshold', worktreePath, 'dev'], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+
+  fs.writeFileSync(path.join(worktreePath, 'idle-threshold.txt'), 'idle threshold branch commit\n', 'utf8');
+  result = runCmd('git', ['-C', worktreePath, 'add', 'idle-threshold.txt'], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  result = runCmd('git', ['-C', worktreePath, 'commit', '-m', 'idle threshold branch commit'], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+
+  result = runCmd('bash', ['scripts/agent-worktree-prune.sh', '--only-dirty-worktrees', '--idle-minutes', '10'], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(fs.existsSync(worktreePath), true, 'recent branch should remain inside idle threshold');
+
+  const fakeNowEpoch = Math.floor(Date.now() / 1000) + 3600;
+  result = runCmd(
+    'bash',
+    ['scripts/agent-worktree-prune.sh', '--only-dirty-worktrees', '--idle-minutes', '10'],
+    repoDir,
+    {
+      MUSAFETY_PRUNE_NOW_EPOCH: String(fakeNowEpoch),
+    },
+  );
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(fs.existsSync(worktreePath), false, 'idle branch should be pruned after threshold is exceeded');
+});
+
 test('cleanup command removes merged agent branch/worktree and remote ref', () => {
   const repoDir = initRepo();
   seedCommit(repoDir);
@@ -3068,6 +3186,29 @@ test('cleanup command keeps unmerged agent branch refs but removes clean agent w
 
   const localBranch = runCmd('git', ['show-ref', '--verify', '--quiet', 'refs/heads/agent/test-cleanup-keep-branch'], repoDir);
   assert.equal(localBranch.status, 0, 'cleanup should keep unmerged local branch');
+});
+
+test('cleanup command watch mode defaults to 10-minute idle threshold and supports one-cycle execution', () => {
+  const repoDir = initRepo();
+  const scriptsDir = path.join(repoDir, 'scripts');
+  fs.mkdirSync(scriptsDir, { recursive: true });
+
+  const pruneScriptPath = path.join(scriptsDir, 'agent-worktree-prune.sh');
+  const markerArgs = path.join(repoDir, '.cleanup-watch-args');
+  fs.writeFileSync(
+    pruneScriptPath,
+    '#!/usr/bin/env bash\n' +
+      'set -euo pipefail\n' +
+      `printf '%s\\n' \"$*\" > \"${markerArgs}\"\n`,
+    'utf8',
+  );
+  fs.chmodSync(pruneScriptPath, 0o755);
+
+  const result = runNode(['cleanup', '--target', repoDir, '--watch', '--once', '--interval', '15'], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const passedArgs = fs.readFileSync(markerArgs, 'utf8').trim();
+  assert.match(passedArgs, /--idle-minutes 10/);
+  assert.match(passedArgs, /--only-dirty-worktrees/);
 });
 
 test('release fails outside the maintainer repo path', () => {

@@ -78,6 +78,7 @@ const CRITICAL_GUARDRAIL_PATHS = new Set([
 ]);
 
 const LOCK_FILE_RELATIVE = '.omx/state/agent-file-locks.json';
+const AGENTS_BOTS_STATE_RELATIVE = '.omx/state/agents-bots.json';
 const AGENTS_MARKER_START = '<!-- multiagent-safety:START -->';
 const AGENTS_MARKER_END = '<!-- multiagent-safety:END -->';
 const GITIGNORE_MARKER_START = '# multiagent-safety:START';
@@ -128,6 +129,7 @@ const SUGGESTIBLE_COMMANDS = [
   'init',
   'doctor',
   'review',
+  'agents',
   'finish',
   'report',
   'copy-prompt',
@@ -154,7 +156,8 @@ const CLI_COMMAND_DESCRIPTIONS = [
   ['copy-commands', 'Print setup checklist as executable commands only'],
   ['protect', 'Manage protected branches (list/add/remove/set/reset)'],
   ['sync', 'Check or sync agent branches with origin/<base>'],
-  ['cleanup', 'Cleanup merged agent branches/worktrees (local + remote)'],
+  ['cleanup', 'Cleanup agent branches/worktrees (supports idle watch mode)'],
+  ['agents', 'Start/stop repo-scoped review + cleanup bots'],
   ['install', 'Install templates/locks/hooks without running full setup (supports --no-gitignore)'],
   ['fix', 'Repair broken or missing guardrail files/config (supports --no-gitignore)'],
   ['scan', 'Report safety issues and exit non-zero on findings'],
@@ -165,6 +168,7 @@ const CLI_COMMAND_DESCRIPTIONS = [
 ];
 const AGENT_BOT_DESCRIPTIONS = [
   ['review', 'Start PR monitor + codex-agent review flow (default interval: 30s)'],
+  ['agents', 'Start/stop both review and cleanup bots for this repo'],
 ];
 
 const AI_SETUP_PROMPT = `Use this exact checklist to setup GuardeX (Guardian T-Rex for your repo) in this repository for Codex or Claude.
@@ -1567,6 +1571,69 @@ function parseReviewArgs(rawArgs) {
   };
 }
 
+function parseAgentsArgs(rawArgs) {
+  const parsed = parseTargetFlag(rawArgs, process.cwd());
+  const [subcommandRaw = '', ...rest] = parsed.args;
+  const subcommand = subcommandRaw || 'status';
+  const options = {
+    target: parsed.target,
+    subcommand,
+    reviewIntervalSeconds: 30,
+    cleanupIntervalSeconds: 60,
+    idleMinutes: 10,
+  };
+
+  for (let index = 0; index < rest.length; index += 1) {
+    const arg = rest[index];
+    if (arg === '--review-interval') {
+      const next = rest[index + 1];
+      if (!next) {
+        throw new Error('--review-interval requires an integer seconds value');
+      }
+      const parsedValue = Number.parseInt(next, 10);
+      if (!Number.isInteger(parsedValue) || parsedValue < 5) {
+        throw new Error('--review-interval must be an integer >= 5 seconds');
+      }
+      options.reviewIntervalSeconds = parsedValue;
+      index += 1;
+      continue;
+    }
+    if (arg === '--cleanup-interval') {
+      const next = rest[index + 1];
+      if (!next) {
+        throw new Error('--cleanup-interval requires an integer seconds value');
+      }
+      const parsedValue = Number.parseInt(next, 10);
+      if (!Number.isInteger(parsedValue) || parsedValue < 5) {
+        throw new Error('--cleanup-interval must be an integer >= 5 seconds');
+      }
+      options.cleanupIntervalSeconds = parsedValue;
+      index += 1;
+      continue;
+    }
+    if (arg === '--idle-minutes') {
+      const next = rest[index + 1];
+      if (!next) {
+        throw new Error('--idle-minutes requires an integer minutes value');
+      }
+      const parsedValue = Number.parseInt(next, 10);
+      if (!Number.isInteger(parsedValue) || parsedValue < 1) {
+        throw new Error('--idle-minutes must be an integer >= 1');
+      }
+      options.idleMinutes = parsedValue;
+      index += 1;
+      continue;
+    }
+    throw new Error(`Unknown option: ${arg}`);
+  }
+
+  if (!['start', 'stop', 'status'].includes(options.subcommand)) {
+    throw new Error(`Unknown agents subcommand: ${options.subcommand}`);
+  }
+
+  return options;
+}
+
 function parseReportArgs(rawArgs) {
   const options = {
     target: process.cwd(),
@@ -2276,6 +2343,10 @@ function parseCleanupArgs(rawArgs) {
     forceDirty: false,
     keepRemote: false,
     keepCleanWorktrees: false,
+    idleMinutes: 0,
+    watch: false,
+    intervalSeconds: 60,
+    once: false,
   };
 
   for (let index = 0; index < rawArgs.length; index += 1) {
@@ -2323,7 +2394,45 @@ function parseCleanupArgs(rawArgs) {
       options.keepCleanWorktrees = true;
       continue;
     }
+    if (arg === '--idle-minutes') {
+      const next = rawArgs[index + 1];
+      if (!next) {
+        throw new Error('--idle-minutes requires an integer value');
+      }
+      const parsed = Number.parseInt(next, 10);
+      if (!Number.isInteger(parsed) || parsed < 0) {
+        throw new Error('--idle-minutes must be an integer >= 0');
+      }
+      options.idleMinutes = parsed;
+      index += 1;
+      continue;
+    }
+    if (arg === '--watch') {
+      options.watch = true;
+      continue;
+    }
+    if (arg === '--interval') {
+      const next = rawArgs[index + 1];
+      if (!next) {
+        throw new Error('--interval requires an integer seconds value');
+      }
+      const parsed = Number.parseInt(next, 10);
+      if (!Number.isInteger(parsed) || parsed < 5) {
+        throw new Error('--interval must be an integer >= 5 seconds');
+      }
+      options.intervalSeconds = parsed;
+      index += 1;
+      continue;
+    }
+    if (arg === '--once') {
+      options.once = true;
+      continue;
+    }
     throw new Error(`Unknown option: ${arg}`);
+  }
+
+  if (options.watch && options.idleMinutes === 0) {
+    options.idleMinutes = 10;
   }
 
   return options;
@@ -3624,6 +3733,263 @@ function review(rawArgs) {
   process.exitCode = typeof result.status === 'number' ? result.status : 1;
 }
 
+function agentsStatePathForRepo(repoRoot) {
+  return path.join(repoRoot, AGENTS_BOTS_STATE_RELATIVE);
+}
+
+function readAgentsState(repoRoot) {
+  const statePath = agentsStatePathForRepo(repoRoot);
+  if (!fs.existsSync(statePath)) {
+    return null;
+  }
+  try {
+    return JSON.parse(fs.readFileSync(statePath, 'utf8'));
+  } catch (_error) {
+    return null;
+  }
+}
+
+function writeAgentsState(repoRoot, state) {
+  const statePath = agentsStatePathForRepo(repoRoot);
+  fs.mkdirSync(path.dirname(statePath), { recursive: true });
+  fs.writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+}
+
+function processAlive(pid) {
+  const normalizedPid = Number.parseInt(String(pid || ''), 10);
+  if (!Number.isInteger(normalizedPid) || normalizedPid <= 0) {
+    return false;
+  }
+  try {
+    process.kill(normalizedPid, 0);
+    return true;
+  } catch (_error) {
+    return false;
+  }
+}
+
+function sleepSeconds(seconds) {
+  const result = run('sleep', [String(seconds)]);
+  if (isSpawnFailure(result) || result.status !== 0) {
+    throw new Error(`sleep command failed for ${seconds}s`);
+  }
+}
+
+function readProcessCommand(pid) {
+  const result = run('ps', ['-o', 'command=', '-p', String(pid)]);
+  if (isSpawnFailure(result) || result.status !== 0) {
+    return '';
+  }
+  return String(result.stdout || '').trim();
+}
+
+function stopAgentProcessByPid(pid, expectedToken = '') {
+  const normalizedPid = Number.parseInt(String(pid || ''), 10);
+  if (!Number.isInteger(normalizedPid) || normalizedPid <= 0) {
+    return { status: 'invalid', pid: normalizedPid };
+  }
+  if (!processAlive(normalizedPid)) {
+    return { status: 'not-running', pid: normalizedPid };
+  }
+
+  if (expectedToken) {
+    const cmdline = readProcessCommand(normalizedPid);
+    if (cmdline && !cmdline.includes(expectedToken)) {
+      return { status: 'mismatch', pid: normalizedPid, command: cmdline };
+    }
+  }
+
+  try {
+    process.kill(-normalizedPid, 'SIGTERM');
+  } catch (_error) {
+    try {
+      process.kill(normalizedPid, 'SIGTERM');
+    } catch (_err) {
+      return { status: 'term-failed', pid: normalizedPid };
+    }
+  }
+
+  const deadline = Date.now() + 3_000;
+  while (Date.now() < deadline) {
+    if (!processAlive(normalizedPid)) {
+      return { status: 'stopped', pid: normalizedPid };
+    }
+    sleepSeconds(0.1);
+  }
+
+  try {
+    process.kill(-normalizedPid, 'SIGKILL');
+  } catch (_error) {
+    try {
+      process.kill(normalizedPid, 'SIGKILL');
+    } catch (_err) {
+      return { status: 'kill-failed', pid: normalizedPid };
+    }
+  }
+  sleepSeconds(0.1);
+
+  return {
+    status: processAlive(normalizedPid) ? 'kill-failed' : 'stopped',
+    pid: normalizedPid,
+  };
+}
+
+function spawnDetachedAgentProcess({ command, args, cwd, logPath }) {
+  fs.mkdirSync(path.dirname(logPath), { recursive: true });
+  const logHandle = fs.openSync(logPath, 'a');
+  fs.writeSync(
+    logHandle,
+    `[${new Date().toISOString()}] spawn: ${command} ${args.join(' ')}\n`,
+  );
+  const child = cp.spawn(command, args, {
+    cwd,
+    detached: true,
+    stdio: ['ignore', logHandle, logHandle],
+    env: process.env,
+  });
+  fs.closeSync(logHandle);
+  if (child.error) {
+    throw child.error;
+  }
+  child.unref();
+  const pid = Number.parseInt(String(child.pid || ''), 10);
+  if (!Number.isInteger(pid) || pid <= 0) {
+    throw new Error(`Failed to spawn detached process for ${command}`);
+  }
+  return pid;
+}
+
+function agents(rawArgs) {
+  const options = parseAgentsArgs(rawArgs);
+  const repoRoot = resolveRepoRoot(options.target);
+  const reviewScriptPath = path.join(repoRoot, 'scripts', 'review-bot-watch.sh');
+  const pruneScriptPath = path.join(repoRoot, 'scripts', 'agent-worktree-prune.sh');
+  const statePath = agentsStatePathForRepo(repoRoot);
+
+  if (options.subcommand === 'start') {
+    if (!fs.existsSync(reviewScriptPath)) {
+      throw new Error(
+        `Missing review bot script: ${reviewScriptPath}\n` +
+          `Run '${SHORT_TOOL_NAME} setup --target ${repoRoot}' then '${SHORT_TOOL_NAME} doctor --target ${repoRoot}'.`,
+      );
+    }
+    if (!fs.existsSync(pruneScriptPath)) {
+      throw new Error(
+        `Missing cleanup script: ${pruneScriptPath}\n` +
+          `Run '${SHORT_TOOL_NAME} setup --target ${repoRoot}' then '${SHORT_TOOL_NAME} doctor --target ${repoRoot}'.`,
+      );
+    }
+
+    const existingState = readAgentsState(repoRoot);
+    const existingReviewPid = Number.parseInt(String(existingState?.review?.pid || ''), 10);
+    const existingCleanupPid = Number.parseInt(String(existingState?.cleanup?.pid || ''), 10);
+    const reviewRunning = processAlive(existingReviewPid);
+    const cleanupRunning = processAlive(existingCleanupPid);
+
+    if (reviewRunning && cleanupRunning) {
+      console.log(
+        `[${TOOL_NAME}] Repo agents already running (review pid=${existingReviewPid}, cleanup pid=${existingCleanupPid}).`,
+      );
+      process.exitCode = 0;
+      return;
+    }
+
+    if (reviewRunning) {
+      stopAgentProcessByPid(existingReviewPid, 'review-bot-watch.sh');
+    }
+    if (cleanupRunning) {
+      stopAgentProcessByPid(existingCleanupPid, `${path.basename(__filename)} cleanup`);
+    }
+
+    const reviewLogPath = path.join(repoRoot, '.omx', 'logs', 'agent-review.log');
+    const cleanupLogPath = path.join(repoRoot, '.omx', 'logs', 'agent-cleanup.log');
+    const reviewPid = spawnDetachedAgentProcess({
+      command: 'bash',
+      args: [reviewScriptPath, '--interval', String(options.reviewIntervalSeconds)],
+      cwd: repoRoot,
+      logPath: reviewLogPath,
+    });
+    const cleanupPid = spawnDetachedAgentProcess({
+      command: process.execPath,
+      args: [
+        path.resolve(__filename),
+        'cleanup',
+        '--target',
+        repoRoot,
+        '--watch',
+        '--interval',
+        String(options.cleanupIntervalSeconds),
+        '--idle-minutes',
+        String(options.idleMinutes),
+      ],
+      cwd: repoRoot,
+      logPath: cleanupLogPath,
+    });
+
+    writeAgentsState(repoRoot, {
+      schemaVersion: 1,
+      repoRoot,
+      startedAt: new Date().toISOString(),
+      review: {
+        pid: reviewPid,
+        intervalSeconds: options.reviewIntervalSeconds,
+        script: reviewScriptPath,
+        logPath: reviewLogPath,
+      },
+      cleanup: {
+        pid: cleanupPid,
+        intervalSeconds: options.cleanupIntervalSeconds,
+        idleMinutes: options.idleMinutes,
+        script: path.resolve(__filename),
+        logPath: cleanupLogPath,
+      },
+    });
+
+    console.log(
+      `[${TOOL_NAME}] Started repo agents in ${repoRoot} (review pid=${reviewPid}, cleanup pid=${cleanupPid}).`,
+    );
+    console.log(`[${TOOL_NAME}] Logs: ${reviewLogPath}, ${cleanupLogPath}`);
+    process.exitCode = 0;
+    return;
+  }
+
+  if (options.subcommand === 'stop') {
+    const existingState = readAgentsState(repoRoot);
+    if (!existingState) {
+      console.log(`[${TOOL_NAME}] Repo agents are not running for ${repoRoot}.`);
+      process.exitCode = 0;
+      return;
+    }
+
+    const reviewStop = stopAgentProcessByPid(existingState?.review?.pid, 'review-bot-watch.sh');
+    const cleanupStop = stopAgentProcessByPid(existingState?.cleanup?.pid, `${path.basename(__filename)} cleanup`);
+
+    if (fs.existsSync(statePath)) {
+      fs.unlinkSync(statePath);
+    }
+
+    console.log(
+      `[${TOOL_NAME}] Stopped repo agents in ${repoRoot} (review=${reviewStop.status}, cleanup=${cleanupStop.status}).`,
+    );
+    process.exitCode = 0;
+    return;
+  }
+
+  const existingState = readAgentsState(repoRoot);
+  if (!existingState) {
+    console.log(`[${TOOL_NAME}] Repo agents status: inactive (${repoRoot})`);
+    process.exitCode = 0;
+    return;
+  }
+
+  const reviewPid = Number.parseInt(String(existingState?.review?.pid || ''), 10);
+  const cleanupPid = Number.parseInt(String(existingState?.cleanup?.pid || ''), 10);
+  console.log(
+    `[${TOOL_NAME}] Repo agents status: review=${processAlive(reviewPid) ? 'running' : 'stopped'}(pid=${reviewPid || 0}), cleanup=${processAlive(cleanupPid) ? 'running' : 'stopped'}(pid=${cleanupPid || 0})`,
+  );
+  process.exitCode = 0;
+}
+
 function report(rawArgs) {
   const options = parseReportArgs(rawArgs);
   const subcommand = options.subcommand || 'help';
@@ -3895,15 +4261,42 @@ function cleanup(rawArgs) {
   if (!options.keepCleanWorktrees) {
     args.push('--only-dirty-worktrees');
   }
+  if (options.idleMinutes > 0) {
+    args.push('--idle-minutes', String(options.idleMinutes));
+  }
   args.push('--delete-branches');
   if (!options.keepRemote) {
     args.push('--delete-remote-branches');
   }
 
-  const runResult = run('bash', args, { cwd: repoRoot, stdio: 'inherit' });
-  if (runResult.status !== 0) {
-    throw new Error('Cleanup command failed');
+  const runCleanupCycle = () => {
+    const runResult = run('bash', args, { cwd: repoRoot, stdio: 'inherit' });
+    if (runResult.status !== 0) {
+      throw new Error('Cleanup command failed');
+    }
+  };
+
+  if (options.watch) {
+    let cycle = 0;
+    while (true) {
+      cycle += 1;
+      console.log(
+        `[${TOOL_NAME}] Cleanup watch cycle=${cycle} (interval=${options.intervalSeconds}s, idleMinutes=${options.idleMinutes}).`,
+      );
+      runCleanupCycle();
+      if (options.once) {
+        break;
+      }
+      const sleepResult = run('sleep', [String(options.intervalSeconds)], { cwd: repoRoot });
+      if (sleepResult.status !== 0) {
+        throw new Error(`Cleanup watch sleep failed (interval=${options.intervalSeconds}s)`);
+      }
+    }
+    process.exitCode = 0;
+    return;
   }
+
+  runCleanupCycle();
   process.exitCode = 0;
 }
 
@@ -4355,6 +4748,11 @@ function main() {
 
   if (command === 'review') {
     review(rest);
+    return;
+  }
+
+  if (command === 'agents') {
+    agents(rest);
     return;
   }
 
