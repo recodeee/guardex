@@ -207,17 +207,28 @@ const AI_SETUP_PROMPT = `Use this exact checklist to setup GuardeX (Guardian T-R
    - To finalize all completed agent branches in one pass:
      gx finish --all
 
-6) Optional: create OpenSpec planning workspace:
+6) OpenSpec default change flow (core profile):
+   /opsx:propose <change-name>
+   /opsx:apply
+   /opsx:archive
+   - Full guide: docs/openspec-getting-started.md
+
+7) Optional: enable expanded OpenSpec workflow commands:
+   openspec config profile <profile-name>
+   openspec update
+   - Expanded path: /opsx:new -> /opsx:ff or /opsx:continue -> /opsx:apply -> /opsx:verify -> /opsx:archive
+
+8) Optional: create OpenSpec planning workspace:
    bash scripts/openspec/init-plan-workspace.sh "<plan-slug>"
 
-7) Optional: protect extra branches:
+9) Optional: protect extra branches:
    gx protect add release staging
 
-8) Optional: sync your current agent branch with latest base branch:
+10) Optional: sync your current agent branch with latest base branch:
    gx sync --check
    gx sync
 
-9) Optional (GitHub remote cleanup): enable:
+11) Optional (GitHub remote cleanup): enable:
    Settings -> General -> Pull Requests -> Automatically delete head branches
 `;
 
@@ -233,6 +244,8 @@ bash scripts/agent-branch-finish.sh --branch "$(git rev-parse --abbrev-ref HEAD)
 gx finish --all
 gx cleanup --branch "$(git rev-parse --abbrev-ref HEAD)"
 bash scripts/openspec/init-plan-workspace.sh "<plan-slug>"
+openspec config profile <profile-name>
+openspec update
 gx protect add release staging
 gx sync --check
 gx sync
@@ -4168,6 +4181,13 @@ function setup(rawArgs) {
   if (scanResult.errors === 0 && scanResult.warnings === 0) {
     console.log(`[${TOOL_NAME}] ✅ Setup complete.`);
     console.log(`[${TOOL_NAME}] Copy AI setup prompt with: ${SHORT_TOOL_NAME} copy-prompt`);
+    console.log(
+      `[${TOOL_NAME}] OpenSpec core workflow: /opsx:propose -> /opsx:apply -> /opsx:archive`,
+    );
+    console.log(
+      `[${TOOL_NAME}] Optional expanded OpenSpec profile: openspec config profile <profile-name> && openspec update`,
+    );
+    console.log(`[${TOOL_NAME}] OpenSpec guide: docs/openspec-getting-started.md`);
   }
 
   setExitCodeFromScan(scanResult);
