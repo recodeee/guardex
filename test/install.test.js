@@ -937,6 +937,59 @@ test('setup agent-branch-start defaults base to current branch and stores per-br
   assert.equal(storedBase.stdout.trim(), 'main');
 });
 
+test('agent-branch-start prefers current protected branch over stale configured base and auto-transfers local changes', () => {
+  const repoDir = initRepoOnBranch('main');
+  seedCommit(repoDir);
+  attachOriginRemoteForBranch(repoDir, 'main');
+
+  let result = runNode(['setup', '--target', repoDir, '--no-global-install'], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+
+  result = runCmd('git', ['add', '.'], repoDir);
+  assert.equal(result.status, 0, result.stderr);
+  result = runCmd('git', ['commit', '-m', 'apply gx setup'], repoDir, {
+    ALLOW_COMMIT_ON_PROTECTED_BRANCH: '1',
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  result = runCmd('git', ['push', 'origin', 'main'], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+
+  result = runCmd('git', ['checkout', '-b', 'dev'], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  result = runCmd('git', ['config', 'multiagent.baseBranch', 'main'], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+
+  const packageJsonPath = path.join(repoDir, 'package.json');
+  const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+  packageJson.name = 'demo-prefer-dev';
+  fs.writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`, 'utf8');
+  fs.writeFileSync(path.join(repoDir, 'dev-untracked.txt'), 'dev untracked change\n', 'utf8');
+
+  result = runCmd('bash', ['scripts/agent-branch-start.sh', 'prefer-dev', 'bot'], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /Moved local changes from 'dev' into 'agent\/bot\//);
+
+  const agentWorktree = extractCreatedWorktree(result.stdout);
+  const storedBase = runCmd(
+    'git',
+    ['config', '--get', `branch.${extractCreatedBranch(result.stdout)}.musafetyBase`],
+    repoDir,
+  );
+  assert.equal(storedBase.status, 0, storedBase.stderr || storedBase.stdout);
+  assert.equal(storedBase.stdout.trim(), 'dev');
+
+  const rootStatus = runCmd('git', ['status', '--short'], repoDir);
+  assert.equal(rootStatus.status, 0, rootStatus.stderr || rootStatus.stdout);
+  assert.equal(rootStatus.stdout.trim(), '', 'current protected checkout should be clean after auto-transfer');
+
+  assert.match(fs.readFileSync(path.join(agentWorktree, 'package.json'), 'utf8'), /"name": "demo-prefer-dev"/);
+  assert.equal(fs.existsSync(path.join(agentWorktree, 'dev-untracked.txt')), true, 'untracked file should move');
+
+  const stashList = runCmd('git', ['stash', 'list'], repoDir);
+  assert.equal(stashList.status, 0, stashList.stderr || stashList.stdout);
+  assert.doesNotMatch(stashList.stdout, /musafety-auto-transfer-/);
+});
+
 test('agent-branch-start moves protected-branch local changes into the new agent worktree', () => {
   const repoDir = initRepoOnBranch('main');
   seedCommit(repoDir);
@@ -965,7 +1018,7 @@ test('agent-branch-start moves protected-branch local changes into the new agent
   const agentWorktree = extractCreatedWorktree(result.stdout);
   assert.match(result.stdout, /Moved local changes from 'main' into 'agent\/bot\//);
 
-  const rootStatus = runCmd('git', ['status', '--short', '--untracked-files=no'], repoDir);
+  const rootStatus = runCmd('git', ['status', '--short'], repoDir);
   assert.equal(rootStatus.status, 0, rootStatus.stderr || rootStatus.stdout);
   assert.equal(rootStatus.stdout.trim(), '', 'base branch checkout should be clean after auto-transfer');
 

@@ -114,17 +114,6 @@ has_local_changes() {
   return 1
 }
 
-has_tracked_changes() {
-  local root="$1"
-  if ! git -C "$root" diff --quiet; then
-    return 0
-  fi
-  if ! git -C "$root" diff --cached --quiet; then
-    return 0
-  fi
-  return 1
-}
-
 resolve_protected_branches() {
   local root="$1"
   local raw
@@ -190,12 +179,15 @@ if [[ "$BASE_BRANCH_EXPLICIT" -eq 1 && -z "$BASE_BRANCH" ]]; then
 fi
 
 if [[ "$BASE_BRANCH_EXPLICIT" -eq 0 ]]; then
-  configured_base="$(git -C "$repo_root" config --get multiagent.baseBranch || true)"
-  if [[ -n "$configured_base" ]]; then
-    BASE_BRANCH="$configured_base"
+  current_branch="$(git -C "$repo_root" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+  protected_branches_raw="$(resolve_protected_branches "$repo_root")"
+  if [[ -n "$current_branch" && "$current_branch" != "HEAD" ]] && is_protected_branch_name "$current_branch" "$protected_branches_raw"; then
+    BASE_BRANCH="$current_branch"
   else
-    current_branch="$(git -C "$repo_root" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
-    if [[ -n "$current_branch" && "$current_branch" != "HEAD" ]]; then
+    configured_base="$(git -C "$repo_root" config --get multiagent.baseBranch || true)"
+    if [[ -n "$configured_base" ]]; then
+      BASE_BRANCH="$configured_base"
+    elif [[ -n "$current_branch" && "$current_branch" != "HEAD" ]]; then
       BASE_BRANCH="$current_branch"
     else
       BASE_BRANCH="dev"
@@ -243,10 +235,11 @@ fi
 
 auto_transfer_stash_ref=""
 auto_transfer_message=""
+auto_transfer_source_branch=""
 current_branch="$(git -C "$repo_root" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
 protected_branches_raw="$(resolve_protected_branches "$repo_root")"
-if [[ "$current_branch" == "$BASE_BRANCH" ]] && is_protected_branch_name "$BASE_BRANCH" "$protected_branches_raw"; then
-  if has_tracked_changes "$repo_root"; then
+if [[ -n "$current_branch" && "$current_branch" != "HEAD" ]] && is_protected_branch_name "$current_branch" "$protected_branches_raw"; then
+  if has_local_changes "$repo_root"; then
     auto_transfer_message="musafety-auto-transfer-${timestamp}-${agent_slug}-${task_slug}"
     if git -C "$repo_root" stash push --include-untracked --message "$auto_transfer_message" >/dev/null 2>&1; then
       auto_transfer_stash_ref="$(
@@ -254,7 +247,8 @@ if [[ "$current_branch" == "$BASE_BRANCH" ]] && is_protected_branch_name "$BASE_
           | awk -v msg="$auto_transfer_message" '$0 ~ msg { ref=$1; sub(/:$/, "", ref); print ref; exit }'
       )"
       if [[ -n "$auto_transfer_stash_ref" ]]; then
-        echo "[agent-branch-start] Detected local changes on protected base '${BASE_BRANCH}'. Moving them to '${branch_name}'..."
+        auto_transfer_source_branch="$current_branch"
+        echo "[agent-branch-start] Detected local changes on protected branch '${current_branch}'. Moving them to '${branch_name}'..."
       fi
     fi
   fi
@@ -270,10 +264,12 @@ fi
 if [[ -n "$auto_transfer_stash_ref" ]]; then
   if git -C "$worktree_path" stash apply "$auto_transfer_stash_ref" >/dev/null 2>&1; then
     git -C "$repo_root" stash drop "$auto_transfer_stash_ref" >/dev/null 2>&1 || true
-    echo "[agent-branch-start] Moved local changes from '${BASE_BRANCH}' into '${branch_name}'."
+    transfer_label="${auto_transfer_source_branch:-$BASE_BRANCH}"
+    echo "[agent-branch-start] Moved local changes from '${transfer_label}' into '${branch_name}'."
   else
     echo "[agent-branch-start] Failed to auto-apply moved changes in new worktree." >&2
-    echo "[agent-branch-start] Changes are preserved in ${auto_transfer_stash_ref} on ${BASE_BRANCH}." >&2
+    transfer_label="${auto_transfer_source_branch:-$BASE_BRANCH}"
+    echo "[agent-branch-start] Changes are preserved in ${auto_transfer_stash_ref} on ${transfer_label}." >&2
     echo "[agent-branch-start] Apply manually with: git -C \"$worktree_path\" stash apply \"${auto_transfer_stash_ref}\"" >&2
     exit 1
   fi
