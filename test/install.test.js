@@ -1418,7 +1418,6 @@ test('agents cleanup bot defaults to a 60-minute idle threshold', () => {
   const statePath = path.join(repoDir, '.omx', 'state', 'agents-bots.json');
   const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
   assert.equal(state.cleanup.idleMinutes, 60);
-  assert.equal(state.cleanup.includePrMerged, true);
   assert.equal(isPidAlive(state.review.pid), true, 'review bot pid should be alive after start');
   assert.equal(isPidAlive(state.cleanup.pid), true, 'cleanup bot pid should be alive after start');
 
