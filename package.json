@@ -1,6 +1,6 @@
 {
   "name": "@imdeadpool/guardex",
-  "version": "5.0.11",
+  "version": "5.0.12",
   "description": "GuardeX: the Guardian T-Rex for your repo, with hardened multi-agent git guardrails.",
   "license": "MIT",
   "preferGlobal": true,
@@ -54,12 +54,12 @@
   "author": "recodeecom",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/recodeecom/multiagent-safety.git"
+    "url": "git+https://github.com/recodeee/guardex.git"
   },
   "bugs": {
-    "url": "https://github.com/recodeecom/multiagent-safety/issues"
+    "url": "https://github.com/recodeee/guardex/issues"
   },
-  "homepage": "https://github.com/recodeecom/multiagent-safety#readme",
+  "homepage": "https://github.com/recodeee/guardex#readme",
   "funding": "https://github.com/sponsors/recodeecom",
   "publishConfig": {
     "access": "public"

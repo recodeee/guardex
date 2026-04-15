@@ -14,9 +14,9 @@ function escapeRegexLiteral(value) {
 test('package manifest includes repository and support metadata', () => {
   const pkg = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
 
-  assert.equal(pkg.repository?.url, 'git+https://github.com/recodeecom/multiagent-safety.git');
-  assert.equal(pkg.bugs?.url, 'https://github.com/recodeecom/multiagent-safety/issues');
-  assert.equal(pkg.homepage, 'https://github.com/recodeecom/multiagent-safety#readme');
+  assert.equal(pkg.repository?.url, 'git+https://github.com/recodeee/guardex.git');
+  assert.equal(pkg.bugs?.url, 'https://github.com/recodeee/guardex/issues');
+  assert.equal(pkg.homepage, 'https://github.com/recodeee/guardex#readme');
   assert.equal(pkg.publishConfig?.access, 'public');
 });
 
