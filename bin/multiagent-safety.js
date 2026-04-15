@@ -3967,37 +3967,60 @@ function agents(rawArgs) {
       return;
     }
 
-    if (reviewRunning) {
-      stopAgentProcessByPid(existingReviewPid, 'review-bot-watch.sh');
-    }
-    if (cleanupRunning) {
-      stopAgentProcessByPid(existingCleanupPid, `${path.basename(__filename)} cleanup`);
-    }
-
     const reviewLogPath = path.join(repoRoot, '.omx', 'logs', 'agent-review.log');
     const cleanupLogPath = path.join(repoRoot, '.omx', 'logs', 'agent-cleanup.log');
-    const reviewPid = spawnDetachedAgentProcess({
-      command: 'bash',
-      args: [reviewScriptPath, '--interval', String(options.reviewIntervalSeconds)],
-      cwd: repoRoot,
-      logPath: reviewLogPath,
-    });
-    const cleanupPid = spawnDetachedAgentProcess({
-      command: process.execPath,
-      args: [
-        path.resolve(__filename),
-        'cleanup',
-        '--target',
-        repoRoot,
-        '--watch',
-        '--interval',
-        String(options.cleanupIntervalSeconds),
-        '--idle-minutes',
-        String(options.idleMinutes),
-      ],
-      cwd: repoRoot,
-      logPath: cleanupLogPath,
-    });
+
+    let reviewPid = existingReviewPid;
+    let cleanupPid = existingCleanupPid;
+    let startedAny = false;
+    let reusedAny = false;
+
+    if (!reviewRunning) {
+      reviewPid = spawnDetachedAgentProcess({
+        command: 'bash',
+        args: [reviewScriptPath, '--interval', String(options.reviewIntervalSeconds)],
+        cwd: repoRoot,
+        logPath: reviewLogPath,
+      });
+      startedAny = true;
+    } else {
+      reusedAny = true;
+    }
+
+    if (!cleanupRunning) {
+      cleanupPid = spawnDetachedAgentProcess({
+        command: process.execPath,
+        args: [
+          path.resolve(__filename),
+          'cleanup',
+          '--target',
+          repoRoot,
+          '--watch',
+          '--interval',
+          String(options.cleanupIntervalSeconds),
+          '--idle-minutes',
+          String(options.idleMinutes),
+        ],
+        cwd: repoRoot,
+        logPath: cleanupLogPath,
+      });
+      startedAny = true;
+    } else {
+      reusedAny = true;
+    }
+
+    const priorReviewInterval = Number.parseInt(String(existingState?.review?.intervalSeconds || ''), 10);
+    const priorCleanupInterval = Number.parseInt(String(existingState?.cleanup?.intervalSeconds || ''), 10);
+    const priorIdleMinutes = Number.parseInt(String(existingState?.cleanup?.idleMinutes || ''), 10);
+    const reviewIntervalSeconds = reviewRunning && Number.isInteger(priorReviewInterval) && priorReviewInterval >= 5
+      ? priorReviewInterval
+      : options.reviewIntervalSeconds;
+    const cleanupIntervalSeconds = cleanupRunning && Number.isInteger(priorCleanupInterval) && priorCleanupInterval >= 5
+      ? priorCleanupInterval
+      : options.cleanupIntervalSeconds;
+    const idleMinutes = cleanupRunning && Number.isInteger(priorIdleMinutes) && priorIdleMinutes >= 1
+      ? priorIdleMinutes
+      : options.idleMinutes;
 
     writeAgentsState(repoRoot, {
       schemaVersion: 1,
@@ -4005,14 +4028,14 @@ function agents(rawArgs) {
       startedAt: new Date().toISOString(),
       review: {
         pid: reviewPid,
-        intervalSeconds: options.reviewIntervalSeconds,
+        intervalSeconds: reviewIntervalSeconds,
         script: reviewScriptPath,
         logPath: reviewLogPath,
       },
       cleanup: {
         pid: cleanupPid,
-        intervalSeconds: options.cleanupIntervalSeconds,
-        idleMinutes: options.idleMinutes,
+        intervalSeconds: cleanupIntervalSeconds,
+        idleMinutes,
         script: path.resolve(__filename),
         logPath: cleanupLogPath,
       },
@@ -4021,6 +4044,9 @@ function agents(rawArgs) {
     console.log(
       `[${TOOL_NAME}] Started repo agents in ${repoRoot} (review pid=${reviewPid}, cleanup pid=${cleanupPid}).`,
     );
+    if (reusedAny && startedAny) {
+      console.log(`[${TOOL_NAME}] Reused healthy bot process(es) and started only missing ones.`);
+    }
     console.log(`[${TOOL_NAME}] Logs: ${reviewLogPath}, ${cleanupLogPath}`);
     process.exitCode = 0;
     return;

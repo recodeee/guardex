@@ -1386,6 +1386,68 @@ test('agents command starts review+cleanup bots for the target repo and stops th
   assert.equal(fs.existsSync(statePath), false, 'agents stop should remove state file');
 });
 
+test('agents start reuses running review bot when only cleanup bot is missing', () => {
+  const repoDir = initRepo();
+  seedCommit(repoDir);
+  const scriptsDir = path.join(repoDir, 'scripts');
+  fs.mkdirSync(scriptsDir, { recursive: true });
+
+  const reviewScriptPath = path.join(scriptsDir, 'review-bot-watch.sh');
+  fs.writeFileSync(
+    reviewScriptPath,
+    '#!/usr/bin/env bash\n' +
+      'set -euo pipefail\n' +
+      'while true; do sleep 60; done\n',
+    'utf8',
+  );
+  fs.chmodSync(reviewScriptPath, 0o755);
+
+  const pruneScriptPath = path.join(scriptsDir, 'agent-worktree-prune.sh');
+  fs.writeFileSync(
+    pruneScriptPath,
+    '#!/usr/bin/env bash\n' +
+      'set -euo pipefail\n' +
+      'exit 0\n',
+    'utf8',
+  );
+  fs.chmodSync(pruneScriptPath, 0o755);
+
+  let result = runNode(
+    ['agents', 'start', '--target', repoDir, '--review-interval', '31', '--cleanup-interval', '47', '--idle-minutes', '12'],
+    repoDir,
+  );
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+
+  const statePath = path.join(repoDir, '.omx', 'state', 'agents-bots.json');
+  const firstState = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+  const firstReviewPid = firstState.review.pid;
+  const firstCleanupPid = firstState.cleanup.pid;
+  assert.equal(isPidAlive(firstReviewPid), true, 'review bot should be alive after initial start');
+  assert.equal(isPidAlive(firstCleanupPid), true, 'cleanup bot should be alive after initial start');
+
+  process.kill(firstCleanupPid, 'SIGTERM');
+  assert.equal(waitForPidExit(firstCleanupPid), true, 'cleanup bot should stop during simulation');
+  assert.equal(isPidAlive(firstReviewPid), true, 'review bot should remain alive before restart');
+
+  result = runNode(
+    ['agents', 'start', '--target', repoDir, '--review-interval', '30', '--cleanup-interval', '60', '--idle-minutes', '60'],
+    repoDir,
+  );
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /Reused healthy bot process\(es\) and started only missing ones\./);
+
+  const secondState = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+  assert.equal(secondState.review.pid, firstReviewPid, 'running review bot should be reused');
+  assert.notEqual(secondState.cleanup.pid, firstCleanupPid, 'missing cleanup bot should be restarted');
+  assert.equal(isPidAlive(secondState.review.pid), true, 'reused review bot should stay alive');
+  assert.equal(isPidAlive(secondState.cleanup.pid), true, 'new cleanup bot should be alive');
+
+  result = runNode(['agents', 'stop', '--target', repoDir], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(waitForPidExit(secondState.review.pid), true, 'review bot pid should exit after stop');
+  assert.equal(waitForPidExit(secondState.cleanup.pid), true, 'cleanup bot pid should exit after stop');
+});
+
 test('agents cleanup bot defaults to a 60-minute idle threshold', () => {
   const repoDir = initRepo();
   seedCommit(repoDir);
