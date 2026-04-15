@@ -2,20 +2,28 @@
 
 ## 1. Spec
 
-- [ ] Define requirements and scope for writer
-- [ ] Confirm acceptance criteria are explicit and testable
+- [x] Define requirements and scope for writer
+- [x] Confirm acceptance criteria are explicit and testable
 
 ## 2. Tests
 
-- [ ] Define verification approach and evidence requirements
-- [ ] List concrete commands for verification
+- [x] Define verification approach and evidence requirements
+- [x] List concrete commands for verification
 
 ## 3. Implementation
 
-- [ ] Execute role-specific deliverables
-- [ ] Capture decisions, risks, and handoff notes
+- [x] Execute role-specific deliverables
+- [x] Capture decisions, risks, and handoff notes
 
 ## 4. Checkpoints
 
-- [ ] Publish checkpoint update for this role
+- [x] Publish checkpoint update for this role
 
+## Deliverables
+
+- Updated `summary.md` with the review outcome, scoped risks, verification
+  status, and handoff guidance.
+- Recorded new checkpoint entries covering critic, verifier, writer, and
+  executor progress for task 3.
+- Left the plan workspace as the durable source of truth for this lane without
+  introducing additional code churn.

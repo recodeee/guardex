@@ -2,20 +2,31 @@
 
 ## 1. Spec
 
-- [ ] Define requirements and scope for verifier
-- [ ] Confirm acceptance criteria are explicit and testable
+- [x] Define requirements and scope for verifier
+- [x] Confirm acceptance criteria are explicit and testable
 
 ## 2. Tests
 
-- [ ] Define verification approach and evidence requirements
-- [ ] List concrete commands for verification
+- [x] Define verification approach and evidence requirements
+- [x] List concrete commands for verification
 
 ## 3. Implementation
 
-- [ ] Execute role-specific deliverables
-- [ ] Capture decisions, risks, and handoff notes
+- [x] Execute role-specific deliverables
+- [x] Capture decisions, risks, and handoff notes
 
 ## 4. Checkpoints
 
-- [ ] Publish checkpoint update for this role
+- [x] Publish checkpoint update for this role
 
+## Verification
+
+- PASS — `node --test test/fuzzing.test.js`
+  - `fuzz: status rejects unknown option patterns`
+  - `# pass 1`
+  - `# fail 0`
+- FAIL — `npm test`
+  - full suite exits non-zero before reaching unrelated lanes because
+    `test/install.test.js` raises `ReferenceError: withPackageJson is not defined`
+  - treat the failure as a pre-existing repository regression, not as evidence
+    against the scoped fuzzing publish change
