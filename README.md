@@ -241,6 +241,40 @@ gh --version
 gh auth status
 ```
 
+## Optional GitHub Apps: fork sync + PR review
+
+### Pull app (Probot fork sync)
+
+GuardeX setup now installs a starter file at `.github/pull.yml.example`.
+
+To enable fork auto-sync:
+
+```sh
+cp .github/pull.yml.example .github/pull.yml
+```
+
+Then edit `.github/pull.yml`:
+
+- set `rules[].base` to your fork branch (`main`, `master`, or `dev`)
+- set `rules[].upstream` to `<upstream-owner>:<branch>`
+
+Install the app: <https://github.com/apps/pull>  
+Validate config: `https://pull.git.ci/check/<owner>/<repo>`
+
+### CR-GPT code review app
+
+Install app: <https://github.com/apps/cr-gpt>
+
+`gx setup` also installs `.github/workflows/cr.yml` (GitHub Actions review workflow).
+
+Then in your repo:
+
+1. `Settings -> Secrets and variables -> Actions`
+2. open `Variables`
+3. add `OPENAI_API_KEY`
+
+After that, the app reviews new and updated pull requests automatically.
+
 ## Companion dependency: `codex-auth` account switcher
 
 For multi-identity Codex workflows, GuardeX pairs with
@@ -276,6 +310,8 @@ scripts/openspec/init-plan-workspace.sh
 .githooks/pre-push
 .codex/skills/guardex/SKILL.md
 .claude/commands/guardex.md
+.github/pull.yml.example
+.github/workflows/cr.yml
 .omx/state/agent-file-locks.json
 ```
 

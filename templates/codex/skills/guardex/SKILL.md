@@ -38,6 +38,7 @@ gx scan
 - For one-command Codex sandbox startup, use `bash scripts/codex-agent.sh "<task>" "<agent-name>"`.
 - `scripts/codex-agent.sh` auto-syncs the sandbox branch against base before each task and auto-finishes merge/PR flow after Codex exits.
 - Auto-finish keeps the branch/worktree by default; remove merged branches explicitly with `gx cleanup` (or `gx cleanup --branch "<agent-branch>"`).
+- For skill-file-only merges into the local base branch (`dev` by default), use `$guardex-merge-skills-to-dev`.
 - Do not bypass protected branch safeguards unless explicitly required.
 
 ## Bulk merge runbook (changed agent branches)

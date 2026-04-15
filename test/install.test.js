@@ -272,7 +272,10 @@ test('setup provisions workflow files and repo config', () => {
     '.githooks/pre-commit',
     '.githooks/pre-push',
     '.codex/skills/guardex/SKILL.md',
+    '.codex/skills/guardex-merge-skills-to-dev/SKILL.md',
     '.claude/commands/guardex.md',
+    '.github/pull.yml.example',
+    '.github/workflows/cr.yml',
     '.omx/state/agent-file-locks.json',
     '.gitignore',
     'AGENTS.md',
@@ -282,11 +285,11 @@ test('setup provisions workflow files and repo config', () => {
     assert.equal(fs.existsSync(path.join(repoDir, relativePath)), true, `${relativePath} missing`);
   }
 
-  const guardexSkill = fs.readFileSync(path.join(repoDir, '.codex', 'skills', 'guardex', 'SKILL.md'), 'utf8');
-  assert.match(guardexSkill, /Bulk merge runbook \(changed agent branches\)/);
-  assert.match(guardexSkill, /gx finish --all/);
-  assert.match(guardexSkill, /gh pr create --base/);
-  assert.match(guardexSkill, /gh pr merge "<pr-number>" --squash --delete-branch/);
+  const crWorkflow = fs.readFileSync(path.join(repoDir, '.github', 'workflows', 'cr.yml'), 'utf8');
+  assert.match(crWorkflow, /name:\s+Code Review/);
+  assert.match(crWorkflow, /pull_request:/);
+  assert.match(crWorkflow, /OPENAI_API_KEY/);
+  assert.match(crWorkflow, /anc95\/ChatGPT-CodeReview@main/);
 
   const packageJson = JSON.parse(fs.readFileSync(path.join(repoDir, 'package.json'), 'utf8'));
   assert.equal(packageJson.scripts['agent:codex'], 'bash ./scripts/codex-agent.sh');
@@ -318,6 +321,7 @@ test('setup provisions workflow files and repo config', () => {
   assert.match(gitignoreContent, /\.omx\//);
   assert.match(gitignoreContent, /oh-my-codex\//);
   assert.match(gitignoreContent, /\.codex\/skills\/guardex\/SKILL\.md/);
+  assert.match(gitignoreContent, /\.codex\/skills\/guardex-merge-skills-to-dev\/SKILL\.md/);
   assert.match(gitignoreContent, /\.claude\/commands\/guardex\.md/);
   assert.match(gitignoreContent, /\.omx\/state\/agent-file-locks\.json/);
   assert.match(gitignoreContent, /# multiagent-safety:END/);
@@ -2950,6 +2954,11 @@ test('copy-prompt outputs AI setup instructions', () => {
   assert.match(result.stdout, /OpenSpec default change flow \(core profile\)/);
   assert.match(result.stdout, /\/opsx:propose <change-name>/);
   assert.match(result.stdout, /openspec config profile <profile-name>/);
+  assert.match(result.stdout, /fork sync with Pull app/);
+  assert.match(result.stdout, /https:\/\/github.com\/apps\/pull/);
+  assert.match(result.stdout, /https:\/\/github.com\/apps\/cr-gpt/);
+  assert.match(result.stdout, /OPENAI_API_KEY/);
+  assert.match(result.stdout, /\.github\/workflows\/cr\.yml/);
   assert.match(result.stdout, /scripts\/agent-file-locks.py claim/);
   assert.match(result.stdout, /For every new user message\/task, repeat the same cycle/);
 });
@@ -2965,6 +2974,7 @@ test('copy-commands outputs command-only checklist', () => {
   assert.match(result.stdout, /scripts\/agent-file-locks.py claim/);
   assert.match(result.stdout, /^openspec config profile <profile-name>$/m);
   assert.match(result.stdout, /^openspec update$/m);
+  assert.match(result.stdout, /^cp \.github\/pull\.yml\.example \.github\/pull\.yml$/m);
   assert.match(result.stdout, /gx sync --check/);
   assert.doesNotMatch(result.stdout, /Use this exact checklist/);
 });

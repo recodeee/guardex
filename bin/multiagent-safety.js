@@ -50,7 +50,10 @@ const TEMPLATE_FILES = [
   'githooks/pre-commit',
   'githooks/pre-push',
   'codex/skills/guardex/SKILL.md',
+  'codex/skills/guardex-merge-skills-to-dev/SKILL.md',
   'claude/commands/guardex.md',
+  'github/pull.yml.example',
+  'github/workflows/cr.yml',
 ];
 
 const EXECUTABLE_RELATIVE_PATHS = new Set([
@@ -97,6 +100,7 @@ const MANAGED_GITIGNORE_PATHS = [
   '.githooks/pre-push',
   'oh-my-codex/',
   '.codex/skills/guardex/SKILL.md',
+  '.codex/skills/guardex-merge-skills-to-dev/SKILL.md',
   '.claude/commands/guardex.md',
   LOCK_FILE_RELATIVE,
 ];
@@ -230,6 +234,25 @@ const AI_SETUP_PROMPT = `Use this exact checklist to setup GuardeX (Guardian T-R
 
 11) Optional (GitHub remote cleanup): enable:
    Settings -> General -> Pull Requests -> Automatically delete head branches
+
+12) Optional (fork sync with Pull app):
+   cp .github/pull.yml.example .github/pull.yml
+   # then edit .github/pull.yml:
+   # - set rules[].base to your fork branch (main/master/dev)
+   # - set rules[].upstream to upstream-owner:branch
+   # install app: https://github.com/apps/pull
+   # validate config: https://pull.git.ci/check/<owner>/<repo>
+
+13) Optional (PR review bot with cr-gpt GitHub App):
+   - install app: https://github.com/apps/cr-gpt
+   - in GitHub repo Settings -> Secrets and variables -> Actions -> Variables:
+     add OPENAI_API_KEY (your API key)
+   - the app reviews new/updated pull requests automatically
+
+14) Optional: test PR review action workflow
+   - gx setup installs .github/workflows/cr.yml
+   - open or update a PR
+   - check Actions -> "Code Review" run logs + PR timeline comments
 `;
 
 const AI_SETUP_COMMANDS = `npm i -g @imdeadpool/guardex
@@ -249,6 +272,7 @@ openspec update
 gx protect add release staging
 gx sync --check
 gx sync
+cp .github/pull.yml.example .github/pull.yml
 `;
 
 const SCORECARD_RISK_BY_CHECK = {
@@ -450,6 +474,9 @@ function toDestinationPath(relativeTemplatePath) {
     return `.${relativeTemplatePath}`;
   }
   if (relativeTemplatePath.startsWith('claude/')) {
+    return `.${relativeTemplatePath}`;
+  }
+  if (relativeTemplatePath.startsWith('github/')) {
     return `.${relativeTemplatePath}`;
   }
   throw new Error(`Unsupported template path: ${relativeTemplatePath}`);
