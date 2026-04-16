@@ -54,6 +54,14 @@ function createFakeNpmScript(scriptBody) {
   return fakeNpmPath;
 }
 
+function createFakeOpenSpecScript(scriptBody) {
+  const fakeBin = fs.mkdtempSync(path.join(os.tmpdir(), 'musafety-fake-openspec-'));
+  const fakeOpenSpecPath = path.join(fakeBin, 'openspec');
+  fs.writeFileSync(fakeOpenSpecPath, `#!/usr/bin/env bash\nset -e\n${scriptBody}\n`, 'utf8');
+  fs.chmodSync(fakeOpenSpecPath, 0o755);
+  return fakeOpenSpecPath;
+}
+
 function createFakeScorecardScript(scriptBody) {
   const fakeBin = fs.mkdtempSync(path.join(os.tmpdir(), 'musafety-fake-scorecard-'));
   const fakePath = path.join(fakeBin, 'scorecard');
@@ -1674,6 +1682,60 @@ test('self-update prompt requires explicit y/n when approval is not preconfigure
   assert.match(
     source,
     /const shouldUpdate = interactive\s*\?\s*promptYesNoStrict\(\s*`Update now\?\s*\(\$\{NPM_BIN\} i -g \$\{packageJson\.name\}@latest\)`\s*,?\s*\)\s*:\s*autoApproval;/s,
+  );
+});
+
+test('default invocation checks for openspec package updates and runs openspec update', () => {
+  const repoDir = initRepo();
+  const npmMarkerPath = path.join(repoDir, '.openspec-npm-update-called');
+  const toolMarkerPath = path.join(repoDir, '.openspec-tool-update-called');
+  const fakeNpm = createFakeNpmScript(`
+if [[ "$1" == "list" && "$2" == "-g" ]]; then
+  echo '{"dependencies":{"@fission-ai/openspec":{"version":"1.2.0"}}}'
+  exit 0
+fi
+if [[ "$1" == "view" && "$2" == "@fission-ai/openspec" && "$3" == "version" ]]; then
+  echo '"1.3.0"'
+  exit 0
+fi
+if [[ "$1" == "i" && "$2" == "-g" && "$3" == "@fission-ai/openspec@latest" ]]; then
+  echo "updated" > "${npmMarkerPath}"
+  exit 0
+fi
+echo "unexpected npm args: $*" >&2
+exit 1
+`);
+  const fakeOpenSpec = createFakeOpenSpecScript(`
+if [[ "$1" == "update" ]]; then
+  echo "updated" > "${toolMarkerPath}"
+  exit 0
+fi
+echo "unexpected openspec args: $*" >&2
+exit 1
+`);
+
+  const result = runNodeWithEnv([], repoDir, {
+    MUSAFETY_NPM_BIN: fakeNpm,
+    MUSAFETY_OPENSPEC_BIN: fakeOpenSpec,
+    MUSAFETY_SKIP_UPDATE_CHECK: '1',
+    MUSAFETY_FORCE_OPENSPEC_UPDATE_CHECK: '1',
+    MUSAFETY_AUTO_OPENSPEC_UPDATE_APPROVAL: 'yes',
+  });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /OPENSPEC UPDATE AVAILABLE/);
+  assert.match(result.stdout, /Current:\s+1\.2\.0/);
+  assert.match(result.stdout, /Latest\s+:\s+1\.3\.0/);
+  assert.match(result.stdout, /OpenSpec updated to latest package and tool plugins refreshed/);
+  assert.equal(fs.existsSync(npmMarkerPath), true, 'expected openspec npm install to run');
+  assert.equal(fs.existsSync(toolMarkerPath), true, 'expected openspec update command to run');
+});
+
+test('openspec update prompt requires explicit y/n when approval is not preconfigured', () => {
+  const source = fs.readFileSync(cliPath, 'utf8');
+  assert.match(
+    source,
+    /const shouldUpdate = interactive\s*\?\s*promptYesNoStrict\(\s*`Update OpenSpec now\?\s*\(\$\{NPM_BIN\} i -g \$\{OPENSPEC_PACKAGE\}@latest && \$\{OPENSPEC_BIN\} update\)`\s*,?\s*\)\s*:\s*autoApproval;/s,
   );
 });
 

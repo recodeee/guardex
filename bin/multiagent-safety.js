@@ -10,9 +10,10 @@ const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
 const TOOL_NAME = 'guardex';
 const SHORT_TOOL_NAME = 'gx';
 const LEGACY_NAMES = ['musafety', 'multiagent-safety'];
+const OPENSPEC_PACKAGE = '@fission-ai/openspec';
 const GLOBAL_TOOLCHAIN_PACKAGES = [
   'oh-my-codex',
-  '@fission-ai/openspec',
+  OPENSPEC_PACKAGE,
   '@imdeadpool/codex-account-switcher',
 ];
 const GH_BIN = process.env.MUSAFETY_GH_BIN || 'gh';
@@ -28,6 +29,7 @@ const MAINTAINER_RELEASE_REPO = path.resolve(
   process.env.MUSAFETY_RELEASE_REPO || '/tmp/multiagent-safety',
 );
 const NPM_BIN = process.env.MUSAFETY_NPM_BIN || 'npm';
+const OPENSPEC_BIN = process.env.MUSAFETY_OPENSPEC_BIN || 'openspec';
 const SCORECARD_BIN = process.env.MUSAFETY_SCORECARD_BIN || 'scorecard';
 const GIT_PROTECTED_BRANCHES_KEY = 'multiagent.protectedBranches';
 const GIT_BASE_BRANCH_KEY = 'multiagent.baseBranch';
@@ -3112,6 +3114,95 @@ function maybeSelfUpdateBeforeStatus() {
   console.log(`[${TOOL_NAME}] ✅ Updated to latest published version.`);
 }
 
+function checkForOpenSpecPackageUpdate() {
+  if (envFlagEnabled('MUSAFETY_SKIP_OPENSPEC_UPDATE_CHECK')) {
+    return { checked: false, reason: 'disabled' };
+  }
+
+  const forceCheck = envFlagEnabled('MUSAFETY_FORCE_OPENSPEC_UPDATE_CHECK');
+  if (!forceCheck && !isInteractiveTerminal()) {
+    return { checked: false, reason: 'non-interactive' };
+  }
+
+  const detection = detectGlobalToolchainPackages();
+  if (!detection.ok) {
+    return { checked: false, reason: 'package-detect-failed' };
+  }
+
+  const current = String((detection.installedVersions || {})[OPENSPEC_PACKAGE] || '').trim();
+  if (!current) {
+    return { checked: false, reason: 'not-installed' };
+  }
+
+  const latestResult = run(NPM_BIN, ['view', OPENSPEC_PACKAGE, 'version', '--json'], { timeout: 5000 });
+  if (latestResult.status !== 0) {
+    return { checked: false, reason: 'lookup-failed' };
+  }
+
+  const latest = parseNpmVersionOutput(latestResult.stdout);
+  if (!latest) {
+    return { checked: false, reason: 'invalid-latest-version' };
+  }
+
+  return {
+    checked: true,
+    current,
+    latest,
+    updateAvailable: isNewerVersion(latest, current),
+  };
+}
+
+function printOpenSpecUpdateAvailableBanner(current, latest) {
+  const title = colorize('OPENSPEC UPDATE AVAILABLE', '1;33');
+  console.log(`[${TOOL_NAME}] ${title}`);
+  console.log(`[${TOOL_NAME}]   Current: ${current}`);
+  console.log(`[${TOOL_NAME}]   Latest : ${latest}`);
+  console.log(`[${TOOL_NAME}]   Command: ${NPM_BIN} i -g ${OPENSPEC_PACKAGE}@latest`);
+  console.log(`[${TOOL_NAME}]   Then   : ${OPENSPEC_BIN} update`);
+}
+
+function maybeOpenSpecUpdateBeforeStatus() {
+  const check = checkForOpenSpecPackageUpdate();
+  if (!check.checked || !check.updateAvailable) {
+    return;
+  }
+
+  printOpenSpecUpdateAvailableBanner(check.current, check.latest);
+
+  const autoApproval = parseAutoApproval('MUSAFETY_AUTO_OPENSPEC_UPDATE_APPROVAL');
+  const interactive = isInteractiveTerminal();
+
+  if (!interactive && autoApproval == null) {
+    console.log(`[${TOOL_NAME}] Non-interactive shell; skipping OpenSpec update prompt.`);
+    return;
+  }
+
+  const shouldUpdate = interactive
+    ? promptYesNoStrict(
+      `Update OpenSpec now? (${NPM_BIN} i -g ${OPENSPEC_PACKAGE}@latest && ${OPENSPEC_BIN} update)`,
+    )
+    : autoApproval;
+
+  if (!shouldUpdate) {
+    console.log(`[${TOOL_NAME}] Skipped OpenSpec update.`);
+    return;
+  }
+
+  const installResult = run(NPM_BIN, ['i', '-g', `${OPENSPEC_PACKAGE}@latest`], { stdio: 'inherit' });
+  if (installResult.status !== 0) {
+    console.log(`[${TOOL_NAME}] ⚠️ OpenSpec npm install failed. You can retry manually.`);
+    return;
+  }
+
+  const toolUpdateResult = run(OPENSPEC_BIN, ['update'], { stdio: 'inherit' });
+  if (toolUpdateResult.status !== 0) {
+    console.log(`[${TOOL_NAME}] ⚠️ OpenSpec tool update failed. Run '${OPENSPEC_BIN} update' manually.`);
+    return;
+  }
+
+  console.log(`[${TOOL_NAME}] ✅ OpenSpec updated to latest package and tool plugins refreshed.`);
+}
+
 function promptYesNoStrict(question) {
   while (true) {
     process.stdout.write(`${question} [y/n] `);
@@ -3176,15 +3267,21 @@ function detectGlobalToolchainPackages() {
 
   const installed = [];
   const missing = [];
+  const installedVersions = {};
   for (const pkg of GLOBAL_TOOLCHAIN_PACKAGES) {
     if (installedSet.has(pkg)) {
       installed.push(pkg);
+      const rawVersion = dependencyMap[pkg] && dependencyMap[pkg].version;
+      const version = String(rawVersion || '').trim();
+      if (version) {
+        installedVersions[pkg] = version;
+      }
     } else {
       missing.push(pkg);
     }
   }
 
-  return { ok: true, installed, missing };
+  return { ok: true, installed, missing, installedVersions };
 }
 
 function detectRequiredSystemTools() {
@@ -5064,6 +5161,7 @@ function main() {
 
   if (args.length === 0) {
     maybeSelfUpdateBeforeStatus();
+    maybeOpenSpecUpdateBeforeStatus();
     status([]);
     return;
   }
