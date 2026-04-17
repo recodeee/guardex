@@ -372,6 +372,10 @@ npm pack --dry-run
 
 ## Release notes
 
+### v5.0.17
+
+- Bumped package version from `5.0.16` to `5.0.17` for the next npm publish.
+
 ### v5.0.16
 
 - Fixed `gx doctor` runtime crash (`parseDoctorArgs is not defined`) by restoring the doctor argument parser for `--target` and `--strict`.

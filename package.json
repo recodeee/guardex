@@ -1,54 +1,70 @@
 {
-  "name": "codex-lb-dev",
-  "private": true,
-  "packageManager": "bun@1.3.11",
+  "name": "@imdeadpool/guardex",
+  "version": "5.0.17",
+  "description": "GuardeX: the Guardian T-Rex for your repo, with hardened multi-agent git guardrails.",
+  "license": "MIT",
+  "preferGlobal": true,
+  "bin": {
+    "guardex": "bin/multiagent-safety.js",
+    "gx": "bin/multiagent-safety.js",
+    "musafety": "bin/multiagent-safety.js",
+    "multiagent-safety": "bin/multiagent-safety.js"
+  },
   "scripts": {
-    "dev": "bash ./scripts/dev-all.sh",
-    "dev:all": "bash ./scripts/dev-all.sh",
-    "dev:frontend": "cd apps/frontend && bun run dev",
-    "dev:frontend-only": "cd apps/frontend && bun run dev:frontend",
-    "logs": "bash ./scripts/dev-logs.sh",
-    "verify:rust-runtime-guardrails": "bash ./scripts/verify-rust-runtime-guardrails.sh",
+    "test": "node --test test/*.test.js",
+    "agent:codex": "bash ./scripts/codex-agent.sh",
     "agent:branch:start": "bash ./scripts/agent-branch-start.sh",
     "agent:branch:finish": "bash ./scripts/agent-branch-finish.sh",
+    "agent:cleanup": "gx cleanup",
     "agent:hooks:install": "bash ./scripts/install-agent-git-hooks.sh",
     "agent:locks:claim": "python3 ./scripts/agent-file-locks.py claim",
+    "agent:locks:allow-delete": "python3 ./scripts/agent-file-locks.py allow-delete",
     "agent:locks:release": "python3 ./scripts/agent-file-locks.py release",
     "agent:locks:status": "python3 ./scripts/agent-file-locks.py status",
-    "main-rs-lock:claim": "python3 ./scripts/main_rs_lock.py claim",
-    "main-rs-lock:release": "python3 ./scripts/main_rs_lock.py release",
-    "main-rs-lock:status": "python3 ./scripts/main_rs_lock.py status",
-    "main-rs-lock:validate": "python3 ./scripts/main_rs_lock.py validate --staged",
-    "agent:cleanup": "gx cleanup",
-    "agent:locks:allow-delete": "python3 ./scripts/agent-file-locks.py allow-delete",
     "agent:plan:init": "bash ./scripts/openspec/init-plan-workspace.sh",
     "agent:protect:list": "gx protect list",
     "agent:branch:sync": "gx sync",
     "agent:branch:sync:check": "gx sync --check",
-    "agent:branch:sync:all": "bash ./scripts/agent-sync-on-base-update.sh",
-    "agent:branch:sync:all:check": "bash ./scripts/agent-sync-on-base-update.sh --check",
     "agent:safety:setup": "gx setup",
     "agent:safety:scan": "gx scan",
     "agent:safety:fix": "gx fix",
     "agent:safety:doctor": "gx doctor",
-    "agent:codex": "bash ./scripts/codex-agent.sh",
     "agent:review:watch": "bash ./scripts/review-bot-watch.sh",
-    "agent:autofinish:watch": "bash ./scripts/agent-autofinish-watch.sh",
-    "agent:autofinish:start": "bash ./scripts/agent-autofinish-watch.sh --daemon",
-    "agent:autofinish:stop": "bash ./scripts/agent-autofinish-watch.sh --stop",
-    "agent:autofinish:status": "bash ./scripts/agent-autofinish-watch.sh --status",
-    "agent:shadow-cleanup:watch": "bash ./scripts/shadow-cleanup-agent-watch.sh",
-    "agent:shadow-cleanup:start": "bash ./scripts/shadow-cleanup-agent-watch.sh --daemon",
-    "agent:shadow-cleanup:stop": "bash ./scripts/shadow-cleanup-agent-watch.sh --stop",
-    "agent:shadow-cleanup:status": "bash ./scripts/shadow-cleanup-agent-watch.sh --status",
-    "agent:shadow-merge:watch": "bash ./scripts/shadow-merge-agent-watch.sh",
-    "agent:shadow-merge:start": "bash ./scripts/shadow-merge-agent-watch.sh --daemon",
-    "agent:shadow-merge:stop": "bash ./scripts/shadow-merge-agent-watch.sh --stop",
-    "agent:shadow-merge:status": "bash ./scripts/shadow-merge-agent-watch.sh --status",
-    "agent:shadow-pr:watch": "bash ./scripts/shadow-pr-agent-watch.sh",
-    "agent:shadow-pr:start": "bash ./scripts/shadow-pr-agent-watch.sh --daemon",
-    "agent:shadow-pr:stop": "bash ./scripts/shadow-pr-agent-watch.sh --stop",
-    "agent:shadow-pr:status": "bash ./scripts/shadow-pr-agent-watch.sh --status",
     "agent:finish": "gx finish --all"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "bin",
+    "templates",
+    "README.md",
+    "LICENSE",
+    "SECURITY.md",
+    "CONTRIBUTING.md"
+  ],
+  "keywords": [
+    "guardex",
+    "multi-agent",
+    "git-hooks",
+    "branch-guard",
+    "agent-safety",
+    "codex"
+  ],
+  "author": "recodeecom",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/recodeee/guardex.git"
+  },
+  "bugs": {
+    "url": "https://github.com/recodeee/guardex/issues"
+  },
+  "homepage": "https://github.com/recodeee/guardex#readme",
+  "funding": "https://github.com/sponsors/recodeecom",
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "fast-check": "^3.23.2"
   }
 }
