@@ -366,6 +366,11 @@ npm pack --dry-run
 
 ## Release notes
 
+### v5.0.14
+
+- Changed release metadata for the next npm publish by bumping package version from `5.0.13` to `5.0.14`.
+- Kept Guardex release notes synchronized with the published package version.
+
 ### v5.0.13
 
 - Bumped package version from `5.0.12` to `5.0.13` for the next npm publish.
