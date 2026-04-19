@@ -203,6 +203,15 @@ const CLI_COMMAND_DESCRIPTIONS = [
   ['help', 'Show this help output'],
   ['version', 'Print GuardeX version'],
 ];
+const CORE_COMMAND_NAMES = new Set([
+  'setup',
+  'doctor',
+  'status',
+  'finish',
+  'cleanup',
+  'sync',
+  'scan',
+]);
 const AGENT_BOT_DESCRIPTIONS = [
   ['review', 'Start PR monitor + codex-agent review flow (default interval: 30s)'],
   ['agents', 'Start/stop both review and cleanup bots for this repo'],
@@ -351,12 +360,15 @@ function statusDot(status) {
   return colorize('●', '33'); // yellow for degraded/unknown
 }
 
-function commandCatalogLines(indent = '  ') {
-  const maxCommandLength = CLI_COMMAND_DESCRIPTIONS.reduce(
+function commandCatalogLines(indent = '  ', { coreOnly = false } = {}) {
+  const entries = coreOnly
+    ? CLI_COMMAND_DESCRIPTIONS.filter(([name]) => CORE_COMMAND_NAMES.has(name))
+    : CLI_COMMAND_DESCRIPTIONS;
+  const maxCommandLength = entries.reduce(
     (max, [command]) => Math.max(max, command.length),
     0,
   );
-  return CLI_COMMAND_DESCRIPTIONS.map(
+  return entries.map(
     ([command, description]) => `${indent}${command.padEnd(maxCommandLength + 2)}${description}`,
   );
 }
@@ -373,7 +385,7 @@ function agentBotCatalogLines(indent = '  ') {
 
 function printToolLogsSummary() {
   const usageLine = `    $ ${SHORT_TOOL_NAME} <command> [options]`;
-  const commandDetails = commandCatalogLines('    ');
+  const commandDetails = commandCatalogLines('    ', { coreOnly: true });
   const agentBotDetails = agentBotCatalogLines('    ');
 
   if (!supportsAnsiColors()) {
@@ -418,7 +430,7 @@ function printToolLogsSummary() {
     }
     console.log(`  ${pipe}${line.slice(2)}`);
   }
-  console.log(`  ${corner}─ ${colorize(`Try '${TOOL_NAME} doctor' for one-step repair + verification.`, '2')}`);
+  console.log(`  ${corner}─ ${colorize(`Try '${SHORT_TOOL_NAME} doctor' to repair drift, or '${SHORT_TOOL_NAME} help' for the full command list.`, '2')}`);
 }
 
 function usage(options = {}) {
