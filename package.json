@@ -1,6 +1,6 @@
 {
   "name": "@imdeadpool/guardex",
-  "version": "6.0.2",
+  "version": "6.1.0",
   "description": "GuardeX: the Guardian T-Rex for your repo, with hardened multi-agent git guardrails.",
   "license": "MIT",
   "preferGlobal": true,

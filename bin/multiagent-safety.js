@@ -54,6 +54,7 @@ const TEMPLATE_FILES = [
   'githooks/pre-commit',
   'githooks/pre-push',
   'githooks/post-merge',
+  'githooks/post-checkout',
   'codex/skills/guardex/SKILL.md',
   'codex/skills/guardex-merge-skills-to-dev/SKILL.md',
   'claude/commands/guardex.md',
@@ -97,6 +98,7 @@ const EXECUTABLE_RELATIVE_PATHS = new Set([
   '.githooks/pre-commit',
   '.githooks/pre-push',
   '.githooks/post-merge',
+  '.githooks/post-checkout',
 ]);
 
 const CRITICAL_GUARDRAIL_PATHS = new Set([
@@ -104,6 +106,7 @@ const CRITICAL_GUARDRAIL_PATHS = new Set([
   '.githooks/pre-commit',
   '.githooks/pre-push',
   '.githooks/post-merge',
+  '.githooks/post-checkout',
   'scripts/agent-branch-start.sh',
   'scripts/agent-branch-finish.sh',
   'scripts/agent-worktree-prune.sh',
@@ -131,6 +134,7 @@ const MANAGED_GITIGNORE_PATHS = [
   '.githooks/pre-commit',
   '.githooks/pre-push',
   '.githooks/post-merge',
+  '.githooks/post-checkout',
   'oh-my-codex/',
   '.codex/skills/guardex/SKILL.md',
   '.codex/skills/guardex-merge-skills-to-dev/SKILL.md',

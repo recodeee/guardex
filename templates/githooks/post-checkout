@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# post-checkout <prev_head> <new_head> <branch_checkout_flag>
+branch_checkout="${3:-0}"
+[[ "$branch_checkout" == "1" ]] || exit 0
+
+if [[ "${GUARDEX_ALLOW_PRIMARY_BRANCH_SWITCH:-0}" == "1" ]]; then
+  exit 0
+fi
+
+# Skip in secondary worktrees — only the primary checkout is guarded.
+git_dir_abs="$(cd "$(git rev-parse --git-dir)" && pwd -P)"
+common_dir_abs="$(cd "$(git rev-parse --git-common-dir)" && pwd -P)"
+if [[ "$git_dir_abs" != "$common_dir_abs" ]]; then
+  exit 0
+fi
+
+new_branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+# Parse the latest reflog entry; post-checkout writes "checkout: moving from <prev> to <new>".
+prev_branch="$(git reflog -1 HEAD 2>/dev/null | sed -n 's/.*checkout: moving from \([^ ]*\) to .*/\1/p' || true)"
+
+[[ -n "$prev_branch" && -n "$new_branch" && "$prev_branch" != "$new_branch" ]] || exit 0
+
+protected_raw="${GUARDEX_PROTECTED_BRANCHES:-$(git config --get multiagent.protectedBranches || true)}"
+[[ -n "$protected_raw" ]] || protected_raw="dev main master"
+protected_raw="${protected_raw//,/ }"
+
+is_protected() {
+  local branch="$1"
+  for p in $protected_raw; do
+    [[ "$branch" == "$p" ]] && return 0
+  done
+  return 1
+}
+
+# Only guard when moving AWAY from a protected primary branch.
+is_protected "$prev_branch" || exit 0
+
+is_agent=0
+if [[ -n "${CLAUDECODE:-}" \
+   || -n "${CLAUDE_CODE_SESSION_ID:-}" \
+   || -n "${CODEX_THREAD_ID:-}" \
+   || -n "${OMX_SESSION_ID:-}" \
+   || "${CODEX_CI:-0}" == "1" ]]; then
+  is_agent=1
+fi
+
+echo "" >&2
+echo "[agent-primary-branch-guard] Primary checkout switched branches." >&2
+echo "[agent-primary-branch-guard]   from: $prev_branch (protected)" >&2
+echo "[agent-primary-branch-guard]   to:   $new_branch" >&2
+echo "[agent-primary-branch-guard] The primary working tree must stay on its base/protected branch." >&2
+echo "[agent-primary-branch-guard] Use 'git worktree add' (or scripts/agent-branch-start.sh) for feature work." >&2
+
+if [[ "$is_agent" == "1" ]]; then
+  echo "[agent-primary-branch-guard] Agent session detected — reverting to '$prev_branch'." >&2
+  echo "[agent-primary-branch-guard] Bypass with GUARDEX_ALLOW_PRIMARY_BRANCH_SWITCH=1 if truly intentional." >&2
+  if git diff --quiet && git diff --cached --quiet; then
+    GUARDEX_ALLOW_PRIMARY_BRANCH_SWITCH=1 git checkout "$prev_branch" >/dev/null 2>&1 || true
+    echo "[agent-primary-branch-guard] Reverted to '$prev_branch'." >&2
+  else
+    echo "[agent-primary-branch-guard] Working tree dirty — auto-revert skipped." >&2
+    echo "[agent-primary-branch-guard] Fix manually: git stash && git checkout $prev_branch" >&2
+  fi
+else
+  echo "[agent-primary-branch-guard] Bypass with GUARDEX_ALLOW_PRIMARY_BRANCH_SWITCH=1 if intentional." >&2
+fi

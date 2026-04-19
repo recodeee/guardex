@@ -11,6 +11,7 @@
 - If ownership is unclear or overlaps, stop that edit, post a blocker comment, and let the leader/integrator reassign scope.
 - For git isolation, each agent must start on a dedicated branch via `scripts/agent-branch-start.sh "<task-or-plan>" "<agent-name>"`.
 - In-place branch mode is disallowed: never switch the active local/base checkout to an agent branch.
+- Primary-checkout immutability: agents MUST NOT run `git checkout <branch>` on any repo's primary working tree, including nested repos inside the parent workspace (e.g. tool repos nested under the product repo). Keep each repo's primary checkout on its base/protected branch; use `git worktree add` for feature work. The `.githooks/post-checkout` hook auto-reverts primary-checkout branch switches when an agent session is detected; bypass only with `GUARDEX_ALLOW_PRIMARY_BRANCH_SWITCH=1` when truly intentional.
 - Treat the base branch (`main` or the user's current local base branch) as read-only while the agent branch is active.
 - Agent completion defaults to `scripts/codex-agent.sh`, which auto-finishes the branch (auto-commit changed files, push/create PR, attempt merge, and pull the local base branch after merge).
 - OMX completion policy: when a task is done, the agent must commit the task changes, push the agent branch, and create/update a PR for those changes (via `codex-agent` or `agent-branch-finish`).
