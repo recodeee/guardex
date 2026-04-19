@@ -163,149 +163,84 @@ const COMMAND_TYPO_ALIASES = new Map([
 const SUGGESTIBLE_COMMANDS = [
   'status',
   'setup',
-  'init',
   'doctor',
-  'review',
   'agents',
   'finish',
   'report',
-  'copy-prompt',
-  'copy-commands',
   'protect',
   'sync',
   'cleanup',
-  'release',
+  'prompt',
+  'help',
+  'version',
+  // deprecated aliases still routable with a warning
+  'init',
   'install',
   'fix',
   'scan',
+  'review',
+  'copy-prompt',
+  'copy-commands',
   'print-agents-snippet',
-  'help',
-  'version',
+  'release',
 ];
 const CLI_COMMAND_DESCRIPTIONS = [
   ['status', 'Show GuardeX CLI + service health without modifying files'],
-  ['setup', 'Install + repair guardrails in a git repo (supports --no-gitignore, --parent-workspace-view)'],
-  ['init', 'Alias of setup (bootstrap + repair guardrails in a git repo)'],
-  ['doctor', 'Repair safety setup drift, then verify repo safety'],
-  ['report', 'Generate security/safety reports (for example: OpenSSF scorecard)'],
-  ['finish', 'Auto-commit completed agent branches, then run PR finish flow'],
-  ['copy-prompt', 'Print the AI-ready setup checklist'],
-  ['copy-commands', 'Print setup checklist as executable commands only'],
+  ['setup', 'Install, repair, and verify guardrails (flags: --repair, --install-only, --target)'],
+  ['doctor', 'Repair drift + verify (auto-sandboxes on protected main)'],
   ['protect', 'Manage protected branches (list/add/remove/set/reset)'],
-  ['sync', 'Check or sync agent branches with origin/<base>'],
-  ['cleanup', 'Cleanup agent branches/worktrees (watch mode defaults to 60-minute idle threshold)'],
+  ['sync', 'Sync agent branches with origin/<base>'],
+  ['finish', 'Commit + PR + merge completed agent branches (--all, --branch)'],
+  ['cleanup', 'Prune merged/stale agent branches and worktrees'],
   ['agents', 'Start/stop repo-scoped review + cleanup bots'],
-  ['install', 'Install templates/locks/hooks without running full setup (supports --no-gitignore)'],
-  ['fix', 'Repair broken or missing guardrail files/config (supports --no-gitignore)'],
-  ['scan', 'Report safety issues and exit non-zero on findings'],
-  ['print-agents-snippet', 'Print the AGENTS.md snippet template'],
-  ['release', 'Publish GuardeX from maintainer release repo'],
+  ['prompt', 'Print AI setup checklist (--exec, --snippet)'],
+  ['report', 'Security/safety reports (e.g. OpenSSF scorecard)'],
   ['help', 'Show this help output'],
   ['version', 'Print GuardeX version'],
 ];
+const DEPRECATED_COMMAND_ALIASES = new Map([
+  ['init', { target: 'setup', hint: 'gx setup' }],
+  ['install', { target: 'setup', hint: 'gx setup --install-only' }],
+  ['fix', { target: 'setup', hint: 'gx setup --repair' }],
+  ['scan', { target: 'status', hint: 'gx status --strict' }],
+  ['copy-prompt', { target: 'prompt', hint: 'gx prompt' }],
+  ['copy-commands', { target: 'prompt', hint: 'gx prompt --exec' }],
+  ['print-agents-snippet', { target: 'prompt', hint: 'gx prompt --snippet' }],
+  ['review', { target: 'agents', hint: 'gx agents start (runs review + cleanup)' }],
+]);
 const AGENT_BOT_DESCRIPTIONS = [
-  ['review', 'Start PR monitor + codex-agent review flow (default interval: 30s)'],
-  ['agents', 'Start/stop both review and cleanup bots for this repo'],
+  ['agents', 'Start/stop review + cleanup bots for this repo'],
 ];
 
-const AI_SETUP_PROMPT = `Use this exact checklist to setup GuardeX (Guardian T-Rex for your repo) in this repository for Codex or Claude.
+const AI_SETUP_PROMPT = `GuardeX (gx) setup checklist for Codex/Claude in this repo.
 
-1) Install (if missing):
-   npm i -g @imdeadpool/guardex
-
-2) Bootstrap safety in this repo:
-   gx setup
-   # alias: gx init
-
-   - Setup detects global OMX/OpenSpec/codex-auth npm packages first.
-   - If one is missing and setup asks for approval, reply explicitly:
-     - y = run: npm i -g oh-my-codex @fission-ai/openspec @imdeadpool/codex-account-switcher (missing ones only)
-     - n = skip global installs
-   - Setup also checks GitHub CLI (gh), required for PR/merge automation.
-   - If gh is missing: install it from https://cli.github.com/ and rerun gx setup.
-
-3) If setup reports warnings/errors, repair + re-check:
-   gx doctor
-
-4) Optional: start continuous PR monitor from this repo:
-   gx review --interval 30
-
-5) Confirm next safe agent workflow commands:
-   bash scripts/codex-agent.sh "task" "agent-name"
-   bash scripts/agent-branch-start.sh "task" "agent-name"
-   python3 scripts/agent-file-locks.py claim --branch "$(git rev-parse --abbrev-ref HEAD)" <file...>
-   bash scripts/agent-branch-finish.sh --branch "$(git rev-parse --abbrev-ref HEAD)" --base dev --via-pr --wait-for-merge
-   - For every new user message/task, repeat the same cycle:
-     start isolated agent branch/worktree -> claim file locks -> implement/verify ->
-     finish via PR/merge cleanup into dev with scripts/agent-branch-finish.sh.
-   - Finished branches stay available by default for audit/follow-up.
-     Remove them explicitly when done:
-     gx cleanup --branch "$(git rev-parse --abbrev-ref HEAD)"
-   - To finalize all completed agent branches in one pass:
-     gx finish --all
-
-6) OpenSpec default change flow (core profile):
-   /opsx:propose <change-name>
-   /opsx:apply
-   /opsx:archive
-   - Full guide: docs/openspec-getting-started.md
-
-7) Optional: enable expanded OpenSpec workflow commands:
-   openspec config profile <profile-name>
-   openspec update
-   - Expanded path: /opsx:new -> /opsx:ff or /opsx:continue -> /opsx:apply -> /opsx:verify -> /opsx:archive
-
-8) Optional: create OpenSpec planning workspace:
-   bash scripts/openspec/init-plan-workspace.sh "<plan-slug>"
-
-9) Optional: protect extra branches:
-   gx protect add release staging
-
-10) Optional: sync your current agent branch with latest base branch:
-   gx sync --check
-   gx sync
-
-11) Optional (GitHub remote cleanup): enable:
-   Settings -> General -> Pull Requests -> Automatically delete head branches
-
-12) Optional (fork sync with Pull app):
-   cp .github/pull.yml.example .github/pull.yml
-   # then edit .github/pull.yml:
-   # - set rules[].base to your fork branch (main/master/dev)
-   # - set rules[].upstream to upstream-owner:branch
-   # install app: https://github.com/apps/pull
-   # validate config: https://pull.git.ci/check/<owner>/<repo>
-
-13) Optional (PR review bot with cr-gpt GitHub App):
-   - install app: https://github.com/apps/cr-gpt
-   - in GitHub repo Settings -> Secrets and variables -> Actions -> Variables:
-     add OPENAI_API_KEY (your API key)
-   - the app reviews new/updated pull requests automatically
-
-14) Optional: test PR review action workflow
-   - gx setup installs .github/workflows/cr.yml
-   - open or update a PR
-   - check Actions -> "Code Review" run logs + PR timeline comments
+1) Install:         npm i -g @imdeadpool/guardex && gh --version
+2) Bootstrap:       gx setup         # installs hooks/templates + verifies; prompts Y/N for global OMX/OpenSpec/codex-auth
+3) If degraded:     gx doctor        # repair + re-verify
+4) Per task:        bash scripts/codex-agent.sh "<task>" "<agent>"
+                    # or manual:
+                    #   bash scripts/agent-branch-start.sh "<task>" "<agent>"
+                    #   python3 scripts/agent-file-locks.py claim --branch "$(git rev-parse --abbrev-ref HEAD)" <file...>
+                    #   bash scripts/agent-branch-finish.sh --branch "$(git rev-parse --abbrev-ref HEAD)" --via-pr --wait-for-merge
+5) Finalize all:    gx finish --all
+6) Cleanup:         gx cleanup
+7) OpenSpec:        /opsx:propose -> /opsx:apply -> /opsx:archive   (see docs/openspec-getting-started.md)
+8) Protect:         gx protect add release staging                  (optional)
+9) Sync:            gx sync --check && gx sync                      (optional; rebase onto base)
+10) Fork sync:      cp .github/pull.yml.example .github/pull.yml    (optional; install https://github.com/apps/pull)
+11) PR review bot:  install https://github.com/apps/cr-gpt + set OPENAI_API_KEY in Actions variables (uses .github/workflows/cr.yml)
+12) GitHub repo:    enable Settings -> PRs -> Automatically delete head branches
 `;
 
 const AI_SETUP_COMMANDS = `npm i -g @imdeadpool/guardex
 gh --version
 gx setup
 gx doctor
-gx review --interval 30
-bash scripts/codex-agent.sh "task" "agent-name"
-bash scripts/agent-branch-start.sh "task" "agent-name"
-python3 scripts/agent-file-locks.py claim --branch "$(git rev-parse --abbrev-ref HEAD)" <file...>
-bash scripts/agent-branch-finish.sh --branch "$(git rev-parse --abbrev-ref HEAD)" --base dev --via-pr --wait-for-merge
+bash scripts/codex-agent.sh "<task>" "<agent>"
 gx finish --all
-gx cleanup --branch "$(git rev-parse --abbrev-ref HEAD)"
-bash scripts/openspec/init-plan-workspace.sh "<plan-slug>"
-openspec config profile <profile-name>
-openspec update
+gx cleanup
 gx protect add release staging
-gx sync --check
 gx sync
-cp .github/pull.yml.example .github/pull.yml
 `;
 
 const SCORECARD_RISK_BY_CHECK = {
@@ -439,19 +374,12 @@ AGENT BOT
 ${agentBotCatalogLines().join('\n')}
 
 NOTES
-  - Running ${TOOL_NAME} with no command defaults to: ${SHORT_TOOL_NAME} status
-  - Short alias: ${SHORT_TOOL_NAME}
-  - ${SHORT_TOOL_NAME} init is an alias of ${SHORT_TOOL_NAME} setup
-  - ${TOOL_NAME} setup asks for Y/N approval before global installs
-  - ${TOOL_NAME} setup checks GitHub CLI (gh) and prints install guidance if missing
-  - For other repos: ${SHORT_TOOL_NAME} setup --target <repo-path> then ${SHORT_TOOL_NAME} doctor --target <repo-path>
-  - Optional parent-folder Source Control view: ${SHORT_TOOL_NAME} setup --target <repo-path> --parent-workspace-view
-  - In initialized repos, setup/install/fix block in-place writes on protected main by default
-  - setup/doctor auto-finish clean pending agent/* branches via PR flow into the current local base branch
-  - doctor auto-runs in a sandbox agent branch/worktree on protected main and tries auto-finish PR flow
-  - agent-branch-finish merges by default and keeps agent branches/worktrees until explicit cleanup
-  - use '${SHORT_TOOL_NAME} cleanup' to remove merged agent branches/worktrees (optionally remote refs too)
-  - Legacy command aliases are still supported: ${LEGACY_NAMES.join(', ')}`);
+  - No command = ${SHORT_TOOL_NAME} status. ${SHORT_TOOL_NAME} init is an alias of ${SHORT_TOOL_NAME} setup.
+  - Global installs need Y/N approval; GitHub CLI (gh) is required for PR automation.
+  - Target another repo: ${SHORT_TOOL_NAME} <cmd> --target <repo-path>.
+  - On protected main, setup/install/fix/doctor auto-sandbox via agent branch + PR flow.
+  - Run '${SHORT_TOOL_NAME} cleanup' to prune merged agent branches/worktrees.
+  - Legacy aliases: ${LEGACY_NAMES.join(', ')}.`);
 
   if (outsideGitRepo) {
     console.log(`
@@ -4478,7 +4406,7 @@ function setup(rawArgs) {
 
   if (scanResult.errors === 0 && scanResult.warnings === 0) {
     console.log(`[${TOOL_NAME}] ✅ Setup complete.`);
-    console.log(`[${TOOL_NAME}] Copy AI setup prompt with: ${SHORT_TOOL_NAME} copy-prompt`);
+    console.log(`[${TOOL_NAME}] Copy AI setup prompt with: ${SHORT_TOOL_NAME} prompt`);
     console.log(
       `[${TOOL_NAME}] OpenSpec core workflow: /opsx:propose -> /opsx:apply -> /opsx:archive`,
     );
@@ -4785,6 +4713,31 @@ function copyPrompt() {
 function copyCommands() {
   process.stdout.write(AI_SETUP_COMMANDS);
   process.exitCode = 0;
+}
+
+function prompt(rawArgs) {
+  const args = Array.isArray(rawArgs) ? rawArgs : [];
+  let variant = 'prompt';
+  for (const arg of args) {
+    if (arg === '--exec' || arg === '--commands') variant = 'exec';
+    else if (arg === '--snippet' || arg === '--agents') variant = 'snippet';
+    else if (arg === '--prompt' || arg === '--full') variant = 'prompt';
+    else if (arg === '-h' || arg === '--help') variant = 'help';
+    else throw new Error(`Unknown option: ${arg}`);
+  }
+  if (variant === 'help') {
+    console.log(
+      `${SHORT_TOOL_NAME} prompt commands:\n` +
+      `  ${SHORT_TOOL_NAME} prompt           Print AI setup checklist\n` +
+      `  ${SHORT_TOOL_NAME} prompt --exec    Print setup commands only (shell-ready)\n` +
+      `  ${SHORT_TOOL_NAME} prompt --snippet Print the AGENTS.md managed-block template`,
+    );
+    process.exitCode = 0;
+    return;
+  }
+  if (variant === 'exec') return copyCommands();
+  if (variant === 'snippet') return printAgentsSnippet();
+  return copyPrompt();
 }
 
 function cleanup(rawArgs) {
@@ -5265,6 +5218,29 @@ function normalizeCommandOrThrow(command) {
   return command;
 }
 
+function warnDeprecatedAlias(aliasName) {
+  const entry = DEPRECATED_COMMAND_ALIASES.get(aliasName);
+  if (!entry) return;
+  console.error(
+    `[${TOOL_NAME}] '${aliasName}' is deprecated and will be removed in a future major release. ` +
+    `Use: ${entry.hint}`,
+  );
+}
+
+function extractFlag(args, ...names) {
+  const flagSet = new Set(names);
+  let found = false;
+  const remaining = [];
+  for (const arg of args) {
+    if (flagSet.has(arg)) {
+      found = true;
+    } else {
+      remaining.push(arg);
+    }
+  }
+  return { found, remaining };
+}
+
 function main() {
   const args = process.argv.slice(2);
 
@@ -5288,90 +5264,42 @@ function main() {
     return;
   }
 
+  // Deprecated direct aliases — route to new surface and warn once.
+  if (DEPRECATED_COMMAND_ALIASES.has(command)) {
+    warnDeprecatedAlias(command);
+    if (command === 'init') return setup(rest);
+    if (command === 'install') return install(rest);
+    if (command === 'fix') return fix(rest);
+    if (command === 'scan') return scan(rest);
+    if (command === 'copy-prompt') return copyPrompt();
+    if (command === 'copy-commands') return copyCommands();
+    if (command === 'print-agents-snippet') return printAgentsSnippet();
+    if (command === 'review') return review(rest);
+  }
+
   if (command === 'status') {
-    status(rest);
-    return;
+    const { found: strict, remaining } = extractFlag(rest, '--strict');
+    if (strict) return scan(remaining);
+    return status(remaining);
   }
 
-  if (command === 'setup' || command === 'init') {
-    setup(rest);
-    return;
+  if (command === 'setup') {
+    const installOnly = extractFlag(rest, '--install-only', '--only-install');
+    if (installOnly.found) return install(installOnly.remaining);
+    const repairOnly = extractFlag(installOnly.remaining, '--repair', '--fix-only');
+    if (repairOnly.found) return fix(repairOnly.remaining);
+    return setup(repairOnly.remaining);
   }
 
-  if (command === 'doctor') {
-    doctor(rest);
-    return;
-  }
-
-  if (command === 'review') {
-    review(rest);
-    return;
-  }
-
-  if (command === 'agents') {
-    agents(rest);
-    return;
-  }
-
-  if (command === 'finish') {
-    finish(rest);
-    return;
-  }
-
-  if (command === 'report') {
-    report(rest);
-    return;
-  }
-
-  if (command === 'copy-prompt') {
-    copyPrompt();
-    return;
-  }
-
-  if (command === 'copy-commands') {
-    copyCommands();
-    return;
-  }
-
-  if (command === 'protect') {
-    protect(rest);
-    return;
-  }
-
-  if (command === 'sync') {
-    sync(rest);
-    return;
-  }
-
-  if (command === 'cleanup') {
-    cleanup(rest);
-    return;
-  }
-
-  if (command === 'release') {
-    release(rest);
-    return;
-  }
-
-  if (command === 'install') {
-    install(rest);
-    return;
-  }
-
-  if (command === 'fix') {
-    fix(rest);
-    return;
-  }
-
-  if (command === 'scan') {
-    scan(rest);
-    return;
-  }
-
-  if (command === 'print-agents-snippet') {
-    printAgentsSnippet();
-    return;
-  }
+  if (command === 'prompt') return prompt(rest);
+  if (command === 'doctor') return doctor(rest);
+  if (command === 'agents') return agents(rest);
+  if (command === 'finish') return finish(rest);
+  if (command === 'report') return report(rest);
+  if (command === 'protect') return protect(rest);
+  if (command === 'sync') return sync(rest);
+  if (command === 'cleanup') return cleanup(rest);
+  if (command === 'release') return release(rest);
 
   const suggestion = maybeSuggestCommand(command);
   if (suggestion) {

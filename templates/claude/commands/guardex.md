@@ -1,18 +1,12 @@
 # /guardex
 
-Run a GuardeX check-and-repair workflow for the current repository.
+Run a GuardeX check-and-repair for the current repo.
 
 ## Steps
 
-1. Run `gx status`.
-2. If status is degraded, run `gx doctor`.
-3. If still degraded, run `gx scan` and summarize each finding with a fix.
-4. Report final verdict as one of:
-   - `Repo is guarded`
-   - `Repo is not guarded` (include blockers)
+1. `gx status` — if green, stop.
+2. If degraded, `gx doctor`.
+3. If still degraded, `gx status --strict` and summarize each finding with a fix.
+4. Report verdict: `Repo is guarded` or `Repo is not guarded` (list blockers).
 
-## Style
-
-- Keep output short and operational.
-- Include exact commands you executed.
-- Prefer concrete next actions over generic advice.
+Keep output short, include the exact commands you ran.

@@ -1456,9 +1456,8 @@ test('default invocation runs non-mutating status output', () => {
   assert.match(result.stdout, /COMMANDS\n\s+status\s+Show GuardeX CLI \+ service health without modifying files/);
   assert.match(
     result.stdout,
-    /AGENT BOT\n\s+review\s+Start PR monitor \+ codex-agent review flow \(default interval: 30s\)/,
+    /AGENT BOT\n\s+agents\s+Start\/stop review \+ cleanup bots for this repo/,
   );
-  assert.match(result.stdout, /AGENT BOT[\s\S]*\n\s+agents\s+Start\/stop both review and cleanup bots for this repo/);
   assert.equal(fs.existsSync(path.join(repoDir, '.githooks', 'pre-commit')), false);
 });
 
@@ -3373,44 +3372,53 @@ exit 1
   assert.match(remediation, /Verification loop/);
 });
 
-test('copy-prompt outputs AI setup instructions', () => {
+test('prompt outputs AI setup instructions', () => {
+  const repoDir = initRepo();
+  const result = runNode(['prompt'], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /npm i -g @imdeadpool\/guardex/);
+  assert.match(result.stdout, /GuardeX \(gx\) setup checklist/);
+  assert.match(result.stdout, /gx setup/);
+  assert.match(result.stdout, /gx doctor/);
+  assert.match(result.stdout, /codex-agent\.sh/);
+  assert.match(result.stdout, /scripts\/agent-file-locks\.py claim/);
+  assert.match(result.stdout, /gx finish --all/);
+  assert.match(result.stdout, /\/opsx:propose/);
+  assert.match(result.stdout, /https:\/\/github\.com\/apps\/pull/);
+  assert.match(result.stdout, /https:\/\/github\.com\/apps\/cr-gpt/);
+  assert.match(result.stdout, /OPENAI_API_KEY/);
+});
+
+test('prompt --exec outputs command-only checklist', () => {
+  const repoDir = initRepo();
+  const result = runNode(['prompt', '--exec'], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /^npm i -g @imdeadpool\/guardex/m);
+  assert.match(result.stdout, /^gh --version/m);
+  assert.match(result.stdout, /^gx setup$/m);
+  assert.match(result.stdout, /^gx doctor$/m);
+  assert.match(result.stdout, /codex-agent\.sh/);
+  assert.match(result.stdout, /^gx finish --all$/m);
+  assert.match(result.stdout, /^gx cleanup$/m);
+  assert.doesNotMatch(result.stdout, /GuardeX \(gx\) setup checklist/);
+});
+
+test('deprecated copy-prompt alias still works and warns', () => {
   const repoDir = initRepo();
   const result = runNode(['copy-prompt'], repoDir);
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.match(result.stdout, /npm i -g @imdeadpool\/guardex/);
-  assert.match(
-    result.stdout,
-    /npm i -g oh-my-codex @fission-ai\/openspec @imdeadpool\/codex-account-switcher/,
-  );
-  assert.match(result.stdout, /gx setup/);
-  assert.match(result.stdout, /gx init/);
-  assert.match(result.stdout, /Codex or Claude/);
-  assert.match(result.stdout, /OpenSpec default change flow \(core profile\)/);
-  assert.match(result.stdout, /\/opsx:propose <change-name>/);
-  assert.match(result.stdout, /openspec config profile <profile-name>/);
-  assert.match(result.stdout, /fork sync with Pull app/);
-  assert.match(result.stdout, /https:\/\/github.com\/apps\/pull/);
-  assert.match(result.stdout, /https:\/\/github.com\/apps\/cr-gpt/);
-  assert.match(result.stdout, /OPENAI_API_KEY/);
-  assert.match(result.stdout, /\.github\/workflows\/cr\.yml/);
-  assert.match(result.stdout, /scripts\/agent-file-locks.py claim/);
-  assert.match(result.stdout, /For every new user message\/task, repeat the same cycle/);
+  assert.match(result.stdout, /GuardeX \(gx\) setup checklist/);
+  assert.match(result.stderr, /'copy-prompt' is deprecated/);
+  assert.match(result.stderr, /gx prompt/);
 });
 
-test('copy-commands outputs command-only checklist', () => {
+test('deprecated copy-commands alias still works and warns', () => {
   const repoDir = initRepo();
   const result = runNode(['copy-commands'], repoDir);
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.match(result.stdout, /^npm i -g @imdeadpool\/guardex/m);
-  assert.match(result.stdout, /^gh --version/m);
-  assert.match(result.stdout, /gx setup/);
-  assert.match(result.stdout, /gx doctor/);
-  assert.match(result.stdout, /scripts\/agent-file-locks.py claim/);
-  assert.match(result.stdout, /^openspec config profile <profile-name>$/m);
-  assert.match(result.stdout, /^openspec update$/m);
-  assert.match(result.stdout, /^cp \.github\/pull\.yml\.example \.github\/pull\.yml$/m);
-  assert.match(result.stdout, /gx sync --check/);
-  assert.doesNotMatch(result.stdout, /Use this exact checklist/);
+  assert.match(result.stderr, /'copy-commands' is deprecated/);
+  assert.match(result.stderr, /gx prompt --exec/);
 });
 
 test('setup dry-run accepts explicit global install approval flags', () => {

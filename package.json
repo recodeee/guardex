@@ -1,6 +1,6 @@
 {
   "name": "@imdeadpool/guardex",
-  "version": "6.0.1",
+  "version": "7.0.0",
   "description": "GuardeX: the Guardian T-Rex for your repo, with hardened multi-agent git guardrails.",
   "license": "MIT",
   "preferGlobal": true,
@@ -25,8 +25,8 @@
     "agent:branch:sync": "gx sync",
     "agent:branch:sync:check": "gx sync --check",
     "agent:safety:setup": "gx setup",
-    "agent:safety:scan": "gx scan",
-    "agent:safety:fix": "gx fix",
+    "agent:safety:scan": "gx status --strict",
+    "agent:safety:fix": "gx setup --repair",
     "agent:safety:doctor": "gx doctor",
     "agent:review:watch": "bash ./scripts/review-bot-watch.sh",
     "agent:finish": "gx finish --all"
