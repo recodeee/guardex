@@ -12,7 +12,7 @@
 
 - [x] 3.1 `bash -n templates/scripts/agent-branch-finish.sh` (syntax OK).
 - [x] 3.2 `node --test test/*.test.js` — no new regressions (18 pre-existing failures on `main`, same count after patch).
-- [ ] 3.3 Post-merge: user runs `npm publish` to ship 7.0.2.
+- [x] 3.3 `openspec validate agent-claude-fix-source-probe-worktree-leak-2026-04-20-00-27 --type change --strict` (run pre-finish).
 
 ## 4. Cleanup
 
