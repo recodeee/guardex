@@ -102,69 +102,64 @@ gx finish --all
 ## Copy-paste: common commands
 
 ```sh
-# health / safety status
+# health check (default when run with no args)
 gx status
+gx status --strict        # exit non-zero on findings (v6 name: gx scan)
 
-# setup and repair
+# bootstrap, repair, verify — all in one
 gx setup
-gx doctor
-# setup + repair another repo without switching your current repo checkout
+gx setup --repair         # repair only (v6 name: gx fix)
+gx setup --install-only   # scaffold templates, skip global installs (v6 name: gx install)
+gx doctor                 # repair + verify (auto-sandboxes on protected main)
+
+# target another repo without switching your current checkout
 gx setup --target /path/to/repo
 gx doctor --target /path/to/repo
-# optional: from parent folder, generate VS Code workspace view for repo + agent worktrees
-cd /path/to
-gx setup --target ./repo --parent-workspace-view
-# open this in VS Code to manage both base repo and .omx/agent-worktrees
-code ./repo-branches.code-workspace
+# optional VS Code workspace showing repo + agent worktrees
+gx setup --target /path/to/repo --parent-workspace-view
 
 # protected branch management
 gx protect list
 gx protect add release staging
 gx protect remove release
 
-# sync with base branch
+# sync current agent branch with origin/<base>
 gx sync --check
 gx sync
 
-# continuously monitor open PRs targeting current branch and dispatch codex-agent review/merge tasks
-gx review --interval 30
-
-# start both background bots for this repo (review + cleanup)
+# background bots (review monitor + stale cleanup)
 gx agents start
-
-# stop both background bots for this repo
 gx agents stop
+gx agents status
 
-# auto-commit finished agent branches and open/merge PR flow in one pass
-gx finish --all
-
-# cleanup merged agent branches and hide clean stale agent worktrees
-gx cleanup
-
-# run continuous stale-branch cleanup bot (default idle threshold: 10 minutes)
+# per-agent-branch lifecycle
+gx finish --all           # commit + PR + merge every ready agent/* branch
+gx cleanup                # prune merged/stale branches and worktrees
 gx cleanup --watch --interval 60
 
-# scan/report
-gx scan
+# AI-ready setup prompt (paste into Codex/Claude)
+gx prompt                 # full checklist        (v6 name: gx copy-prompt)
+gx prompt --exec          # commands only         (v6 name: gx copy-commands)
+gx prompt --snippet       # AGENTS.md managed block template
+
+# reports
 gx report scorecard --repo github.com/recodeee/guardex
 ```
 
-### Continuous Codex PR monitor (local codex-auth session)
+### v6 → v7 command migration
 
-Run this in your local shell to keep watching PRs targeting the current branch (or `--base <branch>`):
+Five commands were consolidated into flags. Old names still work and print a one-line deprecation notice; they'll be removed in v8.
 
-```sh
-gx review --interval 30
-```
-
-Useful flags:
-
-- `--base main` watch a specific base branch
-- `--only-pr 123` process only one PR
-- `--once` run one polling cycle and exit
-- `--retry-failed` retry failed PRs without waiting for a new head SHA
-
-Note: the monitor dispatches Codex through explicit `--task/--agent/--base` flags for compatibility with both older and newer `scripts/codex-agent.sh` argument parsing.
+| v6 command             | v7 replacement           |
+| ---------------------- | ------------------------ |
+| `gx init`              | `gx setup`               |
+| `gx install`           | `gx setup --install-only`|
+| `gx fix`               | `gx setup --repair`      |
+| `gx scan`              | `gx status --strict`     |
+| `gx copy-prompt`       | `gx prompt`              |
+| `gx copy-commands`     | `gx prompt --exec`       |
+| `gx print-agents-snippet` | `gx prompt --snippet` |
+| `gx review`            | `gx agents start` (runs review + cleanup) |
 
 ### Continuous stale branch cleanup bot
 
@@ -371,6 +366,21 @@ npm pack --dry-run
 ```
 
 ## Release notes
+
+### v7.0.0
+
+- **Breaking (soft).** Consolidated 17 commands into 12 visible commands with flag-based subcommands. Five removed names (`init`, `install`, `fix`, `scan`, `copy-prompt`, `copy-commands`, `print-agents-snippet`, `review`) still work but print a one-line deprecation notice on stderr and will be removed in v8. See the migration table in "Copy-paste: common commands" above.
+- **Token-usage improvements.** Trimmed the auto-installed agent templates that live inside every consumer repo and get loaded into every Claude/Codex session:
+  - `templates/AGENTS.multiagent-safety.md`: 6990 B → 1615 B (−77%)
+  - `templates/codex/skills/guardex/SKILL.md`: 2732 B → 1086 B (−60%)
+  - `templates/claude/commands/guardex.md`: 472 B → 357 B (−24%)
+  - Total: 10194 B → 3058 B per consumer repo (−70%, ~1.5k fewer tokens per agent session).
+
+  The `AI_SETUP_PROMPT` and `AI_SETUP_COMMANDS` constants used by `gx prompt` are now compact checklists, so piping `gx prompt` into a model context is cheaper too.
+- **New `gx prompt` command** replaces three prompt-emitting commands: `gx prompt` (full checklist), `gx prompt --exec` (commands only), `gx prompt --snippet` (AGENTS.md managed-block template).
+- **New flag surface on `gx setup`**: `--install-only` (templates/hooks/locks only), `--repair` (fix drift), plus the existing `--target`, `--parent-workspace-view`, `--dry-run`, etc.
+- **New `gx status --strict`** mirrors the old `gx scan` behavior (exit non-zero on findings).
+- Updated internal `REQUIRED_PACKAGE_SCRIPTS` for consumer `package.json` so `agent:safety:scan` and `agent:safety:fix` helper scripts now invoke the new v7 surface (`gx status --strict`, `gx setup --repair`).
 
 ### v6.0.1
 
