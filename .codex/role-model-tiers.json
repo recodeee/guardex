@@ -1,0 +1,18 @@
+{
+  "_note": "Operators MUST replace each tier's REPLACE_WITH_*_MODEL_ID placeholder with a valid Codex model ID before the first spawn that uses --role. See openspec/specs/omx-worktree-model-tiering-per-role/context.md for the discovery procedure.",
+  "version": 1,
+  "tiers": {
+    "premium":  { "model": "REPLACE_WITH_PREMIUM_MODEL_ID" },
+    "standard": { "model": "REPLACE_WITH_STANDARD_MODEL_ID" },
+    "lite":     { "model": "REPLACE_WITH_LITE_MODEL_ID" }
+  },
+  "roles": {
+    "executor":   { "tier": "premium"  },
+    "integrator": { "tier": "premium"  },
+    "architect":  { "tier": "premium"  },
+    "planner":    { "tier": "standard" },
+    "critic":     { "tier": "standard" },
+    "writer":     { "tier": "lite"     },
+    "verifier":   { "tier": "lite"     }
+  }
+}

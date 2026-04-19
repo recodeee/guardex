@@ -171,6 +171,20 @@ Notes:
 - `.claude/settings.json` already wires the `skill_activation` / `skill_guard` hooks, so project-conventions enforcement runs automatically on edits.
 - `skill_guard` blocks most Bash commands while the shell is on `dev`; run the start/claim/finish commands from within the worktree, or prefix the invocation with `ALLOW_BASH_ON_NON_AGENT_BRANCH=1` when calling from the primary checkout.
 
+### Stalled agent worktree recovery
+
+`codex-agent.sh` auto-finishes a branch only when the codex CLI exits cleanly inside it. If the agent is killed, crashes, runs out of budget, or is started directly via `agent-branch-start.sh` (no `codex-agent.sh` wrapper), the worktree is left dirty with no commits and no PR — a "stalled" worktree.
+
+`scripts/agent-stalled-report.sh` is a quiet wrapper around `scripts/agent-autofinish-watch.sh --once --dry-run` that surfaces stalled worktrees. It is wired as a `SessionStart` hook in `.claude/settings.json`, so each Claude Code session begins with a one-line summary per stalled branch (and is silent when nothing is stalled).
+
+To act on the report:
+
+- Inspect: `bash scripts/agent-autofinish-watch.sh --once --dry-run`
+- Auto-finish once (commit dirty changes, push, create PR, attempt merge): `bash scripts/agent-autofinish-watch.sh --once --auto-merge`
+- Run the daemon (poll forever, auto-finish after `--idle-seconds`): `bash scripts/agent-autofinish-watch.sh --daemon --auto-merge`
+
+Defaults: `--idle-seconds=900` (15 min of file silence before auto-commit) and `--branch-prefix=agent/`. The watcher is conservative — it never touches branches outside the configured prefix and only commits worktrees whose files have stopped changing.
+
 ## Multi-Agent Execution Contract (Default)
 
 Use this contract whenever multiple agents are active in parallel.
@@ -276,7 +290,7 @@ Prompting cue (use when writing docs):
 - Bulk archive completed changes: `/opsx:bulk-archive`
 - Guided onboarding workflow: `/opsx:onboard`
 - Create/refresh plan workspace: `/opsx:plan <plan-slug>`
-- Update plan checkpoint: `/opsx:checkpoint <plan-slug> <role> <checkpoint-id> <state> <text...>`
+- Update plan checkpoint: `/opsx:checkpoint <plan-slug> <role> <checkpoint-id> <state> <text...> [--phase <phase-id>]` (`--phase` syncs the matching line in `openspec/plan/<slug>/phases.md` using the same `--state`)
 - Watch team -> plan checkpoints: `/opsx:watch-plan <team-name> <plan-slug>`
 
 ## Plan Workspace Contract (`openspec/plan`)
@@ -322,6 +336,34 @@ scripts/openspec/init-plan-workspace.sh <plan-slug>
 - If merge/rebase conflicts block auto-finish, run a conflict-resolution review pass in that sandbox branch, then rerun `agent-branch-finish.sh --via-pr` until merged.
 - Completion is not valid until these are true: commit exists on the agent branch, branch is pushed to `origin`, and PR/merge status is produced by `agent-branch-finish.sh` or `codex-agent`.
 - Completion report must include the PR URL and explicit merge state (`OPEN`/`MERGED`); without this, the task is not complete.
+- Final user-facing completion message must use this cleanup summary style (Claude-style parity), with real values filled in:
+
+```text
+Done. Cleanup complete.
+
+PR merged -> dev
+- PR #<number> (state: OPEN|MERGED): <url>
+- Commit on dev: <sha|n/a>
+- Sandbox worktree removed, no dangling local or remote refs. (yes/no)
+
+Cleanup flow ran successfully: yes/no
+Agent branch/worktree merged with dev: yes/no
+```
+- When the user asks to re-confirm or re-check the state of an already-merged task (for example "confirm state", "is it still done?", "check again"), **re-verify the PR + worktree + refs with `gh pr view` / `git worktree list` / `git branch -a` first**, then respond using this re-verification format (Claude-style parity) — do NOT re-run `agent-branch-finish.sh`:
+
+```text
+Confirmed — state unchanged from prior report:
+
+- PR #<number> state: <OPEN|MERGED> (merged at <ISO timestamp|n/a>, merge commit `<sha|n/a>`)
+- URL: <url>
+- Worktree: removed (no entry in `git worktree list`) / still present at <path>
+- Refs: no surviving local or remote refs for `<agent-branch>` / <list any remaining>
+- Task <id>: already marked completed / <status>
+
+Nothing further to do. / Next step: <action>.
+```
+- This cleanup/merge flow is mandatory and automatic by default: unless the user explicitly asks to keep work local, run `bash scripts/agent-branch-finish.sh --branch "<agent-branch>" --base dev --via-pr --wait-for-merge --cleanup` before any final completion message.
+- Never end with `Cleanup flow ran successfully: no` or `Agent branch/worktree merged with dev: no` unless blocked; if blocked, output `BLOCKED:` with the exact failure reason and the next retry command.
 - For every new task, if an assigned agent sub-branch/worktree is already open, continue in that sub-branch; otherwise create a fresh one from the current local base snapshot with `scripts/agent-branch-start.sh`.
 - Never implement directly on the local/base branch checkout; keep it unchanged and perform all edits in the agent sub-branch/worktree.
 - Agent worktree startup must preserve the primary local checkout branch exactly as-is; branch switching is allowed only inside the agent worktree.

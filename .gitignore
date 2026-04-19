@@ -92,3 +92,13 @@ oh-my-codex/
 .claude/commands/guardex.md
 .omx/state/agent-file-locks.json
 # multiagent-safety:END
+
+# Agent hook state (local session cache)
+.claude/hooks/state/
+.codex/hooks/state/
+.claude/scheduled_tasks.lock
+.codex/scheduled_tasks.lock
+.claude/settings.local.json
+.codex/settings.local.json
+.claude/worktrees/
+.codex/worktrees/
