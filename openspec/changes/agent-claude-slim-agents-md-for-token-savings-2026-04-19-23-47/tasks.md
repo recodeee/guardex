@@ -13,5 +13,11 @@
 
 - [x] 3.1 `wc -c AGENTS.md` reports 15,608 bytes (< 18,000 budget).
 - [x] 3.2 `diff <(awk '/START/,/END/' AGENTS.md) templates/AGENTS.multiagent-safety.md` is empty.
-- [ ] 3.3 Run `openspec validate agent-claude-slim-agents-md-for-token-savings-2026-04-19-23-47 --type change --strict`.
-- [ ] 3.4 Run `openspec validate --specs`.
+- [x] 3.3 Run `openspec validate agent-claude-slim-agents-md-for-token-savings-2026-04-19-23-47 --type change --strict` — valid.
+- [x] 3.4 Run `openspec validate --specs` — passes (no main specs to validate).
+
+## 4. Cleanup (mandatory; run before claiming completion)
+
+- [ ] 4.1 Run `bash scripts/agent-branch-finish.sh --branch agent/claude/slim-agents-md-for-token-savings-2026-04-19-23-47 --base main --via-pr --wait-for-merge --cleanup`.
+- [ ] 4.2 Record the PR URL and final merge state (`MERGED`).
+- [ ] 4.3 Confirm sandbox worktree is gone (`git worktree list` + `git branch -a`).
