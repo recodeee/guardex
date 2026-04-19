@@ -13,3 +13,9 @@
 - [x] 3.1 Run targeted project verification commands.
 - [x] 3.2 Run `openspec validate agent-codex-source-control-how-it-works-style-parity-2026-04-20-00-42 --type change --strict`.
 - [x] 3.3 Run `openspec validate --specs`.
+
+## 4. Cleanup
+
+- [ ] 4.1 Run `bash scripts/agent-branch-finish.sh --branch agent/codex/source-control-how-it-works-style-parity-2026-04-20-00-42 --base main --via-pr --wait-for-merge --cleanup`.
+- [ ] 4.2 Record PR URL and final merge state.
+- [ ] 4.3 Confirm sandbox worktree and refs are cleaned up.
