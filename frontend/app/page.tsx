@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { type ReactNode, useMemo, useState } from 'react'
 
 type ModeKey = 'execute' | 'plan' | 'merge'
 
@@ -747,7 +747,134 @@ const TUTORIAL: Record<ModeKey, ModeConfig> = {
   }
 }
 
-const RAIL_ITEMS = ['VS', 'SC', 'RG', 'EX']
+type ActivityIcon =
+  | 'files'
+  | 'search'
+  | 'git'
+  | 'debug'
+  | 'extensions'
+  | 'account'
+  | 'settings'
+  | 'plus'
+  | 'refresh'
+  | 'more'
+  | 'branch'
+
+function ActivityGlyph({ icon, className }: { icon: ActivityIcon; className?: string }) {
+  let content: ReactNode = null
+
+  switch (icon) {
+    case 'files':
+      content = (
+        <>
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+          <polyline points="14 2 14 8 20 8" />
+        </>
+      )
+      break
+    case 'search':
+      content = (
+        <>
+          <circle cx="11" cy="11" r="7" />
+          <path d="m21 21-4.3-4.3" />
+        </>
+      )
+      break
+    case 'git':
+      content = (
+        <>
+          <circle cx="18" cy="6" r="3" />
+          <circle cx="6" cy="6" r="3" />
+          <circle cx="12" cy="18" r="3" />
+          <path d="M6 9v6a3 3 0 0 0 3 3h6" />
+          <path d="M18 9a9 9 0 0 1-3 6" />
+        </>
+      )
+      break
+    case 'debug':
+      content = (
+        <>
+          <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2" />
+          <circle cx="12" cy="12" r="6" />
+        </>
+      )
+      break
+    case 'extensions':
+      content = (
+        <>
+          <rect x="3" y="3" width="8" height="8" />
+          <rect x="13" y="3" width="8" height="8" />
+          <rect x="3" y="13" width="8" height="8" />
+          <rect x="13" y="13" width="8" height="8" />
+        </>
+      )
+      break
+    case 'account':
+      content = (
+        <>
+          <circle cx="12" cy="8" r="4" />
+          <path d="M4 21a8 8 0 0 1 16 0" />
+        </>
+      )
+      break
+    case 'settings':
+      content = (
+        <>
+          <circle cx="12" cy="12" r="3" />
+          <path d="M12 1v6M12 17v6M4.2 4.2l4.2 4.2M15.6 15.6l4.2 4.2M1 12h6M17 12h6M4.2 19.8l4.2-4.2M15.6 8.4l4.2-4.2" />
+        </>
+      )
+      break
+    case 'plus':
+      content = <path d="M12 5v14M5 12h14" />
+      break
+    case 'refresh':
+      content = (
+        <>
+          <polyline points="23 4 23 10 17 10" />
+          <polyline points="1 20 1 14 7 14" />
+          <path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4-4.64 4.36A9 9 0 0 1 3.51 15" />
+        </>
+      )
+      break
+    case 'more':
+      content = (
+        <>
+          <circle cx="5" cy="12" r="1.5" fill="currentColor" />
+          <circle cx="12" cy="12" r="1.5" fill="currentColor" />
+          <circle cx="19" cy="12" r="1.5" fill="currentColor" />
+        </>
+      )
+      break
+    case 'branch':
+      content = (
+        <>
+          <line x1="6" y1="3" x2="6" y2="15" />
+          <circle cx="18" cy="6" r="3" />
+          <circle cx="6" cy="18" r="3" />
+          <path d="M18 9a9 9 0 0 1-9 9" />
+        </>
+      )
+      break
+    default:
+      content = null
+  }
+
+  return (
+    <svg
+      aria-hidden="true"
+      className={className ?? 'rail-glyph'}
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={1.7}
+      viewBox="0 0 24 24"
+    >
+      {content}
+    </svg>
+  )
+}
 
 export default function Home() {
   const [mode, setMode] = useState<ModeKey>('execute')
@@ -909,18 +1036,46 @@ export default function Home() {
           </div>
           <div className="editor-body">
             <aside className="activity-rail" aria-label="Activity rail">
-              {RAIL_ITEMS.map((icon) => (
-                <span className="rail-icon" key={icon}>
-                  {icon}
-                </span>
-              ))}
-              <span className={`rail-icon rail-icon-live ${changeCount > 0 ? 'live' : ''}`}>
-                {changeCount}
-              </span>
+              <button aria-label="Explorer" className="rail-action" type="button">
+                <ActivityGlyph icon="files" />
+              </button>
+              <button aria-label="Search" className="rail-action" type="button">
+                <ActivityGlyph icon="search" />
+              </button>
+              <button aria-label="Source Control" className="rail-action active" type="button">
+                <ActivityGlyph icon="git" />
+                <span className={`rail-badge ${changeCount > 0 ? 'live' : ''}`}>{changeCount}</span>
+              </button>
+              <button aria-label="Run and Debug" className="rail-action" type="button">
+                <ActivityGlyph icon="debug" />
+              </button>
+              <button aria-label="Extensions" className="rail-action" type="button">
+                <ActivityGlyph icon="extensions" />
+              </button>
+              <span className="rail-spacer" />
+              <button aria-label="Account" className="rail-action" type="button">
+                <ActivityGlyph icon="account" />
+              </button>
+              <button aria-label="Settings" className="rail-action" type="button">
+                <ActivityGlyph icon="settings" />
+              </button>
             </aside>
 
             <section className="source-panel">
-              <p className="source-title">SOURCE CONTROL</p>
+              <div className="source-header-row">
+                <p className="source-title">Source Control</p>
+                <div className="source-actions">
+                  <button aria-label="Create branch" className="source-action-btn" type="button">
+                    <ActivityGlyph icon="plus" className="source-action-glyph" />
+                  </button>
+                  <button aria-label="Refresh" className="source-action-btn" type="button">
+                    <ActivityGlyph icon="refresh" className="source-action-glyph" />
+                  </button>
+                  <button aria-label="More" className="source-action-btn" type="button">
+                    <ActivityGlyph icon="more" className="source-action-glyph" />
+                  </button>
+                </div>
+              </div>
               <p className="source-branch">{activeStep.branch}</p>
               <p className="source-note">{activeStep.sourceNote}</p>
 
@@ -928,26 +1083,54 @@ export default function Home() {
                 className="worktree-list"
                 key={`worktrees-${mode}-${stepIndex}-${animationSeed}`}
               >
-                <div className="worktree-item base">
-                  <p className="worktree-name">dev</p>
-                  <p className="worktree-branch">baseline · clean</p>
+                <div className="worktree-item base active">
+                  <div className="worktree-head">
+                    <ActivityGlyph icon="branch" className="worktree-branch-icon" />
+                    <p className="worktree-name">dev</p>
+                    <p className="worktree-tag">base · clean</p>
+                  </div>
+                  <p className="worktree-message">Baseline branch — no agent activity.</p>
                 </div>
 
                 {activeStep.worktrees.map((worktree, index) => (
                   <div
-                    className={`worktree-item ${worktree.kind ?? 'active'}`}
+                    className={`worktree-item active just-added ${worktree.kind ?? 'active'}`}
                     key={`${worktree.branch}-${index}`}
                     style={{ animationDelay: `${index * 110}ms` }}
                   >
-                    <p className="worktree-name">{worktree.name}</p>
+                    <div className="worktree-head">
+                      <ActivityGlyph icon="branch" className="worktree-branch-icon" />
+                      <p className="worktree-name">{worktree.name}</p>
+                    </div>
                     <p className="worktree-branch">{worktree.branch}</p>
                     {worktree.files && worktree.files.length > 0 ? (
                       <div className="worktree-files">
-                        {worktree.files.map((file) => (
-                          <span className="file-chip" key={file}>
-                            {file}
-                          </span>
-                        ))}
+                        <p className="worktree-files-head">
+                          Changes
+                          <span className="worktree-count">{worktree.files.length}</span>
+                        </p>
+                        {worktree.files.map((file) => {
+                          const match = file.match(/^([A-Z✓])\s+(.*)$/)
+                          const status = match?.[1] ?? '•'
+                          const label = match?.[2] ?? file
+                          const statusTone =
+                            status === 'M'
+                              ? 'modified'
+                              : status === 'U'
+                                ? 'added'
+                                : status === 'D'
+                                  ? 'removed'
+                                  : status === '✓'
+                                    ? 'ok'
+                                    : 'neutral'
+
+                          return (
+                            <p className="worktree-file-row" key={file}>
+                              <span className={`file-status ${statusTone}`}>{status}</span>
+                              <span className="file-label">{label}</span>
+                            </p>
+                          )
+                        })}
                       </div>
                     ) : null}
                   </div>
