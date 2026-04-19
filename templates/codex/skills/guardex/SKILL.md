@@ -20,6 +20,8 @@ gx setup      # install + repair + verify
 gx status     # confirm green
 ```
 
+In a monorepo with nested git repos (top-level `.git` plus `apps/*/.git`), `gx setup` auto-installs into every discovered repo. Submodules and guardex-managed worktrees are skipped. Pass `--no-recursive` to limit to the top-level only.
+
 ## Notes
 
 - Isolation: `scripts/codex-agent.sh "<task>" "<agent>"` is the one-command sandbox start/finish loop.

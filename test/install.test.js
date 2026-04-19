@@ -514,6 +514,86 @@ test('init aliases setup and provisions workflow files', () => {
   assert.equal(fs.existsSync(path.join(repoDir, 'AGENTS.md')), true);
 });
 
+test('setup recursively installs into nested git repos, skipping node_modules/worktrees/submodules', () => {
+  const topDir = initRepo();
+
+  const nestedA = path.join(topDir, 'apps', 'a');
+  const nestedB = path.join(topDir, 'apps', 'b');
+  const nodeModulesRepo = path.join(topDir, 'node_modules', 'fake-pkg');
+  const worktreeDir = path.join(topDir, '.omx', 'agent-worktrees', 'child');
+  const submoduleDir = path.join(topDir, 'packages', 'submod');
+
+  for (const dir of [nestedA, nestedB, nodeModulesRepo, worktreeDir, submoduleDir]) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+
+  for (const repo of [nestedA, nestedB, nodeModulesRepo]) {
+    const initResult = runCmd('git', ['init', '-b', 'dev'], repo);
+    assert.equal(initResult.status, 0, initResult.stderr);
+  }
+  fs.writeFileSync(path.join(worktreeDir, '.git'), 'gitdir: ../../../.git/worktrees/child\n', 'utf8');
+  fs.writeFileSync(path.join(submoduleDir, '.git'), 'gitdir: ../../.git/modules/submod\n', 'utf8');
+
+  const result = runNode(['setup', '--target', topDir, '--no-global-install'], topDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /Detected 3 git repos under/);
+  assert.match(result.stdout, /Setup complete\. \(3 repos\)/);
+
+  for (const repo of [topDir, nestedA, nestedB]) {
+    assert.equal(fs.existsSync(path.join(repo, 'AGENTS.md')), true, `AGENTS.md missing in ${repo}`);
+    assert.equal(
+      fs.existsSync(path.join(repo, 'scripts', 'agent-branch-start.sh')),
+      true,
+      `agent-branch-start.sh missing in ${repo}`,
+    );
+    assert.equal(
+      fs.existsSync(path.join(repo, '.githooks', 'pre-commit')),
+      true,
+      `pre-commit hook missing in ${repo}`,
+    );
+    assert.equal(
+      fs.existsSync(path.join(repo, '.omx', 'state', 'agent-file-locks.json')),
+      true,
+      `lock registry missing in ${repo}`,
+    );
+  }
+
+  for (const decoy of [nodeModulesRepo, worktreeDir, submoduleDir]) {
+    assert.equal(
+      fs.existsSync(path.join(decoy, 'AGENTS.md')),
+      false,
+      `AGENTS.md should not be installed in ${decoy}`,
+    );
+    assert.equal(
+      fs.existsSync(path.join(decoy, 'scripts', 'agent-branch-start.sh')),
+      false,
+      `scripts should not be installed in ${decoy}`,
+    );
+  }
+});
+
+test('setup --no-recursive limits install to the top-level repo', () => {
+  const topDir = initRepo();
+  const nestedA = path.join(topDir, 'apps', 'a');
+  fs.mkdirSync(nestedA, { recursive: true });
+  const initResult = runCmd('git', ['init', '-b', 'dev'], nestedA);
+  assert.equal(initResult.status, 0, initResult.stderr);
+
+  const result = runNode(
+    ['setup', '--target', topDir, '--no-global-install', '--no-recursive'],
+    topDir,
+  );
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.doesNotMatch(result.stdout, /Detected \d+ git repos under/);
+
+  assert.equal(fs.existsSync(path.join(topDir, 'AGENTS.md')), true);
+  assert.equal(
+    fs.existsSync(path.join(nestedA, 'AGENTS.md')),
+    false,
+    'nested repo must not be touched when --no-recursive is set',
+  );
+});
+
 test('review-bot-watch script prints help after setup', () => {
   const repoDir = initRepo();
 

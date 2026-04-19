@@ -425,6 +425,90 @@ function isGitRepo(targetPath) {
   return result.status === 0;
 }
 
+const NESTED_REPO_DEFAULT_MAX_DEPTH = 6;
+const NESTED_REPO_DEFAULT_SKIP_DIRS = new Set([
+  'node_modules',
+  '.git',
+  'dist',
+  'build',
+  '.next',
+  '.cache',
+  'target',
+  'vendor',
+  '.venv',
+  '.pnpm-store',
+]);
+const NESTED_REPO_WORKTREE_RELATIVE_DIR = path.join('.omx', 'agent-worktrees');
+
+function discoverNestedGitRepos(rootPath, opts = {}) {
+  const maxDepth = Number.isFinite(opts.maxDepth) ? Math.max(1, opts.maxDepth) : NESTED_REPO_DEFAULT_MAX_DEPTH;
+  const extraSkip = new Set(Array.isArray(opts.extraSkip) ? opts.extraSkip : []);
+  const includeSubmodules = Boolean(opts.includeSubmodules);
+  const resolvedRoot = path.resolve(rootPath);
+
+  const rootCommonDir = (() => {
+    const result = run('git', ['-C', resolvedRoot, 'rev-parse', '--git-common-dir'], { cwd: resolvedRoot });
+    if (result.status !== 0) return null;
+    const raw = result.stdout.trim();
+    if (!raw) return null;
+    return path.resolve(resolvedRoot, raw);
+  })();
+
+  const workreeSkipAbsolute = path.join(resolvedRoot, NESTED_REPO_WORKTREE_RELATIVE_DIR);
+  const found = new Set();
+  found.add(resolvedRoot);
+
+  function shouldSkipDir(dirName) {
+    return NESTED_REPO_DEFAULT_SKIP_DIRS.has(dirName) || extraSkip.has(dirName);
+  }
+
+  function walk(currentPath, depth) {
+    if (depth > maxDepth) return;
+    let entries;
+    try {
+      entries = fs.readdirSync(currentPath, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      const entryPath = path.join(currentPath, entry.name);
+
+      if (entry.name === '.git') {
+        if (entry.isDirectory()) {
+          if (entryPath === path.join(resolvedRoot, '.git')) continue;
+          found.add(path.dirname(entryPath));
+        } else if (includeSubmodules && entry.isFile()) {
+          found.add(path.dirname(entryPath));
+        }
+        continue;
+      }
+
+      if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
+      if (shouldSkipDir(entry.name)) continue;
+      if (entryPath === workreeSkipAbsolute) continue;
+      walk(entryPath, depth + 1);
+    }
+  }
+
+  walk(resolvedRoot, 0);
+
+  const filtered = Array.from(found).filter((repoPath) => {
+    if (repoPath === resolvedRoot) return true;
+    if (!rootCommonDir) return true;
+    const childResult = run('git', ['-C', repoPath, 'rev-parse', '--git-common-dir'], { cwd: repoPath });
+    if (childResult.status !== 0) return true;
+    const childCommonDirRaw = childResult.stdout.trim();
+    if (!childCommonDirRaw) return true;
+    const childCommonDir = path.resolve(repoPath, childCommonDirRaw);
+    return childCommonDir !== rootCommonDir;
+  });
+
+  const [root, ...rest] = filtered;
+  rest.sort((a, b) => a.localeCompare(b));
+  return [root, ...rest];
+}
+
 function toDestinationPath(relativeTemplatePath) {
   if (relativeTemplatePath.startsWith('scripts/')) {
     return relativeTemplatePath;
@@ -827,16 +911,52 @@ function parseCommonArgs(rawArgs, defaults) {
 }
 
 function parseSetupArgs(rawArgs, defaults) {
-  const setupDefaults = { ...defaults, parentWorkspaceView: false };
+  const setupDefaults = {
+    ...defaults,
+    parentWorkspaceView: false,
+    recursive: true,
+    nestedMaxDepth: NESTED_REPO_DEFAULT_MAX_DEPTH,
+    nestedSkipDirs: [],
+    includeSubmodules: false,
+  };
   const forwardedArgs = [];
 
-  for (const arg of rawArgs) {
+  for (let index = 0; index < rawArgs.length; index += 1) {
+    const arg = rawArgs[index];
     if (arg === '--parent-workspace-view') {
       setupDefaults.parentWorkspaceView = true;
       continue;
     }
     if (arg === '--no-parent-workspace-view') {
       setupDefaults.parentWorkspaceView = false;
+      continue;
+    }
+    if (arg === '--no-recursive' || arg === '--no-nested' || arg === '--single-repo') {
+      setupDefaults.recursive = false;
+      continue;
+    }
+    if (arg === '--recursive' || arg === '--nested') {
+      setupDefaults.recursive = true;
+      continue;
+    }
+    if (arg === '--max-depth') {
+      const raw = requireValue(rawArgs, index, '--max-depth');
+      const parsed = Number.parseInt(raw, 10);
+      if (!Number.isFinite(parsed) || parsed < 1) {
+        throw new Error('--max-depth requires a positive integer');
+      }
+      setupDefaults.nestedMaxDepth = parsed;
+      index += 1;
+      continue;
+    }
+    if (arg === '--skip-nested') {
+      const raw = requireValue(rawArgs, index, '--skip-nested');
+      setupDefaults.nestedSkipDirs.push(raw);
+      index += 1;
+      continue;
+    }
+    if (arg === '--include-submodules') {
+      setupDefaults.includeSubmodules = true;
       continue;
     }
     forwardedArgs.push(arg);
@@ -4356,24 +4476,87 @@ function setup(rawArgs) {
     }
   }
 
-  assertProtectedMainWriteAllowed(options, 'setup');
-  const installPayload = runInstallInternal(options);
-  installPayload.operations.push(ensureSetupProtectedBranches(installPayload.repoRoot, Boolean(options.dryRun)));
-  if (options.parentWorkspaceView) {
-    installPayload.operations.push(ensureParentWorkspaceView(installPayload.repoRoot, Boolean(options.dryRun)));
-  }
-  printOperations('Setup/install', installPayload, options.dryRun);
+  const topRepoRoot = resolveRepoRoot(options.target);
+  const discoveredRepos = options.recursive
+    ? discoverNestedGitRepos(topRepoRoot, {
+        maxDepth: options.nestedMaxDepth,
+        extraSkip: options.nestedSkipDirs,
+        includeSubmodules: options.includeSubmodules,
+      })
+    : [topRepoRoot];
 
-  const fixPayload = runFixInternal({
-    target: options.target,
-    dryRun: options.dryRun,
-    force: options.force,
-    dropStaleLocks: true,
-    skipAgents: options.skipAgents,
-    skipPackageJson: options.skipPackageJson,
-    skipGitignore: options.skipGitignore,
-  });
-  printOperations('Setup/fix', fixPayload, options.dryRun);
+  if (discoveredRepos.length > 1) {
+    console.log(
+      `[${TOOL_NAME}] Detected ${discoveredRepos.length} git repos under ${topRepoRoot}. Installing into each (use --no-recursive to limit to the top-level).`,
+    );
+    for (const repoPath of discoveredRepos) {
+      const marker = repoPath === topRepoRoot ? ' (top-level)' : '';
+      console.log(`[${TOOL_NAME}]   - ${repoPath}${marker}`);
+    }
+  }
+
+  let aggregateErrors = 0;
+  let aggregateWarnings = 0;
+  let lastScanResult = null;
+
+  for (const repoPath of discoveredRepos) {
+    const perRepoOptions = { ...options, target: repoPath };
+    const repoLabel = discoveredRepos.length > 1 ? ` [${path.relative(topRepoRoot, repoPath) || '.'}]` : '';
+
+    if (discoveredRepos.length > 1) {
+      console.log(`[${TOOL_NAME}] ── Setup target: ${repoPath} ──`);
+    }
+
+    assertProtectedMainWriteAllowed(perRepoOptions, 'setup');
+    const installPayload = runInstallInternal(perRepoOptions);
+    installPayload.operations.push(ensureSetupProtectedBranches(installPayload.repoRoot, Boolean(perRepoOptions.dryRun)));
+    if (perRepoOptions.parentWorkspaceView) {
+      installPayload.operations.push(ensureParentWorkspaceView(installPayload.repoRoot, Boolean(perRepoOptions.dryRun)));
+    }
+    printOperations(`Setup/install${repoLabel}`, installPayload, perRepoOptions.dryRun);
+
+    const fixPayload = runFixInternal({
+      target: repoPath,
+      dryRun: perRepoOptions.dryRun,
+      force: perRepoOptions.force,
+      dropStaleLocks: true,
+      skipAgents: perRepoOptions.skipAgents,
+      skipPackageJson: perRepoOptions.skipPackageJson,
+      skipGitignore: perRepoOptions.skipGitignore,
+    });
+    printOperations(`Setup/fix${repoLabel}`, fixPayload, perRepoOptions.dryRun);
+
+    if (perRepoOptions.dryRun) {
+      continue;
+    }
+
+    if (perRepoOptions.parentWorkspaceView) {
+      const parentWorkspace = buildParentWorkspaceView(installPayload.repoRoot);
+      console.log(`[${TOOL_NAME}] Parent workspace view: ${parentWorkspace.workspacePath}`);
+    }
+
+    const scanResult = runScanInternal({ target: repoPath, json: false });
+    const currentBaseBranch = currentBranchName(scanResult.repoRoot);
+    const autoFinishSummary = autoFinishReadyAgentBranches(scanResult.repoRoot, {
+      baseBranch: currentBaseBranch,
+      dryRun: perRepoOptions.dryRun,
+    });
+    printScanResult(scanResult, false);
+    if (autoFinishSummary.enabled) {
+      console.log(
+        `[${TOOL_NAME}] Auto-finish sweep (base=${currentBaseBranch}): attempted=${autoFinishSummary.attempted}, completed=${autoFinishSummary.completed}, skipped=${autoFinishSummary.skipped}, failed=${autoFinishSummary.failed}`,
+      );
+      for (const detail of autoFinishSummary.details) {
+        console.log(`[${TOOL_NAME}]   ${detail}`);
+      }
+    } else if (autoFinishSummary.details.length > 0) {
+      console.log(`[${TOOL_NAME}] ${autoFinishSummary.details[0]}`);
+    }
+
+    aggregateErrors += scanResult.errors;
+    aggregateWarnings += scanResult.warnings;
+    lastScanResult = scanResult;
+  }
 
   if (options.dryRun) {
     console.log(`[${TOOL_NAME}] Dry run setup done.`);
@@ -4381,31 +4564,10 @@ function setup(rawArgs) {
     return;
   }
 
-  if (options.parentWorkspaceView) {
-    const parentWorkspace = buildParentWorkspaceView(installPayload.repoRoot);
-    console.log(`[${TOOL_NAME}] Parent workspace view: ${parentWorkspace.workspacePath}`);
-  }
-
-  const scanResult = runScanInternal({ target: options.target, json: false });
-  const currentBaseBranch = currentBranchName(scanResult.repoRoot);
-  const autoFinishSummary = autoFinishReadyAgentBranches(scanResult.repoRoot, {
-    baseBranch: currentBaseBranch,
-    dryRun: options.dryRun,
-  });
-  printScanResult(scanResult, false);
-  if (autoFinishSummary.enabled) {
-    console.log(
-      `[${TOOL_NAME}] Auto-finish sweep (base=${currentBaseBranch}): attempted=${autoFinishSummary.attempted}, completed=${autoFinishSummary.completed}, skipped=${autoFinishSummary.skipped}, failed=${autoFinishSummary.failed}`,
-    );
-    for (const detail of autoFinishSummary.details) {
-      console.log(`[${TOOL_NAME}]   ${detail}`);
-    }
-  } else if (autoFinishSummary.details.length > 0) {
-    console.log(`[${TOOL_NAME}] ${autoFinishSummary.details[0]}`);
-  }
-
-  if (scanResult.errors === 0 && scanResult.warnings === 0) {
-    console.log(`[${TOOL_NAME}] ✅ Setup complete.`);
+  if (aggregateErrors === 0 && aggregateWarnings === 0) {
+    const repoCount = discoveredRepos.length;
+    const suffix = repoCount > 1 ? ` (${repoCount} repos)` : '';
+    console.log(`[${TOOL_NAME}] ✅ Setup complete.${suffix}`);
     console.log(`[${TOOL_NAME}] Copy AI setup prompt with: ${SHORT_TOOL_NAME} prompt`);
     console.log(
       `[${TOOL_NAME}] OpenSpec core workflow: /opsx:propose -> /opsx:apply -> /opsx:archive`,
@@ -4416,7 +4578,13 @@ function setup(rawArgs) {
     console.log(`[${TOOL_NAME}] OpenSpec guide: docs/openspec-getting-started.md`);
   }
 
-  setExitCodeFromScan(scanResult);
+  if (lastScanResult) {
+    setExitCodeFromScan({
+      ...lastScanResult,
+      errors: aggregateErrors,
+      warnings: aggregateWarnings,
+    });
+  }
 }
 
 function ensureMainBranch(repoRoot) {

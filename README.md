@@ -118,6 +118,11 @@ gx doctor --target /path/to/repo
 # optional VS Code workspace showing repo + agent worktrees
 gx setup --target /path/to/repo --parent-workspace-view
 
+# monorepo with nested git repos (e.g. /mainfolder/.git + /mainfolder/apps/*/.git)
+# setup auto-installs into every nested repo; use --no-recursive to limit to the top-level
+gx setup --target /mainfolder
+gx setup --target /mainfolder --no-recursive
+
 # protected branch management
 gx protect list
 gx protect add release staging
@@ -199,6 +204,7 @@ gx agents stop
 - Setup/doctor can install missing global OMX/OpenSpec/codex-auth with explicit Y/N confirmation.
 - `gx setup` checks GitHub CLI (`gh`) and prints install guidance if missing.
 - Optional parent-folder VS Code Source Control view: `gx setup --target /path/to/repo --parent-workspace-view` creates `../<repo>-branches.code-workspace`.
+- Monorepo-aware: when the target contains nested git repos (e.g. `apps/*/.git`), `gx setup` installs the workflow into every discovered repo. Git submodules (`.git` files) and guardex worktrees under `.omx/agent-worktrees/` are skipped. Opt out with `--no-recursive`; tune discovery with `--max-depth <n>`, `--skip-nested <dir>`, and `--include-submodules`.
 - Interactive self-update prompt defaults to **No** (`[y/N]`).
 - In initialized repos, `setup`/`install`/`fix` block protected-base writes unless explicitly overridden.
 - Direct commits/pushes to protected branches are blocked by default.
