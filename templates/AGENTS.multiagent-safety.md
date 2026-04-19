@@ -1,7 +1,7 @@
 <!-- multiagent-safety:START -->
 ## Multi-Agent Safety Contract
 
-**Isolation.** Every task runs on a dedicated `agent/*` branch + worktree. Start with `scripts/agent-branch-start.sh "<task>" "<agent-name>"`. Treat the base branch (`main`/`dev`) as read-only while an agent branch is active.
+**Isolation.** Every task runs on a dedicated `agent/*` branch + worktree. Start with `scripts/agent-branch-start.sh "<task>" "<agent-name>"`. Treat the base branch (`main`/`dev`) as read-only while an agent branch is active. Never `git checkout <branch>` on a primary working tree (including nested repos); use `git worktree add` instead. The `.githooks/post-checkout` hook auto-reverts primary-branch switches during agent sessions — bypass only with `GUARDEX_ALLOW_PRIMARY_BRANCH_SWITCH=1`.
 
 **Ownership.** Before editing, claim files: `scripts/agent-file-locks.py claim --branch "<agent-branch>" <file...>`. Before deleting, confirm the path is in your claim. Don't edit outside your scope unless reassigned.
 
