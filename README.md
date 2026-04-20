@@ -412,6 +412,11 @@ npm pack --dry-run
 
 ## Release notes
 
+### v7.0.8
+
+- **Added: repo toggle guidance in `gx` status/help output.** The command summary now shows a dedicated `REPO TOGGLE` section so operators can see the repo-local switch immediately: `GUARDEX_ON=0` disables Guardex for a repo and `GUARDEX_ON=1` turns it back on.
+- **Changed: package metadata advanced to the next publishable release.** Bumped `@imdeadpool/guardex` from `7.0.7` to `7.0.8` so the current `main` branch state can be published without colliding with the existing release number.
+
 ### v7.0.7
 
 - **Fixed: next publish target now advances past npm.** Bumped `@imdeadpool/guardex` from `7.0.6` to `7.0.7` so the next `npm publish` does not collide with the already-published registry version.
