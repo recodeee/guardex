@@ -2538,7 +2538,17 @@ export default function Home() {
             </div>
             <div>
               <div className="title">GuardeX</div>
-              <div className="sub">the Guardian T-Rex for your repo</div>
+              <div className="sub">
+                the Guardian T-Rex for your repo ·{' '}
+                <a
+                  href="https://guardextutorial.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ color: 'inherit', textDecoration: 'underline', textUnderlineOffset: '2px' }}
+                >
+                  guardextutorial.com
+                </a>
+              </div>
             </div>
           </div>
         </div>

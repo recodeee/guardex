@@ -16,7 +16,7 @@ test('package manifest includes repository and support metadata', () => {
 
   assert.equal(pkg.repository?.url, 'git+https://github.com/recodeee/guardex.git');
   assert.equal(pkg.bugs?.url, 'https://github.com/recodeee/guardex/issues');
-  assert.equal(pkg.homepage, 'https://github.com/recodeee/guardex#readme');
+  assert.equal(pkg.homepage, 'https://guardextutorial.com');
   assert.equal(pkg.publishConfig?.access, 'public');
 });
 
