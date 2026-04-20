@@ -412,6 +412,11 @@ npm pack --dry-run
 
 ## Release notes
 
+### v7.0.9
+
+- **Added: `gx doctor` and `gx setup` now refresh AGENTS with repo-toggle examples.** The managed AGENTS block now states that Guardex is enabled by default and shows the exact repo-root `.env` lines: `GUARDEX_ON=0` disables Guardex for that repo and `GUARDEX_ON=1` enables it again.
+- **Changed: package metadata advanced to the next publishable release.** Bumped `@imdeadpool/guardex` from `7.0.8` to `7.0.9` so the current `main` branch state can be published without colliding with the existing npm release.
+
 ### v7.0.8
 
 - **Added: repo toggle guidance in `gx` status/help output.** The command summary now shows a dedicated `REPO TOGGLE` section so operators can see the repo-local switch immediately: `GUARDEX_ON=0` disables Guardex for a repo and `GUARDEX_ON=1` turns it back on.
