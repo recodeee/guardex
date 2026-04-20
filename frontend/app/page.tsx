@@ -1,756 +1,1665 @@
 'use client'
 
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  type CSSProperties,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react'
 
 type ModeKey = 'execute' | 'plan' | 'merge'
 
-type MessageKind = 'user' | 'assistant' | 'thinking' | 'hint' | 'tool' | 'conflict'
+type MessageKind =
+  | 'user'
+  | 'assistant'
+  | 'thinking'
+  | 'hint'
+  | 'tool'
+  | 'conflict'
+  | 'plan-list'
 
-type LineTone = 'normal' | 'comment' | 'added' | 'removed'
+type ToolRowKind = 'shell' | 'read' | 'write' | 'tool'
+type WorktreeKind = 'active' | 'readonly' | 'merge'
+type FileStatus = 'U' | 'M' | 'D' | 'ok' | 'conflict'
+type FileExt = 'rs' | 'ts' | 'tsx' | 'md' | 'yaml' | 'py' | 'sh' | 'default'
 
-interface StepMessage {
-  kind: MessageKind
-  text: string
-  label?: string
-  lines?: string[]
+interface ToolRow {
+  kind: ToolRowKind
+  label: string
+  value: string
+}
+
+interface ToolMessage {
+  kind: 'tool'
+  title: string
+  sub?: string
+  elapsed?: string
+  rows: ToolRow[]
+}
+
+interface PlanListMessage {
+  kind: 'plan-list'
+  items: Array<{ title: string; meta?: string }>
+}
+
+interface TextMessage {
+  kind: Exclude<MessageKind, 'tool' | 'plan-list'>
+  content: ReactNode
+}
+
+type StepMessage = TextMessage | ToolMessage | PlanListMessage
+
+interface FileEntry {
+  path: string
+  status: FileStatus
+  ext: FileExt
 }
 
 interface WorktreeRow {
+  id: string
   name: string
   branch: string
-  kind?: 'active' | 'readonly' | 'merge'
-  files?: string[]
+  kind: WorktreeKind
+  message?: string
+  tag?: string
+  files?: FileEntry[]
+  commitReady?: boolean
+  commitState?: 'idle' | 'ready' | 'approved'
+  pulling?: boolean
+  showPullBar?: boolean
 }
 
-interface CodeLine {
+interface CodeLinePart {
+  token?: 'k' | 'f' | 't' | 's' | 'c' | 'n' | 'p' | ''
   text: string
-  tone?: LineTone
+}
+
+type LineKind = 'normal' | 'added' | 'removed'
+
+interface CodeLine {
+  kind?: LineKind
+  parts: CodeLinePart[]
+  typing?: boolean
+}
+
+interface EditorTab {
+  path: string
+  label: string
+  ext: FileExt
+  active?: boolean
+  state?: 'normal' | 'conflict' | 'resolved'
+  badge?: string
 }
 
 interface TutorialStep {
   stepLabel: string
-  title: string
-  description: string
+  label: string
+  description: ReactNode
   messages: StepMessage[]
   branch: string
-  sourceNote: string
+  tabs: EditorTab[]
   worktrees: WorktreeRow[]
-  codeTitle: string
   codeLines: CodeLine[]
+  statusBranch?: string
+  statusErrors?: number
+  statusSync?: string
+  activityChangeCount?: number
+  pulseEditor?: boolean
+  showPullAnimation?: boolean
 }
 
 interface ModeConfig {
+  key: ModeKey
   label: string
-  dotClass: string
+  dotClass: 'a' | 'p' | 'm'
   steps: TutorialStep[]
 }
 
 const MODE_ORDER: ModeKey[] = ['execute', 'plan', 'merge']
-const PRODUCT_LABEL = 'GuardeX'
-const AGENT_LABEL = 'Codex'
-const EDITOR_LABEL = 'guardex-agent-work-tree-managment — VS Code'
+const PRODUCT_LABEL = 'Recodee'
+const EDITOR_LABEL = 'recodee — VS Code'
 
-const TUTORIAL: Record<ModeKey, ModeConfig> = {
-  execute: {
-    label: 'Execute mode',
-    dotClass: 'accent-execute',
-    steps: [
-      {
-        stepLabel: 'Step 01',
-        title: 'Prompt the agent',
-        description:
-          'Every session starts with a prompt. Pick your model, reasoning level, and access mode, then describe what needs to be built.',
-        messages: [
-          {
-            kind: 'user',
-            text: 'You: Port the dashboard usage slice from Python to Rust. Keep tests green.'
-          },
-          {
-            kind: 'hint',
-            text: 'gpt-5.4 · reasoning high · On-request'
-          }
-        ],
-        branch: 'dev',
-        sourceNote: 'Baseline branch. Waiting for agent activity.',
-        worktrees: [],
-        codeTitle: 'tutorial.ts',
-        codeLines: [
-          { text: '// Open Source Control to see each sandbox branch spin up.', tone: 'comment' },
-          { text: '// Each step below updates this panel in real time.', tone: 'comment' },
-          { text: 'const run = "execute"', tone: 'normal' }
-        ]
-      },
-      {
-        stepLabel: 'Step 02',
-        title: 'Agent explores the repo',
-        description:
-          'Before writing code, the agent reads guidance, maps call sites, and checks current branch state in read-only mode.',
-        messages: [
-          {
-            kind: 'assistant',
-            text: "I'll load AGENTS + runtime docs and trace Python reader call paths before editing."
-          },
-          {
-            kind: 'tool',
-            text: '3 tool calls',
-            label: 'context-gathering',
-            lines: [
-              'tool: state_list_active',
-              'read: AGENTS.md',
-              'read: app/modules/dashboard/service.py'
-            ]
-          }
-        ],
-        branch: 'dev',
-        sourceNote: 'Read-only scan complete. Ready to isolate edits.',
-        worktrees: [],
-        codeTitle: 'analysis.log',
-        codeLines: [
-          { text: '[scan] dashboard reader entrypoints: 11', tone: 'normal' },
-          { text: '[scan] rust crate baseline present', tone: 'normal' },
-          { text: '[scan] writes blocked until sandbox branch', tone: 'comment' }
-        ]
-      },
-      {
-        stepLabel: 'Step 03',
-        title: 'Sandbox worktree created',
-        description:
-          'Writes only happen inside a dedicated agent worktree. Your visible dev checkout stays clean and untouched.',
-        messages: [
-          {
-            kind: 'thinking',
-            text: 'Creating agent/codex/dashboard-rust-port-421 from dev for isolated writes.'
-          },
-          {
-            kind: 'tool',
-            text: '1 tool call',
-            label: 'branch-start',
-            lines: ['bash: scripts/agent-branch-start.sh "dashboard-rust-port"']
-          }
-        ],
-        branch: 'agent/codex/dashboard-rust-port-421',
-        sourceNote: 'New sandbox attached. Main branch still clean.',
-        worktrees: [
-          {
-            name: 'agent_codex__dashboard-rust-port-421',
-            branch: 'agent/codex/dashboard-rust-port-421',
-            kind: 'active'
-          }
-        ],
-        codeTitle: 'worktree.sh',
-        codeLines: [
-          { text: 'git worktree add .omx/agent-worktrees/... agent/codex/dashboard-rust-port-421', tone: 'normal' },
-          { text: '# sandbox ready', tone: 'comment' },
-          { text: 'echo "writes isolated"', tone: 'normal' }
-        ]
-      },
-      {
-        stepLabel: 'Step 04',
-        title: 'Agent edits files in sandbox',
-        description:
-          'As files are written, changes appear under the sandbox worktree with explicit touched-file evidence.',
-        messages: [
-          {
-            kind: 'assistant',
-            text: 'Writing Rust reader + feature flag wiring in the agent branch only.'
-          },
-          {
-            kind: 'tool',
-            text: '3 tool calls',
-            label: 'writing files',
-            lines: [
-              'write: crates/multica-dashboard/src/reader.rs',
-              'write: crates/multica-dashboard/src/mod.rs',
-              'write: apps/dashboard/src/feature-flags.ts'
-            ]
-          }
-        ],
-        branch: 'agent/codex/dashboard-rust-port-421',
-        sourceNote: 'Live edits detected. 3 changed files in this sandbox.',
-        worktrees: [
-          {
-            name: 'agent_codex__dashboard-rust-port-421',
-            branch: 'agent/codex/dashboard-rust-port-421',
-            kind: 'active',
-            files: [
-              'U crates/multica-dashboard/src/reader.rs',
-              'M crates/multica-dashboard/src/mod.rs',
-              'M apps/dashboard/src/feature-flags.ts'
-            ]
-          }
-        ],
-        codeTitle: 'reader.rs',
-        codeLines: [
-          { text: 'pub async fn read_usage_summary(state: &AppState, account_id: Uuid) -> Result<UsageSummary> {', tone: 'added' },
-          { text: '  let row = sqlx::query_as!(UsageSummary, "SELECT * FROM usage_totals_fast WHERE account_id = $1", account_id)', tone: 'added' },
-          { text: '    .fetch_one(&state.db).await?;', tone: 'added' },
-          { text: '  Ok(row)', tone: 'added' },
-          { text: '}', tone: 'added' }
-        ]
-      },
-      {
-        stepLabel: 'Step 05',
-        title: 'Live diff streams into editor',
-        description:
-          'You can review in-progress changes as an inline diff before commit: adds in green, removals in red.',
-        messages: [
-          {
-            kind: 'assistant',
-            text: 'Streaming the latest diff now so you can validate behavior before commit.'
-          }
-        ],
-        branch: 'agent/codex/dashboard-rust-port-421',
-        sourceNote: 'Diff view active for the selected file.',
-        worktrees: [
-          {
-            name: 'agent_codex__dashboard-rust-port-421',
-            branch: 'agent/codex/dashboard-rust-port-421',
-            kind: 'active',
-            files: [
-              'M crates/multica-dashboard/src/reader.rs',
-              'M apps/dashboard/src/feature-flags.ts'
-            ]
-          }
-        ],
-        codeTitle: 'feature-flags.ts',
-        codeLines: [
-          { text: 'export const FLAGS = {', tone: 'normal' },
-          { text: '  dashboard_reads_rust: { enabled: false, rollout: 0 },', tone: 'added' },
-          { text: '  dashboard_reads_python: { enabled: true }', tone: 'removed' },
-          { text: '}', tone: 'normal' }
-        ]
-      },
-      {
-        stepLabel: 'Step 06',
-        title: 'Second worktree spins up',
-        description:
-          'Parallel prompts create separate worktrees, so independent fixes can run side by side without collision.',
-        messages: [
-          {
-            kind: 'user',
-            text: 'You: Also fix the hydration flash on the sidebar loader.'
-          },
-          {
-            kind: 'assistant',
-            text: 'Creating a second sandbox in parallel. Rust migration continues independently.'
-          }
-        ],
-        branch: 'agent/codex/projects-hydration-fix',
-        sourceNote: 'Parallel lane created safely in a separate branch.',
-        worktrees: [
-          {
-            name: 'agent_codex__dashboard-rust-port-421',
-            branch: 'agent/codex/dashboard-rust-port-421',
-            kind: 'active',
-            files: ['3 changes staged']
-          },
-          {
-            name: 'agent_codex__projects-hydration-fix',
-            branch: 'agent/codex/projects-hydration-fix',
-            kind: 'active'
-          }
-        ],
-        codeTitle: 'scripts/agent-branch-start.sh',
-        codeLines: [
-          { text: 'bash scripts/agent-branch-start.sh "projects-hydration-fix"', tone: 'normal' },
-          { text: '# second worktree attached', tone: 'comment' },
-          { text: 'echo "parallel lane ready"', tone: 'normal' }
-        ]
-      },
-      {
-        stepLabel: 'Step 07',
-        title: 'Parallel file stream',
-        description:
-          'Each worktree tracks its own file set, so you can audit exactly what changed in each task lane.',
-        messages: [
-          {
-            kind: 'tool',
-            text: '2 tool calls',
-            label: 'second lane writes',
-            lines: [
-              'write: apps/frontend/src/components/layout/loading-overlay.tsx',
-              'write: apps/frontend/src/lib/navigation-loader.ts'
-            ]
-          }
-        ],
-        branch: 'agent/codex/projects-hydration-fix',
-        sourceNote: 'Second lane now has 2 tracked changes.',
-        worktrees: [
-          {
-            name: 'agent_codex__dashboard-rust-port-421',
-            branch: 'agent/codex/dashboard-rust-port-421',
-            kind: 'active',
-            files: ['3 changes staged']
-          },
-          {
-            name: 'agent_codex__projects-hydration-fix',
-            branch: 'agent/codex/projects-hydration-fix',
-            kind: 'active',
-            files: [
-              'U apps/frontend/src/components/layout/loading-overlay.tsx',
-              'M apps/frontend/src/lib/navigation-loader.ts'
-            ]
-          }
-        ],
-        codeTitle: 'loading-overlay.tsx',
-        codeLines: [
-          { text: 'const shouldRender = !navigationSettled && !suppressLoaderFlash', tone: 'added' },
-          { text: 'return shouldRender ? <OverlaySpinner /> : null', tone: 'added' },
-          { text: 'setTimeout(() => setSuppressLoaderFlash(true), 140)', tone: 'added' }
-        ]
-      },
-      {
-        stepLabel: 'Step 08',
-        title: 'Commit approval checkpoint',
-        description:
-          'With On-request access, the agent pauses before commit and waits for your explicit approval to finish.',
-        messages: [
-          {
-            kind: 'assistant',
-            text: 'Phase complete. Tests pass. Ready to commit agent/codex/dashboard-rust-port-421.'
-          },
-          {
-            kind: 'hint',
-            text: 'Approval required: Commit + PR + merge cleanup'
-          }
-        ],
-        branch: 'agent/codex/dashboard-rust-port-421',
-        sourceNote: 'Awaiting user approval before commit step.',
-        worktrees: [
-          {
-            name: 'agent_codex__dashboard-rust-port-421',
-            branch: 'agent/codex/dashboard-rust-port-421',
-            kind: 'active',
-            files: ['3 files ready for commit']
-          }
-        ],
-        codeTitle: 'verification.log',
-        codeLines: [
-          { text: 'cargo test -p multica-dashboard  ✓', tone: 'normal' },
-          { text: 'pnpm test --filter=dashboard   ✓', tone: 'normal' },
-          { text: 'Waiting for commit approval...', tone: 'comment' }
-        ]
-      },
-      {
-        stepLabel: 'Step 09',
-        title: 'PR merged and worktree cleaned',
-        description:
-          'After merge, the sandbox worktree is removed automatically and the repository returns to a clean base branch.',
-        messages: [
-          {
-            kind: 'tool',
-            text: '2 tool calls',
-            label: 'finish pipeline',
-            lines: [
-              'bash: scripts/agent-branch-finish.sh --via-pr --wait-for-merge --cleanup',
-              'tool: pr.merged → worktree.pruned'
-            ]
-          },
-          {
-            kind: 'assistant',
-            text: 'PR merged. Sandbox cleaned. You are back on dev with zero leftover branch noise.'
-          }
-        ],
-        branch: 'dev',
-        sourceNote: 'Cleanup complete. No active agent worktrees remain.',
-        worktrees: [],
-        codeTitle: 'status',
-        codeLines: [
-          { text: 'git status', tone: 'normal' },
-          { text: 'On branch dev', tone: 'normal' },
-          { text: 'nothing to commit, working tree clean', tone: 'comment' }
-        ]
-      }
-    ]
-  },
-  plan: {
-    label: 'Plan mode',
-    dotClass: 'accent-plan',
-    steps: [
-      {
-        stepLabel: 'Step 01',
-        title: 'Enable plan mode',
-        description:
-          'Plan mode keeps the agent read-only while it investigates and drafts a phased implementation plan.',
-        messages: [
-          { kind: 'hint', text: 'Plan mode ON · read-only tools only' },
-          {
-            kind: 'user',
-            text: 'You: Explore the dashboard Rust migration and give me a safe execution plan first.'
-          }
-        ],
-        branch: 'dev',
-        sourceNote: 'Read-only plan session started.',
-        worktrees: [
-          {
-            name: 'agent_plan__dashboard-rust-port',
-            branch: 'agent/plan/dashboard-rust-port',
-            kind: 'readonly'
-          }
-        ],
-        codeTitle: '~/.claude/plans/draft.md',
-        codeLines: [
-          { text: '# Dashboard reads -> Rust migration', tone: 'comment' },
-          { text: 'mode: plan (read-only)', tone: 'normal' },
-          { text: 'status: collecting context', tone: 'normal' }
-        ]
-      },
-      {
-        stepLabel: 'Step 02',
-        title: 'Explore and map dependencies',
-        description:
-          'The agent gathers dependencies, call sites, and risk points without performing writes.',
-        messages: [
-          { kind: 'assistant', text: 'Running deep read pass across Python reader, Rust crate, and all call sites.' },
-          {
-            kind: 'tool',
-            text: '8 tool calls',
-            label: 'read-only exploration',
-            lines: [
-              'read: AGENTS.md + skills',
-              'read: apps/backend/dashboard/reader.py',
-              'grep: read_usage_summary callers',
-              'write: blocked (plan mode)'
-            ]
-          }
-        ],
-        branch: 'agent/plan/dashboard-rust-port',
-        sourceNote: 'Exploration complete. No file writes permitted.',
-        worktrees: [
-          {
-            name: 'agent_plan__dashboard-rust-port',
-            branch: 'agent/plan/dashboard-rust-port',
-            kind: 'readonly'
-          }
-        ],
-        codeTitle: 'dependency-map.txt',
-        codeLines: [
-          { text: 'read_usage_summary -> 11 callers', tone: 'normal' },
-          { text: 'usage_totals_fast -> 2 call sites + migration', tone: 'normal' },
-          { text: 'writes blocked in plan mode', tone: 'comment' }
-        ]
-      },
-      {
-        stepLabel: 'Step 03',
-        title: 'Draft phased plan',
-        description:
-          'A durable markdown plan is generated with phases, acceptance checks, risks, and rollback notes.',
-        messages: [
-          {
-            kind: 'assistant',
-            text: 'Plan saved with four phases: reader port, flag wiring, shadow-read validation, cutover.'
-          }
-        ],
-        branch: 'agent/plan/dashboard-rust-port',
-        sourceNote: 'Draft plan ready for review and edits.',
-        worktrees: [
-          {
-            name: 'agent_plan__dashboard-rust-port',
-            branch: 'agent/plan/dashboard-rust-port',
-            kind: 'readonly'
-          }
-        ],
-        codeTitle: '2026-04-19-dashboard-rust-port.md',
-        codeLines: [
-          { text: '## Phase 1 - Rust reader + types', tone: 'added' },
-          { text: 'accept: cargo test -p multica-dashboard', tone: 'added' },
-          { text: '## Phase 2 - feature flag wiring', tone: 'added' },
-          { text: '## Phase 3 - parity shadow read', tone: 'added' }
-        ]
-      },
-      {
-        stepLabel: 'Step 04',
-        title: 'Edit plan inline',
-        description:
-          'You can revise scope before execution, for example deferring risky deletion phases.',
-        messages: [
-          {
-            kind: 'user',
-            text: 'You: Keep Python fallback for now. Add a 100-concurrent-read acceptance check.'
-          },
-          {
-            kind: 'assistant',
-            text: 'Applied. Phase 4 marked deferred and load-test acceptance added to phase 3.'
-          }
-        ],
-        branch: 'agent/plan/dashboard-rust-port',
-        sourceNote: 'Plan revision stored as the new source of truth.',
-        worktrees: [
-          {
-            name: 'agent_plan__dashboard-rust-port',
-            branch: 'agent/plan/dashboard-rust-port',
-            kind: 'readonly'
-          }
-        ],
-        codeTitle: 'plan-revision.diff',
-        codeLines: [
-          { text: '- Phase 4: Cutover + delete Python', tone: 'removed' },
-          { text: '+ Phase 4: deferred until parity confidence', tone: 'added' },
-          { text: '+ accept: p99 < 80ms under 100 concurrent reads', tone: 'added' }
-        ]
-      },
-      {
-        stepLabel: 'Step 05',
-        title: 'Approve and escalate',
-        description:
-          'After review, plan mode exits and execution begins from the approved phases with controlled access.',
-        messages: [
-          { kind: 'assistant', text: 'Plan approved. Escalating to On-request and starting phase 1 writes.' },
-          {
-            kind: 'tool',
-            text: '3 tool calls',
-            label: 'phase-1 start',
-            lines: [
-              'bash: scripts/agent-branch-start.sh "dashboard-rust-port" --from-plan',
-              'read: approved plan markdown',
-              'write: crates/multica-dashboard/src/reader.rs'
-            ]
-          }
-        ],
-        branch: 'agent/codex/dashboard-rust-port-421',
-        sourceNote: 'Execution started from approved plan phases.',
-        worktrees: [
-          {
-            name: 'agent_codex__dashboard-rust-port-421',
-            branch: 'agent/codex/dashboard-rust-port-421',
-            kind: 'active',
-            files: ['U crates/multica-dashboard/src/reader.rs']
-          }
-        ],
-        codeTitle: 'approved-phases.md',
-        codeLines: [
-          { text: '[✓] Phase 1 approved', tone: 'added' },
-          { text: '[✓] Phase 2 approved', tone: 'added' },
-          { text: '[✓] Phase 3 approved', tone: 'added' },
-          { text: '[ ] Phase 4 deferred', tone: 'comment' }
-        ]
-      },
-      {
-        stepLabel: 'Step 06',
-        title: 'Re-enter plan for drift',
-        description:
-          'If upstream changed during execution, you can return to plan mode and produce a revised v2 plan.',
-        messages: [
-          {
-            kind: 'hint',
-            text: 'Plan mode ON again · drafting v2 for remaining phases'
-          },
-          {
-            kind: 'assistant',
-            text: 'Detected flag-shape drift in main. Preparing revised plan v2 for remaining work.'
-          }
-        ],
-        branch: 'agent/plan/dashboard-rust-port-v2',
-        sourceNote: 'Revision cycle active to avoid executing stale assumptions.',
-        worktrees: [
-          {
-            name: 'agent_plan__dashboard-rust-port-v2',
-            branch: 'agent/plan/dashboard-rust-port-v2',
-            kind: 'readonly'
-          }
-        ],
-        codeTitle: 'dashboard-rust-port.v2.md',
-        codeLines: [
-          { text: '## Phase 2\' - rewire flag to new shape', tone: 'added' },
-          { text: 'Update 4 call sites introduced in main', tone: 'added' },
-          { text: 'Phase 3 retained from v1', tone: 'normal' }
-        ]
-      }
-    ]
-  },
-  merge: {
-    label: 'Merge mode',
-    dotClass: 'accent-merge',
-    steps: [
-      {
-        stepLabel: 'Step 01',
-        title: 'Two PRs ready',
-        description:
-          'Two independent agent branches have passing PRs and are ready for merge.',
-        messages: [
-          { kind: 'assistant', text: 'PR #421 and PR #438 are open with green checks.' }
-        ],
-        branch: 'dev',
-        sourceNote: 'Both branches queued for merge.',
-        worktrees: [
-          {
-            name: 'agent_codex__dashboard-rust-port-421',
-            branch: 'agent/codex/dashboard-rust-port-421',
-            kind: 'active',
-            files: ['2 changed files']
-          },
-          {
-            name: 'agent_codex__flags-cleanup-438',
-            branch: 'agent/codex/flags-cleanup-438',
-            kind: 'active',
-            files: ['2 changed files']
-          }
-        ],
-        codeTitle: 'merge-queue',
-        codeLines: [
-          { text: 'PR #421  status: ready', tone: 'normal' },
-          { text: 'PR #438  status: ready', tone: 'normal' }
-        ]
-      },
-      {
-        stepLabel: 'Step 02',
-        title: 'Conflict detected',
-        description:
-          'Both PRs touched the same flag file, so merge is blocked until a conflict resolution is produced.',
-        messages: [
-          {
-            kind: 'conflict',
-            text: 'Merge conflict: apps/dashboard/src/feature-flags.ts modified by both PR #421 and PR #438.'
-          }
-        ],
-        branch: 'dev',
-        sourceNote: 'Merge blocked by overlapping hunk edits.',
-        worktrees: [
-          {
-            name: 'agent_codex__dashboard-rust-port-421',
-            branch: 'agent/codex/dashboard-rust-port-421',
-            kind: 'active',
-            files: ['! apps/dashboard/src/feature-flags.ts']
-          },
-          {
-            name: 'agent_codex__flags-cleanup-438',
-            branch: 'agent/codex/flags-cleanup-438',
-            kind: 'active',
-            files: ['! apps/dashboard/src/feature-flags.ts']
-          }
-        ],
-        codeTitle: 'feature-flags.ts (conflict)',
-        codeLines: [
-          { text: '<<<<<<< PR-421', tone: 'removed' },
-          { text: 'dashboard_reads_rust: { enabled: false, rollout: 0 }', tone: 'removed' },
-          { text: '=======', tone: 'normal' },
-          { text: 'projects_v2_layout: flag({ rollout: 25 })', tone: 'added' },
-          { text: '>>>>>>> PR-438', tone: 'added' }
-        ]
-      },
-      {
-        stepLabel: 'Step 03',
-        title: 'Merge agent spawned',
-        description:
-          'A dedicated merge worktree is created from the target branch to reconcile both PR heads safely.',
-        messages: [
-          {
-            kind: 'thinking',
-            text: 'Spawning agent/merge/pr-421-vs-438 and cherry-picking both heads for semantic resolution.'
-          }
-        ],
-        branch: 'agent/merge/pr-421-vs-438',
-        sourceNote: 'Merge sandbox active. Normal branches untouched.',
-        worktrees: [
-          {
-            name: 'agent_merge__pr-421-vs-438',
-            branch: 'agent/merge/pr-421-vs-438',
-            kind: 'merge'
-          }
-        ],
-        codeTitle: 'merge-agent.sh',
-        codeLines: [
-          { text: 'bash scripts/merge-agent-start.sh --a 421 --b 438', tone: 'normal' },
-          { text: 'git cherry-pick origin/pr-421 origin/pr-438', tone: 'normal' }
-        ]
-      },
-      {
-        stepLabel: 'Step 04',
-        title: 'Intent-aware conflict analysis',
-        description:
-          'The merge agent reads both PR intents and surrounding code to preserve behavior from both sides.',
-        messages: [
-          {
-            kind: 'tool',
-            text: '5 tool calls',
-            label: 'intent analysis',
-            lines: [
-              'read: PR #421 description + diff',
-              'read: PR #438 description + diff',
-              'tool: resolve_semantic --preserve-both'
-            ]
-          }
-        ],
-        branch: 'agent/merge/pr-421-vs-438',
-        sourceNote: 'Preparing semantic merge result.',
-        worktrees: [
-          {
-            name: 'agent_merge__pr-421-vs-438',
-            branch: 'agent/merge/pr-421-vs-438',
-            kind: 'merge',
-            files: ['M apps/dashboard/src/feature-flags.ts']
-          }
-        ],
-        codeTitle: 'resolution-plan.md',
-        codeLines: [
-          { text: 'Preserve PR #438 shape refactor', tone: 'normal' },
-          { text: 'Re-add PR #421 dashboard_reads_rust flag in new shape', tone: 'added' }
-        ]
-      },
-      {
-        stepLabel: 'Step 05',
-        title: 'Resolution + test run',
-        description:
-          'The merged file is written and test suite is re-run before presenting the result for review.',
-        messages: [
-          {
-            kind: 'assistant',
-            text: 'Conflict resolved with both feature intents preserved. Running dashboard tests now.'
-          },
-          {
-            kind: 'tool',
-            text: '2 tool calls',
-            label: 'resolve + verify',
-            lines: [
-              'write: apps/dashboard/src/feature-flags.ts',
-              'bash: pnpm test --filter=dashboard'
-            ]
-          }
-        ],
-        branch: 'agent/merge/pr-421-vs-438',
-        sourceNote: 'Resolution ready for approval.',
-        worktrees: [
-          {
-            name: 'agent_merge__pr-421-vs-438',
-            branch: 'agent/merge/pr-421-vs-438',
-            kind: 'merge',
-            files: ['M apps/dashboard/src/feature-flags.ts', '✓ tests green']
-          }
-        ],
-        codeTitle: 'feature-flags.ts (resolved)',
-        codeLines: [
-          { text: 'export const FLAGS = {', tone: 'normal' },
-          { text: '  dashboard_reads_rust: flag({ rollout: 0 }),', tone: 'added' },
-          { text: '  projects_v2_layout: flag({ rollout: 25 }),', tone: 'added' },
-          { text: '}', tone: 'normal' }
-        ]
-      },
-      {
-        stepLabel: 'Step 06',
-        title: 'Merged and dissolved',
-        description:
-          'After approval, both PRs merge and the merge worktree is cleaned, returning the repo to a clean baseline.',
-        messages: [
-          {
-            kind: 'assistant',
-            text: 'Approved. Both PRs merged and merge sandbox removed. Repository is clean on dev again.'
-          }
-        ],
-        branch: 'dev',
-        sourceNote: 'Merge cycle complete. No active merge worktree.',
-        worktrees: [],
-        codeTitle: 'merge-summary',
-        codeLines: [
-          { text: 'PR #421 merged', tone: 'normal' },
-          { text: 'PR #438 merged', tone: 'normal' },
-          { text: 'agent/merge/pr-421-vs-438 pruned', tone: 'comment' }
-        ]
-      }
-    ]
+const extFromPath = (path: string): FileExt => {
+  const dot = path.lastIndexOf('.')
+  if (dot === -1) return 'default'
+  const ext = path.slice(dot + 1).toLowerCase()
+  if (ext === 'rs' || ext === 'ts' || ext === 'tsx' || ext === 'md' || ext === 'py' || ext === 'sh') {
+    return ext
   }
+  if (ext === 'yml' || ext === 'yaml') return 'yaml'
+  return 'default'
 }
 
-type ActivityIcon =
+const file = (path: string, status: FileStatus): FileEntry => ({
+  path,
+  status,
+  ext: extFromPath(path),
+})
+
+const c = (text: string, token: CodeLinePart['token'] = ''): CodeLinePart => ({ text, token })
+
+const planListHint = (items: Array<{ title: string; meta?: string }>): PlanListMessage => ({
+  kind: 'plan-list',
+  items,
+})
+
+const EXECUTE_STEPS: TutorialStep[] = [
+  {
+    stepLabel: 'Step 01',
+    label: 'Prompt the agent',
+    description: (
+      <>
+        Every session starts with a prompt. Pick your model, reasoning level, and access mode — then
+        type what you want done.
+      </>
+    ),
+    messages: [
+      {
+        kind: 'user',
+        content: (
+          <>
+            <strong>You</strong>: Port the dashboard usage slice from Python to Rust. Keep tests
+            green.
+            <br />
+            <br />
+            <span className="mono" style={{ fontSize: '10.5px', color: 'var(--text-muted)' }}>
+              gpt-5.4 · reasoning high · On-Request
+            </span>
+          </>
+        ),
+      },
+    ],
+    branch: 'dev',
+    tabs: [],
+    worktrees: [],
+    codeLines: [
+      { parts: [c('// Advance the tutorial to watch an agent spin up a sandbox', 'c')] },
+      { parts: [c('// worktree and edit code.', 'c')] },
+    ],
+    statusBranch: 'dev',
+  },
+  {
+    stepLabel: 'Step 02',
+    label: 'Agent explores the repo',
+    description: (
+      <>
+        Before writing anything, the agent reads skills, checks git state, and surveys the files it
+        might touch — in read-only mode.
+      </>
+    ),
+    messages: [
+      {
+        kind: 'assistant',
+        content: (
+          <>
+            I&rsquo;ll load the repo skills and inspect the current Python + Rust wiring before
+            making any edits.
+          </>
+        ),
+      },
+      {
+        kind: 'tool',
+        title: '3 tool calls',
+        sub: '· context-gathering',
+        elapsed: '1.2s',
+        rows: [
+          { kind: 'tool', label: 'tool:', value: 'state_list_active' },
+          { kind: 'read', label: 'read:', value: 'recodee/CLAUDE.md' },
+          { kind: 'read', label: 'read:', value: 'recodee/docs/migrations/multica-01.md' },
+        ],
+      },
+    ],
+    branch: 'dev',
+    tabs: [],
+    worktrees: [],
+    codeLines: [
+      { parts: [c('// Read-only exploration — no writes yet.', 'c')] },
+      { parts: [c('// Dev branch stays untouched.', 'c')] },
+    ],
+    statusBranch: 'dev',
+  },
+  {
+    stepLabel: 'Step 03',
+    label: 'Worktree sandbox created',
+    description: (
+      <>
+        Before any write, the agent creates an isolated <strong>git worktree</strong> — a sandbox
+        branch off <code>dev</code>. Dev stays clean no matter what.
+      </>
+    ),
+    messages: [
+      {
+        kind: 'thinking',
+        content: (
+          <>
+            Need to isolate these edits. Creating{' '}
+            <code>agent/codex/dashboard-rust-port-421</code> off dev.
+          </>
+        ),
+      },
+      {
+        kind: 'tool',
+        title: '1 tool call',
+        sub: '· scripts/agent-branch-start.sh',
+        elapsed: '0.4s',
+        rows: [
+          { kind: 'shell', label: 'bash:', value: 'scripts/agent-branch-start.sh "dashboard-rust-port"' },
+        ],
+      },
+    ],
+    branch: 'agent/codex/dashboard-rust-port-421',
+    tabs: [],
+    worktrees: [
+      {
+        id: 'wt-dashboard',
+        name: 'agent_codex__dashboard-rust-port-421',
+        branch: 'agent/codex/dashboard-rust-port-421',
+        kind: 'active',
+        message: 'Message (Ctrl+Enter to commit on "agent/codex/dashboard-rust-port-421")',
+      },
+    ],
+    codeLines: [
+      { parts: [c('// Sandbox worktree attached — writes land here only.', 'c')] },
+    ],
+    statusBranch: 'agent/codex/dashboard-rust-port-421',
+  },
+  {
+    stepLabel: 'Step 04',
+    label: 'Agent edits files in the sandbox',
+    description: (
+      <>
+        The agent writes to files <em>only inside its worktree</em>. Watch files appear in Source
+        Control and the diff stream into the editor.
+      </>
+    ),
+    messages: [
+      {
+        kind: 'assistant',
+        content: (
+          <>
+            Writing the Rust reader in <code>crates/multica-dashboard/src/reader.rs</code> and wiring
+            the feature flag.
+          </>
+        ),
+      },
+      {
+        kind: 'tool',
+        title: '3 tool calls',
+        sub: '· writing files',
+        elapsed: '2.1s',
+        rows: [
+          { kind: 'write', label: 'write:', value: 'crates/multica-dashboard/src/reader.rs' },
+          { kind: 'write', label: 'write:', value: 'crates/multica-dashboard/src/mod.rs' },
+          { kind: 'write', label: 'write:', value: 'apps/dashboard/src/feature-flags.ts' },
+        ],
+      },
+    ],
+    branch: 'agent/codex/dashboard-rust-port-421',
+    tabs: [
+      { path: 'reader.rs', label: 'reader.rs', ext: 'rs', active: true },
+    ],
+    worktrees: [
+      {
+        id: 'wt-dashboard',
+        name: 'agent_codex__dashboard-rust-port-421',
+        branch: 'agent/codex/dashboard-rust-port-421',
+        kind: 'active',
+        files: [
+          file('crates/multica-dashboard/src/reader.rs', 'U'),
+          file('crates/multica-dashboard/src/mod.rs', 'M'),
+          file('apps/dashboard/src/feature-flags.ts', 'M'),
+        ],
+        commitState: 'idle',
+      },
+    ],
+    codeLines: [
+      { parts: [c('//! Rust-owned dashboard read path.', 'c')] },
+      {
+        kind: 'added',
+        parts: [c('use ', 'k'), c('crate', 't'), c('::{'), c('state', 'p'), c(', '), c('metrics', 'p'), c('};')],
+      },
+      {
+        kind: 'added',
+        parts: [c('use ', 'k'), c('serde', 't'), c('::{'), c('Serialize', 'p'), c('};')],
+      },
+      { parts: [] },
+      {
+        kind: 'added',
+        parts: [c('#[derive(', 'k'), c('Serialize', 't'), c(')]')],
+      },
+      {
+        kind: 'added',
+        parts: [c('pub struct ', 'k'), c('UsageSummary', 't'), c(' {')],
+      },
+      {
+        kind: 'added',
+        parts: [c('    '), c('pub ', 'k'), c('account_id', 'p'), c(': '), c('Uuid', 't'), c(',')],
+      },
+      {
+        kind: 'added',
+        parts: [c('    '), c('pub ', 'k'), c('totals_5h', 'p'), c(': '), c('u64', 't'), c(',')],
+      },
+      {
+        kind: 'added',
+        parts: [c('    '), c('pub ', 'k'), c('totals_weekly', 'p'), c(': '), c('u64', 't'), c(',')],
+      },
+      { kind: 'added', parts: [c('}')] },
+    ],
+    statusBranch: 'agent/codex/dashboard-rust-port-421',
+  },
+  {
+    stepLabel: 'Step 05',
+    label: 'Live diff streams into the editor',
+    description: (
+      <>
+        You can watch the agent type. Every write shows up as an inline diff — green adds, red
+        removes — exactly like a PR review.
+      </>
+    ),
+    messages: [
+      {
+        kind: 'assistant',
+        content: (
+          <>
+            Streaming the async reader implementation now. You&rsquo;ll see the caret advance
+            through each line.
+          </>
+        ),
+      },
+    ],
+    branch: 'agent/codex/dashboard-rust-port-421',
+    tabs: [{ path: 'reader.rs', label: 'reader.rs', ext: 'rs', active: true }],
+    worktrees: [
+      {
+        id: 'wt-dashboard',
+        name: 'agent_codex__dashboard-rust-port-421',
+        branch: 'agent/codex/dashboard-rust-port-421',
+        kind: 'active',
+        files: [
+          file('crates/multica-dashboard/src/reader.rs', 'U'),
+          file('crates/multica-dashboard/src/mod.rs', 'M'),
+          file('apps/dashboard/src/feature-flags.ts', 'M'),
+        ],
+      },
+    ],
+    codeLines: [
+      {
+        kind: 'removed',
+        parts: [c('pub fn ', 'k'), c('read_usage_summary', 'f'), c('() {')],
+      },
+      { kind: 'removed', parts: [c('    todo!()', 'c')] },
+      { kind: 'removed', parts: [c('}')] },
+      {
+        kind: 'added',
+        parts: [c('pub async fn ', 'k'), c('read_usage_summary', 'f'), c('(')],
+      },
+      {
+        kind: 'added',
+        parts: [c('    '), c('state', 'p'), c(': '), c('&', 'k'), c('AppState', 't'), c(',')],
+      },
+      {
+        kind: 'added',
+        parts: [c('    '), c('account_id', 'p'), c(': '), c('Uuid', 't'), c(',')],
+      },
+      {
+        kind: 'added',
+        parts: [c(') -> '), c('Result', 't'), c('<'), c('UsageSummary', 't'), c('> {')],
+      },
+      {
+        kind: 'added',
+        parts: [
+          c('    '),
+          c('let ', 'k'),
+          c('row', 'p'),
+          c(' = '),
+          c('sqlx::query_as!', 'f'),
+          c('('),
+        ],
+      },
+      {
+        kind: 'added',
+        parts: [c('        '), c('UsageSummary', 't'), c(',')],
+      },
+      {
+        kind: 'added',
+        parts: [
+          c('        '),
+          c('"SELECT * FROM usage_totals_fast WHERE account_id = $1"', 's'),
+          c(','),
+        ],
+      },
+      {
+        kind: 'added',
+        parts: [c('        '), c('account_id', 'p')],
+      },
+      {
+        kind: 'added',
+        parts: [
+          c('    ).'),
+          c('fetch_one', 'f'),
+          c('('),
+          c('&', 'k'),
+          c('state', 'p'),
+          c('.'),
+          c('db', 'p'),
+          c(').await?;'),
+        ],
+      },
+      {
+        kind: 'added',
+        parts: [c('    '), c('Ok', 'f'), c('('), c('row', 'p'), c(')')],
+        typing: true,
+      },
+      { kind: 'added', parts: [c('}')] },
+    ],
+    statusBranch: 'agent/codex/dashboard-rust-port-421',
+  },
+  {
+    stepLabel: 'Step 06',
+    label: 'Second worktree for the ticket UX',
+    description: (
+      <>
+        Need a parallel effort? Start another prompt while this one runs. Each gets its <em>own</em>{' '}
+        worktree — they never collide.
+      </>
+    ),
+    messages: [
+      {
+        kind: 'user',
+        content: (
+          <>
+            <strong>You</strong>: Also fix the hydration flash on project sidebar.
+          </>
+        ),
+      },
+      {
+        kind: 'assistant',
+        content: <>Spinning up a second worktree — this won&rsquo;t interrupt the Rust port.</>,
+      },
+      {
+        kind: 'tool',
+        title: '1 tool call',
+        sub: '· scripts/agent-branch-start.sh',
+        elapsed: '0.4s',
+        rows: [
+          {
+            kind: 'shell',
+            label: 'bash:',
+            value: 'scripts/agent-branch-start.sh "projects-hydration-fix"',
+          },
+        ],
+      },
+    ],
+    branch: 'agent/codex/projects-hydration-mismatch-sidebar',
+    tabs: [{ path: 'reader.rs', label: 'reader.rs', ext: 'rs', active: true }],
+    worktrees: [
+      {
+        id: 'wt-dashboard',
+        name: 'agent_codex__dashboard-rust-port-421',
+        branch: 'agent/codex/dashboard-rust-port-421',
+        kind: 'active',
+        files: [
+          file('crates/multica-dashboard/src/reader.rs', 'U'),
+          file('crates/multica-dashboard/src/mod.rs', 'M'),
+          file('apps/dashboard/src/feature-flags.ts', 'M'),
+        ],
+      },
+      {
+        id: 'wt-hydration',
+        name: 'agent_codex__projects-hydration-mismatch-sidebar',
+        branch: 'agent/codex/projects-hydration-mismatch-sidebar',
+        kind: 'active',
+        message: 'Message (Ctrl+Enter to commit on "agent/codex/projects-hydration-mismatch-sidebar")',
+      },
+    ],
+    codeLines: [
+      { parts: [c('// Parallel lane created — Rust port continues independently.', 'c')] },
+    ],
+    statusBranch: 'agent/codex/projects-hydration-mismatch-sidebar',
+  },
+  {
+    stepLabel: 'Step 07',
+    label: 'Files stream into the second sandbox',
+    description: (
+      <>
+        Two agent sessions, two isolated branches, simultaneous progress. Your <code>dev</code>{' '}
+        checkout is still untouched.
+      </>
+    ),
+    messages: [
+      {
+        kind: 'tool',
+        title: '3 tool calls',
+        sub: '· second lane writes',
+        elapsed: '1.4s',
+        rows: [
+          {
+            kind: 'write',
+            label: 'write:',
+            value: 'apps/frontend/src/components/layout/loading-overlay.tsx',
+          },
+          { kind: 'write', label: 'write:', value: 'apps/frontend/src/components/ui/spinner.tsx' },
+          { kind: 'write', label: 'write:', value: 'apps/frontend/src/lib/navigation-loader.ts' },
+        ],
+      },
+    ],
+    branch: 'agent/codex/projects-hydration-mismatch-sidebar',
+    tabs: [
+      { path: 'loading-overlay.tsx', label: 'loading-overlay.tsx', ext: 'tsx', active: true },
+    ],
+    worktrees: [
+      {
+        id: 'wt-dashboard',
+        name: 'agent_codex__dashboard-rust-port-421',
+        branch: 'agent/codex/dashboard-rust-port-421',
+        kind: 'active',
+        files: [
+          file('crates/multica-dashboard/src/reader.rs', 'U'),
+          file('crates/multica-dashboard/src/mod.rs', 'M'),
+          file('apps/dashboard/src/feature-flags.ts', 'M'),
+        ],
+      },
+      {
+        id: 'wt-hydration',
+        name: 'agent_codex__projects-hydration-mismatch-sidebar',
+        branch: 'agent/codex/projects-hydration-mismatch-sidebar',
+        kind: 'active',
+        files: [
+          file('apps/frontend/src/components/layout/loading-overlay.tsx', 'U'),
+          file('apps/frontend/src/components/ui/spinner.tsx', 'M'),
+          file('apps/frontend/src/lib/navigation-loader.ts', 'M'),
+        ],
+      },
+    ],
+    codeLines: [
+      {
+        kind: 'added',
+        parts: [
+          c('const ', 'k'),
+          c('shouldRender', 'p'),
+          c(' = !'),
+          c('navigationSettled', 'p'),
+          c(' && !'),
+          c('suppressLoaderFlash', 'p'),
+        ],
+      },
+      {
+        kind: 'added',
+        parts: [
+          c('return '),
+          c('shouldRender', 'p'),
+          c(' ? <'),
+          c('OverlaySpinner', 't'),
+          c(' /> : '),
+          c('null', 'k'),
+        ],
+      },
+      {
+        kind: 'added',
+        parts: [
+          c('setTimeout', 'f'),
+          c('(() => '),
+          c('setSuppressLoaderFlash', 'f'),
+          c('('),
+          c('true', 'k'),
+          c('), '),
+          c('140', 'n'),
+          c(')'),
+        ],
+      },
+    ],
+    statusBranch: 'agent/codex/projects-hydration-mismatch-sidebar',
+  },
+  {
+    stepLabel: 'Step 08',
+    label: 'Approve the commit',
+    description: (
+      <>
+        With access on <code>On-Request</code>, the agent pauses for your sign-off before committing.
+        Click Commit to merge the sandbox to a PR.
+      </>
+    ),
+    messages: [
+      {
+        kind: 'assistant',
+        content: (
+          <>
+            All phase-1 writes done. Tests pass locally. Ready to commit{' '}
+            <code>agent/codex/dashboard-rust-port-421</code>.
+          </>
+        ),
+      },
+    ],
+    branch: 'agent/codex/dashboard-rust-port-421',
+    tabs: [{ path: 'reader.rs', label: 'reader.rs', ext: 'rs', active: true }],
+    worktrees: [
+      {
+        id: 'wt-dashboard',
+        name: 'agent_codex__dashboard-rust-port-421',
+        branch: 'agent/codex/dashboard-rust-port-421',
+        kind: 'active',
+        files: [
+          file('crates/multica-dashboard/src/reader.rs', 'U'),
+          file('crates/multica-dashboard/src/mod.rs', 'M'),
+          file('apps/dashboard/src/feature-flags.ts', 'M'),
+        ],
+        commitReady: true,
+        commitState: 'ready',
+      },
+    ],
+    codeLines: [
+      { parts: [c('cargo test -p multica-dashboard  ', 'c'), c('✓', 'f')] },
+      { parts: [c('pnpm test --filter=dashboard    ', 'c'), c('✓', 'f')] },
+      { parts: [c('Waiting for commit approval...', 'c')] },
+    ],
+    statusBranch: 'agent/codex/dashboard-rust-port-421',
+  },
+  {
+    stepLabel: 'Step 09',
+    label: 'PR opened, worktree dissolves',
+    description: (
+      <>
+        The worktree is merged via PR on approval and automatically cleaned up. Your repo goes back
+        to a single <code>dev</code> checkout. Done.
+      </>
+    ),
+    messages: [
+      {
+        kind: 'tool',
+        title: '2 tool calls',
+        sub: '· finish',
+        elapsed: '1.4s',
+        rows: [
+          {
+            kind: 'shell',
+            label: 'bash:',
+            value: 'scripts/agent-branch-finish.sh --via-pr --wait-for-merge',
+          },
+          { kind: 'tool', label: 'tool:', value: 'pr.merged → cleanup.worktree' },
+        ],
+      },
+      {
+        kind: 'assistant',
+        content: (
+          <>
+            PR merged, worktree removed. You&rsquo;re back on a clean <code>dev</code>. 🎉
+          </>
+        ),
+      },
+    ],
+    branch: 'dev',
+    tabs: [],
+    worktrees: [],
+    codeLines: [
+      { parts: [c('git status', 'c')] },
+      { parts: [c('On branch dev')] },
+      { parts: [c('Your branch is up to date with origin/dev.', 'c')] },
+      { parts: [c('nothing to commit, working tree clean', 'c')] },
+    ],
+    statusBranch: 'dev',
+    statusSync: '↓ 1 ↑ 0',
+    showPullAnimation: true,
+  },
+]
+
+const PLAN_STEPS: TutorialStep[] = [
+  {
+    stepLabel: 'Step 01',
+    label: 'Shift+Tab → Plan mode on',
+    description: (
+      <>
+        Press <kbd>Shift+Tab</kbd> to cycle permission modes: Normal → Auto-Accept → Plan. Plan mode
+        locks the agent into <strong>read-only</strong> — any attempt to write, edit, or run shell
+        commands gets refused at the tool layer.
+      </>
+    ),
+    messages: [
+      {
+        kind: 'hint',
+        content: (
+          <>
+            <strong>⏸ plan mode on</strong>
+            {'  ·  '}
+            <span className="mono" style={{ fontSize: '11px' }}>
+              claude --permission-mode plan
+            </span>
+          </>
+        ),
+      },
+      {
+        kind: 'user',
+        content: (
+          <>
+            <strong>You</strong>: Port the dashboard usage slice from Python to Rust. Explore the
+            code first, then give me a plan.
+          </>
+        ),
+      },
+    ],
+    branch: 'dev',
+    tabs: [],
+    worktrees: [],
+    codeLines: [
+      { parts: [c('# Dashboard reads → Rust migration', 'c')] },
+      { parts: [c('> Plan mode · read-only', 'c')] },
+      { parts: [c('status: waiting for exploration', 'c')] },
+    ],
+    statusBranch: 'dev',
+  },
+  {
+    stepLabel: 'Step 02',
+    label: 'Explore — deep read pass',
+    description: (
+      <>
+        The agent does an <strong>Explore phase</strong>: reads skills, searches the codebase, maps
+        dependencies, and asks questions. No writes, no shell side-effects.
+      </>
+    ),
+    messages: [
+      {
+        kind: 'assistant',
+        content: (
+          <>
+            Starting Explore phase. I&rsquo;ll map the current Python reader, the Rust crate
+            skeleton, and everything that depends on the output shape.
+          </>
+        ),
+      },
+      {
+        kind: 'tool',
+        title: '8 tool calls',
+        sub: '· read-only exploration',
+        elapsed: '4.7s',
+        rows: [
+          { kind: 'read', label: 'read:', value: 'CLAUDE.md · AGENTS.md' },
+          { kind: 'read', label: 'read:', value: 'apps/backend/dashboard/reader.py' },
+          { kind: 'read', label: 'read:', value: 'apps/backend/dashboard/tests/test_reader.py' },
+          { kind: 'read', label: 'read:', value: 'crates/multica-dashboard/src/lib.rs' },
+          { kind: 'tool', label: 'grep:', value: 'read_usage_summary → 11 callers in 4 files' },
+          { kind: 'tool', label: 'grep:', value: 'usage_totals_fast → 2 call sites + 1 migration' },
+          { kind: 'tool', label: 'tool:', value: 'git_log --stat apps/backend/dashboard (last 90d)' },
+          { kind: 'tool', label: 'tool:', value: 'write_file → ✗ refused (read-only mode)' },
+        ],
+      },
+    ],
+    branch: 'agent/plan/dashboard-rust-port',
+    tabs: [],
+    worktrees: [
+      {
+        id: 'wt-plan',
+        name: 'agent_plan__dashboard-rust-port',
+        branch: 'agent/plan/dashboard-rust-port',
+        kind: 'readonly',
+        tag: 'read-only',
+        message: 'Read-only — drafting plan, no writes yet.',
+      },
+    ],
+    codeLines: [
+      { parts: [c('# exploration summary', 'c')] },
+      { parts: [c('callers: 11  ·  migrations: 1  ·  writes: blocked')] },
+    ],
+    statusBranch: 'agent/plan/dashboard-rust-port',
+  },
+  {
+    stepLabel: 'Step 03',
+    label: 'Plan drafted as a real markdown doc',
+    description: (
+      <>
+        The agent writes a real plan to <code>~/.claude/plans/</code> — ordered phases, file lists,
+        risks, rollback. It survives <code>/clear</code> and context compaction, and persists across
+        sessions until you approve or delete it.
+      </>
+    ),
+    messages: [
+      {
+        kind: 'assistant',
+        content: (
+          <>
+            Plan written to <code>~/.claude/plans/2026-04-19-dashboard-rust-port.md</code>. 4 phases,
+            ~3.5h execute time. Persists across sessions.
+          </>
+        ),
+      },
+      planListHint([
+        { title: 'Phase 1 — Rust reader + types', meta: ' · 2h · 3 files' },
+        { title: 'Phase 2 — Feature flag wiring', meta: ' · 30m · 2 files' },
+        { title: 'Phase 3 — Shadow-read comparison', meta: ' · 24h observe · 1 file' },
+        { title: 'Phase 4 — Cutover + Python deletion', meta: ' · 1h · 6 files' },
+      ]),
+    ],
+    branch: 'agent/plan/dashboard-rust-port',
+    tabs: [
+      {
+        path: '2026-04-19-dashboard-rust-port.md',
+        label: '2026-04-19-dashboard-rust-port.md',
+        ext: 'md',
+        active: true,
+        badge: '~/.claude/plans/',
+      },
+    ],
+    worktrees: [
+      {
+        id: 'wt-plan',
+        name: 'agent_plan__dashboard-rust-port',
+        branch: 'agent/plan/dashboard-rust-port',
+        kind: 'readonly',
+        tag: 'read-only',
+        message: 'Plan saved — awaiting review.',
+      },
+    ],
+    codeLines: [
+      { parts: [c('# Dashboard reads → Rust migration', 'c')] },
+      { parts: [c('> Plan mode · saved · persists across /clear & compaction', 'c')] },
+      { parts: [] },
+      { parts: [c('## Goal', 'c')] },
+      {
+        parts: [
+          c('Replace Python '),
+          c('read_usage_summary()', 'f'),
+          c(' with Rust, behind a flag, zero downtime.'),
+        ],
+      },
+      { parts: [] },
+      { parts: [c('## Phase 1 — Rust reader + types  (2h)', 'c')] },
+      { parts: [c(' - Add '), c('UsageSummary', 't'), c(' struct with '), c('Serialize', 'f')] },
+      {
+        parts: [
+          c(' - Implement '),
+          c('read_usage_summary(state, account_id)', 'f'),
+          c(' → '),
+          c('crates/multica-dashboard/src/reader.rs', 's'),
+        ],
+      },
+      { parts: [c(' - Export from '), c('mod.rs', 's'), c('; port 5 unit tests')] },
+      { parts: [c('  accept: cargo test -p multica-dashboard passes', 'p')] },
+      { parts: [] },
+      { parts: [c('## Phase 2 — Feature flag wiring  (30m)', 'c')] },
+      {
+        parts: [
+          c(' - Add '),
+          c('dashboard_reads_rust', 'p'),
+          c(' (default off) → '),
+          c('apps/dashboard/src/feature-flags.ts', 's'),
+        ],
+      },
+      { parts: [c(' - Router picks reader based on flag')] },
+      { parts: [c('  accept: both paths green in integration tests', 'p')] },
+      { parts: [] },
+      { parts: [c('## Phase 3 — Shadow-read + compare  (24h observe)', 'c')] },
+      {
+        parts: [
+          c(' - Dual-fire Python + Rust; log diffs to '),
+          c('metrics.dashboard_read_parity', 's'),
+        ],
+      },
+      { parts: [c('  accept: parity_diff_ratio < 0.001 over 24h', 'p')] },
+      { parts: [] },
+      { parts: [c('## Phase 4 — Cutover + delete Python  (1h)', 'c')] },
+      {
+        parts: [
+          c(' - Flip flag to 100%; remove '),
+          c('apps/backend/dashboard/reader.py', 's'),
+        ],
+      },
+    ],
+    statusBranch: 'agent/plan/dashboard-rust-port',
+  },
+  {
+    stepLabel: 'Step 04',
+    label: 'Review — read the whole plan',
+    description: (
+      <>
+        The markdown opens in the editor. Full context: goal, approach, each phase with exact files,
+        acceptance checks, risks with mitigations, rollback plan. This is the Explore → Plan →
+        Review step of the loop.
+      </>
+    ),
+    messages: [
+      {
+        kind: 'assistant',
+        content: (
+          <>
+            Scroll through the plan. Everything the agent intends to do is here — no hidden context.
+          </>
+        ),
+      },
+    ],
+    branch: 'agent/plan/dashboard-rust-port',
+    tabs: [
+      {
+        path: '2026-04-19-dashboard-rust-port.md',
+        label: '2026-04-19-dashboard-rust-port.md',
+        ext: 'md',
+        active: true,
+        badge: '~/.claude/plans/',
+      },
+    ],
+    worktrees: [
+      {
+        id: 'wt-plan',
+        name: 'agent_plan__dashboard-rust-port',
+        branch: 'agent/plan/dashboard-rust-port',
+        kind: 'readonly',
+        tag: 'read-only',
+        message: 'Review pass · pulsing editor.',
+      },
+    ],
+    codeLines: [
+      { parts: [c('## Risks', 'c')] },
+      {
+        parts: [
+          c(' - '),
+          c('totals_weekly', 's'),
+          c(' u64 vs bigint coercion → validated in phase 3'),
+        ],
+      },
+      {
+        parts: [
+          c(' - '),
+          c('usage_totals_fast', 's'),
+          c(' view lag ~5s → acceptable per SLO'),
+        ],
+      },
+      { parts: [] },
+      { parts: [c('## Rollback', 'c')] },
+      { parts: [c('Flip flag to 0%. Python reader kept until phase 4.')] },
+    ],
+    statusBranch: 'agent/plan/dashboard-rust-port',
+    pulseEditor: true,
+  },
+  {
+    stepLabel: 'Step 05',
+    label: 'Edit the plan inline',
+    description: (
+      <>
+        Disagree with a step? Edit the markdown. Remove a phase. Add an acceptance check. Plan mode
+        keeps iterating on the doc until you approve.
+      </>
+    ),
+    messages: [
+      {
+        kind: 'user',
+        content: (
+          <>
+            <strong>You</strong>: Skip phase 4 for now — I want the Python reader kept as a fallback.
+            Add a <em>load-test with 100 concurrent reads</em> to phase 3 acceptance.
+          </>
+        ),
+      },
+      {
+        kind: 'assistant',
+        content: (
+          <>
+            Updated the plan. Phase 4 marked <code>[deferred]</code>. Added load-test check to
+            phase 3.
+          </>
+        ),
+      },
+    ],
+    branch: 'agent/plan/dashboard-rust-port',
+    tabs: [
+      {
+        path: 'plan-revision.diff',
+        label: 'plan-revision.diff',
+        ext: 'md',
+        active: true,
+      },
+    ],
+    worktrees: [
+      {
+        id: 'wt-plan',
+        name: 'agent_plan__dashboard-rust-port',
+        branch: 'agent/plan/dashboard-rust-port',
+        kind: 'readonly',
+        tag: 'read-only',
+        message: 'Plan revision stored.',
+      },
+    ],
+    codeLines: [
+      {
+        kind: 'removed',
+        parts: [c('## Phase 4 — Cutover + delete Python  (1h)', 'c')],
+      },
+      {
+        kind: 'added',
+        parts: [c('## Phase 4 — Cutover + delete Python  [deferred]', 'c')],
+      },
+      { parts: [] },
+      {
+        kind: 'added',
+        parts: [c('  accept: 100 concurrent reads < p99 80ms', 'p')],
+      },
+    ],
+    statusBranch: 'agent/plan/dashboard-rust-port',
+  },
+  {
+    stepLabel: 'Step 06',
+    label: 'Approve → Execute phase',
+    description: (
+      <>
+        When the plan reads right, approve it. The agent switches out of Plan mode, escalates access
+        to <code>On-Request</code>, and starts phase 1. The saved markdown is the single source of
+        truth for what gets built.
+      </>
+    ),
+    messages: [
+      {
+        kind: 'user',
+        content: (
+          <>
+            <strong>You</strong>: Looks good. Execute phases 1–3.
+          </>
+        ),
+      },
+      {
+        kind: 'assistant',
+        content: <>Exiting Plan mode. Access escalated to On-Request. Starting Phase 1: Rust reader + types.</>,
+      },
+      {
+        kind: 'tool',
+        title: '3 tool calls',
+        sub: '· phase 1 begins',
+        elapsed: '0.8s',
+        rows: [
+          {
+            kind: 'shell',
+            label: 'bash:',
+            value: 'scripts/agent-branch-start.sh "dashboard-rust-port" --from-plan',
+          },
+          {
+            kind: 'read',
+            label: 'read:',
+            value: '~/.claude/plans/2026-04-19-dashboard-rust-port.md',
+          },
+          { kind: 'write', label: 'write:', value: 'crates/multica-dashboard/src/reader.rs' },
+        ],
+      },
+    ],
+    branch: 'agent/codex/dashboard-rust-port-421',
+    tabs: [{ path: 'reader.rs', label: 'reader.rs', ext: 'rs', active: true }],
+    worktrees: [
+      {
+        id: 'wt-plan',
+        name: 'agent_codex__dashboard-rust-port-421',
+        branch: 'agent/codex/dashboard-rust-port-421',
+        kind: 'active',
+        tag: 'executing · phase 1',
+        files: [file('crates/multica-dashboard/src/reader.rs', 'U')],
+        message: 'Access escalated to On-Request. Writing phase 1.',
+      },
+    ],
+    codeLines: [
+      {
+        kind: 'added',
+        parts: [
+          c('pub async fn ', 'k'),
+          c('read_usage_summary', 'f'),
+          c('('),
+          c('state', 'p'),
+          c(': '),
+          c('&', 'k'),
+          c('AppState', 't'),
+          c(', '),
+          c('account_id', 'p'),
+          c(': '),
+          c('Uuid', 't'),
+          c(') -> '),
+          c('Result', 't'),
+          c('<'),
+          c('UsageSummary', 't'),
+          c('>'),
+        ],
+      },
+    ],
+    statusBranch: 'agent/codex/dashboard-rust-port-421',
+  },
+  {
+    stepLabel: 'Step 07',
+    label: 'Drift? Shift+Tab back into Plan',
+    description: (
+      <>
+        If execution drifts from the plan, hit <kbd>Shift+Tab</kbd> back into Plan mode. The agent
+        reads the saved plan + recent diffs and drafts a <em>revised</em> plan for the remaining
+        work. Loop: Explore → Plan → Review → Execute.
+      </>
+    ),
+    messages: [
+      {
+        kind: 'hint',
+        content: (
+          <>
+            <strong>⏸ plan mode on</strong>
+            {'  ·  '}re-entering to revise remaining phases
+          </>
+        ),
+      },
+      {
+        kind: 'assistant',
+        content: (
+          <>
+            Drift detected at phase 2 — flag shape changed upstream. Drafting{' '}
+            <code>2026-04-19-dashboard-rust-port.v2.md</code> for phases 2–3.
+          </>
+        ),
+      },
+    ],
+    branch: 'agent/plan/dashboard-rust-port-v2',
+    tabs: [
+      { path: 'v1.md', label: 'v1.md', ext: 'md' },
+      { path: 'v2.md', label: 'v2.md (revised)', ext: 'md', active: true },
+    ],
+    worktrees: [
+      {
+        id: 'wt-plan-v2',
+        name: 'agent_plan__dashboard-rust-port-v2',
+        branch: 'agent/plan/dashboard-rust-port-v2',
+        kind: 'readonly',
+        tag: 'read-only',
+        message: 'Revising plan for remaining phases.',
+      },
+    ],
+    codeLines: [
+      { parts: [c('# Dashboard reads → Rust migration (v2, revised)', 'c')] },
+      { parts: [c('> Drift noted: flag shape changed upstream in main', 'c')] },
+      { parts: [] },
+      { kind: 'added', parts: [c("## Phase 2' — Re-wire flag to new shape  (40m)", 'c')] },
+      {
+        kind: 'added',
+        parts: [c(' - Migrate to '), c('flag({ rollout })', 'f'), c(' constructor')],
+      },
+      { kind: 'added', parts: [c(' - Update 4 call sites introduced in main since v1')] },
+      { parts: [] },
+      { parts: [c('## Phase 3 — unchanged (see v1)', 'c')] },
+    ],
+    statusBranch: 'agent/plan/dashboard-rust-port-v2',
+  },
+]
+
+const MERGE_STEPS: TutorialStep[] = [
+  {
+    stepLabel: 'Step 01',
+    label: 'Two PRs are ready',
+    description: (
+      <>
+        You have two completed worktrees from separate sessions. Both PRs passed CI. Now try to
+        merge.
+      </>
+    ),
+    messages: [
+      { kind: 'assistant', content: <>Two worktrees completed and open as PRs:</> },
+      {
+        kind: 'tool',
+        title: '2 PRs open',
+        sub: '· awaiting merge',
+        elapsed: '',
+        rows: [
+          { kind: 'tool', label: 'PR #421:', value: 'agent/codex/dashboard-rust-port' },
+          { kind: 'tool', label: 'PR #438:', value: 'agent/codex/flags-cleanup-sweep' },
+        ],
+      },
+    ],
+    branch: 'dev',
+    tabs: [],
+    worktrees: [
+      {
+        id: 'wt-pr421',
+        name: 'agent_codex__dashboard-rust-port-421',
+        branch: 'agent/codex/dashboard-rust-port-421',
+        kind: 'active',
+        files: [
+          file('crates/multica-dashboard/src/reader.rs', 'U'),
+          file('apps/dashboard/src/feature-flags.ts', 'M'),
+        ],
+      },
+      {
+        id: 'wt-pr438',
+        name: 'agent_codex__flags-cleanup-sweep-438',
+        branch: 'agent/codex/flags-cleanup-sweep-438',
+        kind: 'active',
+        files: [
+          file('apps/dashboard/src/feature-flags.ts', 'M'),
+          file('apps/dashboard/src/flag-types.ts', 'U'),
+        ],
+      },
+    ],
+    codeLines: [
+      { parts: [c('PR #421  status: ready  ', 'c'), c('✓', 'f')] },
+      { parts: [c('PR #438  status: ready  ', 'c'), c('✓', 'f')] },
+    ],
+    statusBranch: 'dev',
+  },
+  {
+    stepLabel: 'Step 02',
+    label: 'Conflict detected',
+    description: (
+      <>
+        Both PRs edited <code>apps/dashboard/src/feature-flags.ts</code>. GitHub blocks the merge.
+        Normally: you stop everything and resolve by hand.
+      </>
+    ),
+    messages: [
+      {
+        kind: 'conflict',
+        content: (
+          <>
+            <strong>⚠ Merge conflict</strong>
+            <br />
+            Both PRs modified <code>apps/dashboard/src/feature-flags.ts</code> at overlapping lines.
+          </>
+        ),
+      },
+    ],
+    branch: 'dev',
+    tabs: [
+      {
+        path: 'feature-flags.ts',
+        label: 'feature-flags.ts (conflict)',
+        ext: 'ts',
+        active: true,
+        state: 'conflict',
+      },
+    ],
+    worktrees: [
+      {
+        id: 'wt-pr421',
+        name: 'agent_codex__dashboard-rust-port-421',
+        branch: 'agent/codex/dashboard-rust-port-421',
+        kind: 'active',
+        files: [
+          file('crates/multica-dashboard/src/reader.rs', 'U'),
+          { ...file('apps/dashboard/src/feature-flags.ts', 'conflict'), status: 'conflict' },
+        ],
+      },
+      {
+        id: 'wt-pr438',
+        name: 'agent_codex__flags-cleanup-sweep-438',
+        branch: 'agent/codex/flags-cleanup-sweep-438',
+        kind: 'active',
+        files: [
+          { ...file('apps/dashboard/src/feature-flags.ts', 'conflict'), status: 'conflict' },
+          file('apps/dashboard/src/flag-types.ts', 'U'),
+        ],
+      },
+    ],
+    codeLines: [
+      { parts: [c('// Conflict: two PRs touched overlapping lines.', 'c')] },
+      { parts: [c('// Normally: you stop, check out both branches, resolve by hand.', 'c')] },
+      { parts: [c('// With merge agent: this resolves automatically.', 'c')] },
+    ],
+    statusBranch: 'dev',
+    statusErrors: 1,
+  },
+  {
+    stepLabel: 'Step 03',
+    label: 'Merge agent auto-spawns',
+    description: (
+      <>
+        A <strong>merge agent</strong> worktree is created from the target branch. Its only job:
+        reconcile the two PRs.
+      </>
+    ),
+    messages: [
+      {
+        kind: 'thinking',
+        content: (
+          <>
+            Spawning merge worker. Branch: <code>agent/merge/pr-421-vs-438</code>. Cherry-picking
+            both heads.
+          </>
+        ),
+      },
+      {
+        kind: 'tool',
+        title: '2 tool calls',
+        sub: '· merge setup',
+        elapsed: '0.6s',
+        rows: [
+          {
+            kind: 'shell',
+            label: 'bash:',
+            value: 'scripts/merge-agent-start.sh --a 421 --b 438',
+          },
+          {
+            kind: 'shell',
+            label: 'bash:',
+            value: 'git cherry-pick origin/pr-421 origin/pr-438',
+          },
+        ],
+      },
+    ],
+    branch: 'agent/merge/pr-421-vs-438',
+    tabs: [
+      {
+        path: 'feature-flags.ts',
+        label: 'feature-flags.ts (conflict)',
+        ext: 'ts',
+        active: true,
+        state: 'conflict',
+      },
+    ],
+    worktrees: [
+      {
+        id: 'wt-pr421',
+        name: 'agent_codex__dashboard-rust-port-421',
+        branch: 'agent/codex/dashboard-rust-port-421',
+        kind: 'active',
+        files: [
+          file('crates/multica-dashboard/src/reader.rs', 'U'),
+          { ...file('apps/dashboard/src/feature-flags.ts', 'conflict'), status: 'conflict' },
+        ],
+      },
+      {
+        id: 'wt-pr438',
+        name: 'agent_codex__flags-cleanup-sweep-438',
+        branch: 'agent/codex/flags-cleanup-sweep-438',
+        kind: 'active',
+        files: [
+          { ...file('apps/dashboard/src/feature-flags.ts', 'conflict'), status: 'conflict' },
+          file('apps/dashboard/src/flag-types.ts', 'U'),
+        ],
+      },
+      {
+        id: 'wt-merge',
+        name: 'agent_merge__pr-421-vs-438',
+        branch: 'agent/merge/pr-421-vs-438',
+        kind: 'merge',
+        tag: 'merge',
+        message: 'Merge agent — reconciling PR #421 × PR #438.',
+      },
+    ],
+    codeLines: [
+      { parts: [c('bash scripts/merge-agent-start.sh --a 421 --b 438')] },
+      { parts: [c('git cherry-pick origin/pr-421 origin/pr-438')] },
+    ],
+    statusBranch: 'agent/merge/pr-421-vs-438',
+    statusErrors: 1,
+  },
+  {
+    stepLabel: 'Step 04',
+    label: 'Agent reads both sides + intent',
+    description: (
+      <>
+        Semantic merge: the agent reads each PR description, the commit history, and the surrounding
+        code to understand what each change is <em>for</em> — not just the text.
+      </>
+    ),
+    messages: [
+      {
+        kind: 'assistant',
+        content: (
+          <>
+            Loaded both PR descriptions and the conflicting hunks. PR #421 adds{' '}
+            <code>dashboard_reads_rust</code>; PR #438 refactors the flag object shape. Both should
+            coexist.
+          </>
+        ),
+      },
+      {
+        kind: 'tool',
+        title: '5 tool calls',
+        sub: '· intent analysis',
+        elapsed: '1.8s',
+        rows: [
+          { kind: 'read', label: 'read:', value: 'PR #421 description + diff' },
+          { kind: 'read', label: 'read:', value: 'PR #438 description + diff' },
+          { kind: 'read', label: 'read:', value: 'apps/dashboard/src/feature-flags.ts (base)' },
+          { kind: 'tool', label: 'tool:', value: 'git_blame feature-flags.ts' },
+          { kind: 'tool', label: 'tool:', value: 'resolve_semantic --preserve-both' },
+        ],
+      },
+    ],
+    branch: 'agent/merge/pr-421-vs-438',
+    tabs: [
+      {
+        path: 'feature-flags.ts',
+        label: 'feature-flags.ts <<< conflict',
+        ext: 'ts',
+        active: true,
+        state: 'conflict',
+      },
+    ],
+    worktrees: [
+      {
+        id: 'wt-pr421',
+        name: 'agent_codex__dashboard-rust-port-421',
+        branch: 'agent/codex/dashboard-rust-port-421',
+        kind: 'active',
+        files: [
+          file('crates/multica-dashboard/src/reader.rs', 'U'),
+          { ...file('apps/dashboard/src/feature-flags.ts', 'conflict'), status: 'conflict' },
+        ],
+      },
+      {
+        id: 'wt-pr438',
+        name: 'agent_codex__flags-cleanup-sweep-438',
+        branch: 'agent/codex/flags-cleanup-sweep-438',
+        kind: 'active',
+        files: [
+          { ...file('apps/dashboard/src/feature-flags.ts', 'conflict'), status: 'conflict' },
+          file('apps/dashboard/src/flag-types.ts', 'U'),
+        ],
+      },
+      {
+        id: 'wt-merge',
+        name: 'agent_merge__pr-421-vs-438',
+        branch: 'agent/merge/pr-421-vs-438',
+        kind: 'merge',
+        tag: 'merge',
+        files: [file('apps/dashboard/src/feature-flags.ts', 'M')],
+        message: 'Preparing semantic resolution.',
+      },
+    ],
+    codeLines: [
+      {
+        parts: [c('export const ', 'k'), c('FLAGS', 'p'), c(' = {')],
+      },
+      {
+        kind: 'removed',
+        parts: [c('<<<<<<< HEAD (PR #421)')],
+      },
+      {
+        kind: 'added',
+        parts: [
+          c('  '),
+          c('dashboard_reads_rust', 'p'),
+          c(': { enabled: '),
+          c('false', 'k'),
+          c(', rollout: '),
+          c('0', 'n'),
+          c(' },'),
+        ],
+      },
+      { kind: 'removed', parts: [c('=======')] },
+      {
+        kind: 'added',
+        parts: [
+          c('  '),
+          c('projects_v2_layout', 'p'),
+          c(': '),
+          c('flag', 'f'),
+          c('({ rollout: '),
+          c('25', 'n'),
+          c(' }),'),
+        ],
+      },
+      { kind: 'removed', parts: [c('>>>>>>> origin/pr-438')] },
+      { parts: [c('};')] },
+    ],
+    statusBranch: 'agent/merge/pr-421-vs-438',
+    statusErrors: 1,
+  },
+  {
+    stepLabel: 'Step 05',
+    label: 'Resolution written + tests',
+    description: (
+      <>
+        Agent writes the merged file — no conflict markers, both features preserved — and re-runs
+        the test suite.
+      </>
+    ),
+    messages: [
+      {
+        kind: 'assistant',
+        content: (
+          <>
+            Resolved. Applied PR #438&rsquo;s shape refactor on top, then added #421&rsquo;s flag
+            entry in the new shape. Tests running.
+          </>
+        ),
+      },
+      {
+        kind: 'tool',
+        title: '2 tool calls',
+        sub: '· resolve',
+        elapsed: '4.1s',
+        rows: [
+          { kind: 'write', label: 'write:', value: 'apps/dashboard/src/feature-flags.ts' },
+          { kind: 'shell', label: 'bash:', value: 'pnpm test --filter=dashboard' },
+        ],
+      },
+      { kind: 'assistant', content: <>✓ 247 tests passed. Ready for your review.</> },
+    ],
+    branch: 'agent/merge/pr-421-vs-438',
+    tabs: [
+      {
+        path: 'feature-flags.ts',
+        label: 'feature-flags.ts ✓ resolved',
+        ext: 'ts',
+        active: true,
+        state: 'resolved',
+      },
+    ],
+    worktrees: [
+      {
+        id: 'wt-pr421',
+        name: 'agent_codex__dashboard-rust-port-421',
+        branch: 'agent/codex/dashboard-rust-port-421',
+        kind: 'active',
+        files: [
+          file('crates/multica-dashboard/src/reader.rs', 'U'),
+          file('apps/dashboard/src/feature-flags.ts', 'M'),
+        ],
+      },
+      {
+        id: 'wt-pr438',
+        name: 'agent_codex__flags-cleanup-sweep-438',
+        branch: 'agent/codex/flags-cleanup-sweep-438',
+        kind: 'active',
+        files: [
+          file('apps/dashboard/src/feature-flags.ts', 'M'),
+          file('apps/dashboard/src/flag-types.ts', 'U'),
+        ],
+      },
+      {
+        id: 'wt-merge',
+        name: 'agent_merge__pr-421-vs-438',
+        branch: 'agent/merge/pr-421-vs-438',
+        kind: 'merge',
+        tag: 'merge',
+        files: [file('apps/dashboard/src/feature-flags.ts', 'M')],
+        message: 'Resolution ready for approval.',
+        commitReady: true,
+        commitState: 'ready',
+      },
+    ],
+    codeLines: [
+      { parts: [c('// Merge agent resolution — both features preserved.', 'c')] },
+      { parts: [c("// Applied PR #438's flag() shape, then re-added #421's entry.", 'c')] },
+      { parts: [] },
+      {
+        kind: 'added',
+        parts: [c('export const ', 'k'), c('FLAGS', 'p'), c(' = {')],
+      },
+      {
+        kind: 'added',
+        parts: [
+          c('  '),
+          c('dashboard_reads_rust', 'p'),
+          c(': '),
+          c('flag', 'f'),
+          c('({ rollout: '),
+          c('0', 'n'),
+          c(' }),'),
+        ],
+      },
+      {
+        kind: 'added',
+        parts: [
+          c('  '),
+          c('projects_v2_layout', 'p'),
+          c(': '),
+          c('flag', 'f'),
+          c('({ rollout: '),
+          c('25', 'n'),
+          c(' }),'),
+        ],
+      },
+      { kind: 'added', parts: [c('};')] },
+    ],
+    statusBranch: 'agent/merge/pr-421-vs-438',
+    statusErrors: 0,
+  },
+  {
+    stepLabel: 'Step 06',
+    label: 'You review + merge',
+    description: (
+      <>
+        Three-way side-by-side: PR A, PR B, agent&rsquo;s resolution, with a one-line rationale.
+        Approve to merge both PRs; reject to retry with a nudge.
+      </>
+    ),
+    messages: [
+      {
+        kind: 'user',
+        content: (
+          <>
+            <strong>You</strong>: Looks right. Merge both.
+          </>
+        ),
+      },
+      {
+        kind: 'assistant',
+        content: (
+          <>
+            Both PRs merged via merge agent. Merge worktree dissolved. Back to clean{' '}
+            <code>dev</code>.
+          </>
+        ),
+      },
+    ],
+    branch: 'dev',
+    tabs: [],
+    worktrees: [],
+    codeLines: [
+      { parts: [c('PR #421 merged', 'c')] },
+      { parts: [c('PR #438 merged', 'c')] },
+      { parts: [c('agent/merge/pr-421-vs-438 pruned', 'c')] },
+    ],
+    statusBranch: 'dev',
+    statusSync: '↓ 2 ↑ 0',
+    showPullAnimation: true,
+  },
+]
+
+const TUTORIAL: Record<ModeKey, ModeConfig> = {
+  execute: { key: 'execute', label: 'Execute mode', dotClass: 'a', steps: EXECUTE_STEPS },
+  plan: { key: 'plan', label: 'Plan mode', dotClass: 'p', steps: PLAN_STEPS },
+  merge: { key: 'merge', label: 'Merge mode', dotClass: 'm', steps: MERGE_STEPS },
+}
+
+/* ======================= ICONS ======================= */
+
+const strokeProps = {
+  fill: 'none',
+  stroke: 'currentColor',
+  strokeWidth: 1.8,
+  strokeLinecap: 'round' as const,
+  strokeLinejoin: 'round' as const,
+}
+
+type IconName =
   | 'files'
   | 'search'
   | 'git'
@@ -762,11 +1671,15 @@ type ActivityIcon =
   | 'refresh'
   | 'more'
   | 'branch'
+  | 'check'
+  | 'caret-down'
+  | 'reset'
+  | 'caret'
+  | 'x'
 
-function ActivityGlyph({ icon, className }: { icon: ActivityIcon; className?: string }) {
+function Icon({ name, className, style }: { name: IconName; className?: string; style?: CSSProperties }) {
   let content: ReactNode = null
-
-  switch (icon) {
+  switch (name) {
     case 'files':
       content = (
         <>
@@ -789,8 +1702,7 @@ function ActivityGlyph({ icon, className }: { icon: ActivityIcon; className?: st
           <circle cx="18" cy="6" r="3" />
           <circle cx="6" cy="6" r="3" />
           <circle cx="12" cy="18" r="3" />
-          <path d="M6 9v6a3 3 0 0 0 3 3h6" />
-          <path d="M18 9a9 9 0 0 1-3 6" />
+          <path d="M6 9v6a3 3 0 0 0 3 3h6M18 9a9 9 0 0 1-3 6" />
         </>
       )
       break
@@ -859,6 +1771,33 @@ function ActivityGlyph({ icon, className }: { icon: ActivityIcon; className?: st
         </>
       )
       break
+    case 'check':
+      content = <path d="M20 6 9 17l-5-5" />
+      break
+    case 'caret-down':
+      content = <path d="m6 9 6 6 6-6" />
+      break
+    case 'caret':
+      content = <path d="m9 18 6-6-6-6" />
+      break
+    case 'reset':
+      content = (
+        <>
+          <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+          <path d="M21 3v5h-5" />
+          <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+          <path d="M3 21v-5h5" />
+        </>
+      )
+      break
+    case 'x':
+      content = (
+        <>
+          <path d="M18 6 6 18" />
+          <path d="M6 6l12 12" />
+        </>
+      )
+      break
     default:
       content = null
   }
@@ -866,18 +1805,187 @@ function ActivityGlyph({ icon, className }: { icon: ActivityIcon; className?: st
   return (
     <svg
       aria-hidden="true"
-      className={className ?? 'rail-glyph'}
-      fill="none"
-      stroke="currentColor"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={1.7}
+      className={className}
+      style={style}
       viewBox="0 0 24 24"
+      {...strokeProps}
     >
       {content}
     </svg>
   )
 }
+
+/* ======================= COMPONENTS ======================= */
+
+function MessageBubble({ message, delay }: { message: StepMessage; delay: number }) {
+  const style: CSSProperties = { animationDelay: `${delay}ms` }
+
+  if (message.kind === 'tool') {
+    return (
+      <div className="msg" style={style}>
+        <div className="tool-block">
+          <div className="head">
+            <span>{message.title}</span>
+            {message.sub ? <span className="cnt">{message.sub}</span> : null}
+            {message.elapsed ? <span className="elapsed">{message.elapsed}</span> : null}
+          </div>
+          <div className="tool-list">
+            {message.rows.map((row, i) => (
+              <div className="t-row" key={`${row.label}-${row.value}-${i}`}>
+                <div className={`t-ico ${row.kind}`}>{iconGlyph(row.kind)}</div>
+                <div>
+                  <span className="lbl">{row.label}</span>
+                  <span className="vl">{row.value}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (message.kind === 'plan-list') {
+    return (
+      <div className="msg" style={style}>
+        <div className="bub plan-list">
+          <ol>
+            {message.items.map((item) => (
+              <li key={item.title}>
+                <strong>{item.title}</strong>
+                {item.meta ? <span className="phase-meta">{item.meta}</span> : null}
+              </li>
+            ))}
+          </ol>
+        </div>
+      </div>
+    )
+  }
+
+  const alignment = message.kind === 'user' ? 'user' : ''
+  return (
+    <div className={`msg ${alignment}`} style={style}>
+      <div className={`bub ${message.kind}`}>{message.content}</div>
+    </div>
+  )
+}
+
+function iconGlyph(kind: ToolRowKind) {
+  switch (kind) {
+    case 'shell':
+      return '>_'
+    case 'read':
+      return '📖'
+    case 'write':
+      return '✎'
+    case 'tool':
+      return '⚙'
+    default:
+      return '·'
+  }
+}
+
+function WorktreeCard({
+  wt,
+  baseline = false,
+  showPull = false,
+  animationIndex,
+}: {
+  wt: WorktreeRow
+  baseline?: boolean
+  showPull?: boolean
+  animationIndex?: number
+}) {
+  const headClass = baseline ? 'base' : wt.kind
+  const containerClass = [
+    'wt',
+    baseline ? 'active' : 'active just-added',
+    wt.kind === 'readonly' ? 'readonly' : '',
+    wt.kind === 'merge' ? 'merge' : '',
+    showPull ? 'dev-pulling' : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+
+  const tag = wt.tag ?? (baseline ? 'base · clean' : wt.branch.split('/').slice(-1)[0].slice(0, 12))
+  const totalChanges = wt.files?.length ?? 0
+
+  return (
+    <div
+      className={containerClass}
+      style={animationIndex != null ? { animationDelay: `${animationIndex * 120}ms` } : undefined}
+    >
+      <div className={`wt-head ${headClass}`}>
+        <Icon name="branch" className="ic" />
+        <span className="name" title={wt.name}>
+          {wt.name}
+        </span>
+        <span className="tag">{tag}</span>
+        {totalChanges > 0 ? <span className="ct">{totalChanges}</span> : null}
+        {showPull ? (
+          <span className="commit-chip">↓ pull · +1 commit</span>
+        ) : null}
+      </div>
+
+      {showPull ? <div className="pull-bar" /> : null}
+
+      {wt.message ? (
+        <div className={`wt-message ${showPull ? 'info' : ''}`}>
+          {showPull ? 'Pulling merged commit from origin/dev…' : wt.message}
+        </div>
+      ) : null}
+
+      {wt.commitReady ? (
+        <button
+          type="button"
+          className={`wt-commit ${wt.commitState === 'ready' ? 'ready' : ''}`}
+        >
+          <Icon name="check" />
+          Commit
+        </button>
+      ) : null}
+
+      {totalChanges > 0 ? (
+        <div className="wt-changes">
+          <div className="wt-changes-head">
+            <Icon name="caret-down" />
+            <span>Changes</span>
+            <span className="ct">{totalChanges}</span>
+          </div>
+          <div className="tree">
+            {wt.files!.map((f, idx) => {
+              const name = f.path.split('/').pop() ?? f.path
+              const statusChar =
+                f.status === 'conflict' ? '!' : f.status === 'ok' ? '✓' : f.status
+              const nodeClass = [
+                'tree-node',
+                'file',
+                f.status === 'conflict' ? 'conflict' : '',
+              ]
+                .filter(Boolean)
+                .join(' ')
+              return (
+                <div
+                  className={nodeClass}
+                  key={`${f.path}-${idx}`}
+                  style={{ animationDelay: `${idx * 120}ms` }}
+                  title={f.path}
+                >
+                  <span className="carett" />
+                  <span className={`fico ${f.ext}`}>{f.ext.toUpperCase()}</span>
+                  <span className="nm">{name}</span>
+                  <span className={`status ${f.status}`}>{statusChar}</span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+/* ======================= PAGE ======================= */
 
 export default function Home() {
   const [mode, setMode] = useState<ModeKey>('execute')
@@ -888,42 +1996,37 @@ export default function Home() {
   const steps = modeData.steps
   const activeStep = steps[stepIndex]
 
-  const changeCount = useMemo(() => {
-    return activeStep.worktrees.reduce((total, worktree) => {
-      return total + (worktree.files?.length ?? 0)
-    }, 0)
+  const activityChangeCount = useMemo(() => {
+    return activeStep.worktrees.reduce((total, w) => total + (w.files?.length ?? 0), 0)
   }, [activeStep])
 
-  const switchMode = (nextMode: ModeKey) => {
-    if (nextMode === mode) {
-      return
-    }
+  const switchMode = useCallback(
+    (nextMode: ModeKey) => {
+      if (nextMode === mode) return
+      setMode(nextMode)
+      setStepIndex(0)
+      setAnimationSeed((s) => s + 1)
+    },
+    [mode],
+  )
 
-    setMode(nextMode)
-    setStepIndex(0)
-    setAnimationSeed((seed) => seed + 1)
-  }
-
-  const goToStep = useCallback((nextStep: number) => {
-    if (nextStep < 0 || nextStep > steps.length - 1) {
-      return
-    }
-
-    setStepIndex(nextStep)
-    setAnimationSeed((seed) => seed + 1)
-  }, [steps.length])
+  const goToStep = useCallback(
+    (idx: number) => {
+      if (idx < 0 || idx > steps.length - 1) return
+      setStepIndex(idx)
+      setAnimationSeed((s) => s + 1)
+    },
+    [steps.length],
+  )
 
   const goBack = useCallback(() => {
-    if (stepIndex === 0) {
-      return
-    }
-
+    if (stepIndex === 0) return
     goToStep(stepIndex - 1)
   }, [goToStep, stepIndex])
 
   const reset = useCallback(() => {
     setStepIndex(0)
-    setAnimationSeed((seed) => seed + 1)
+    setAnimationSeed((s) => s + 1)
   }, [])
 
   const goNext = useCallback(() => {
@@ -931,14 +2034,13 @@ export default function Home() {
       reset()
       return
     }
-
     goToStep(stepIndex + 1)
   }, [goToStep, reset, stepIndex, steps.length])
 
   const closeWalkthrough = useCallback(() => {
     setMode('execute')
     setStepIndex(0)
-    setAnimationSeed((seed) => seed + 1)
+    setAnimationSeed((s) => s + 1)
   }, [])
 
   useEffect(() => {
@@ -953,7 +2055,6 @@ export default function Home() {
       ) {
         return
       }
-
       if (event.key === 'ArrowRight') {
         event.preventDefault()
         goNext()
@@ -971,56 +2072,52 @@ export default function Home() {
     }
 
     window.addEventListener('keydown', handleKeydown)
-    return () => {
-      window.removeEventListener('keydown', handleKeydown)
-    }
+    return () => window.removeEventListener('keydown', handleKeydown)
   }, [closeWalkthrough, goBack, goNext])
+
+  const statusBranch = activeStep.statusBranch ?? activeStep.branch
+  const statusSync = activeStep.statusSync ?? '↓ 0 ↑ 0'
+  const statusErrors = activeStep.statusErrors ?? 0
+  const showPull = !!activeStep.showPullAnimation
 
   return (
     <main className="how-it-works-page">
-      <header className="top-nav">
-        <div className="brand">
-          <div className="brand-mark" aria-hidden>
-            C
+      <header className="top">
+        <div className="lft">
+          <div className="mark" aria-hidden>
+            R
           </div>
           <div>
-            <p className="brand-title">How it works</p>
-            <p className="brand-subtitle">
-              Same Codex workflow design and logic inside GuardeX
-            </p>
-            <div className="brand-meta">
-              <span className="brand-chip">{PRODUCT_LABEL}</span>
-              <span className="brand-chip secondary">{AGENT_LABEL} flow</span>
-            </div>
+            <div className="title">How it works</div>
+            <div className="sub">Watch an agent run — from prompt to merged PR</div>
           </div>
         </div>
 
-        <nav className="mode-switches" aria-label="Workflow modes">
-          {MODE_ORDER.map((modeKey) => {
-            const item = TUTORIAL[modeKey]
-            const isActive = modeKey === mode
-
+        <nav className="mode-seg" aria-label="Workflow modes">
+          {MODE_ORDER.map((key) => {
+            const item = TUTORIAL[key]
+            const isActive = key === mode
             return (
               <button
-                className={`mode-pill ${item.dotClass} ${isActive ? 'active' : ''}`}
-                key={modeKey}
-                onClick={() => switchMode(modeKey)}
+                key={key}
                 type="button"
+                className={isActive ? 'active' : ''}
+                onClick={() => switchMode(key)}
               >
-                <span className="mode-dot" aria-hidden />
+                <span className={`dotc ${item.dotClass}`} aria-hidden />
                 {item.label}
               </button>
             )
           })}
         </nav>
 
-        <div className="top-meta">
-          <span className="page-counter">
-            {stepIndex + 1} / {steps.length}
+        <div className="rgt">
+          <span className="step-count">
+            <span className="mono">{stepIndex + 1}</span> / <span className="mono">{steps.length}</span>
           </span>
           <button
             aria-label="Close walkthrough"
-            className="icon-button"
+            className="close-btn"
             onClick={closeWalkthrough}
             type="button"
           >
@@ -1029,210 +2126,222 @@ export default function Home() {
         </div>
       </header>
 
-      <section className="workspace" aria-label="How it works workspace preview">
-        <article className="chat-panel">
-          <span className="panel-tag">CHAT • CODEX</span>
+      <div className="main">
+        <section className="pane chat-pane" aria-label="Chat transcript">
+          <div className="pane-label">chat · {PRODUCT_LABEL.toLowerCase()}</div>
 
           <div
-            className="chat-thread"
+            className="chat-scroll"
             key={`chat-${mode}-${stepIndex}-${animationSeed}`}
           >
-            {activeStep.messages.map((message, index) => (
-              <div
-                className={`chat-message ${message.kind}`}
-                key={`${message.kind}-${message.text}`}
-                style={{ animationDelay: `${index * 130}ms` }}
-              >
-                {message.kind === 'tool' ? (
-                  <div className="tool-block">
-                    <p className="tool-title">{message.text}</p>
-                    {message.label ? (
-                      <p className="tool-subtitle">{message.label}</p>
-                    ) : null}
-                    <div className="tool-rows">
-                      {(message.lines ?? []).map((line) => (
-                        <p className="tool-row" key={line}>
-                          {line}
-                        </p>
-                      ))}
-                    </div>
-                  </div>
-                ) : (
-                  <p className={`chat-bubble ${message.kind}`}>{message.text}</p>
-                )}
-              </div>
-            ))}
-          </div>
-
-          <div className="dot-track" aria-label="Steps">
-            {steps.map((step, index) => (
-              <button
-                aria-label={`Jump to ${step.stepLabel}`}
-                className={`dot ${index === stepIndex ? 'active' : ''} ${
-                  index < stepIndex ? 'done' : ''
-                }`}
-                key={step.stepLabel}
-                onClick={() => goToStep(index)}
-                type="button"
+            {activeStep.messages.map((msg, index) => (
+              <MessageBubble
+                key={`msg-${index}-${mode}-${stepIndex}-${animationSeed}`}
+                message={msg}
+                delay={index * 160}
               />
             ))}
           </div>
-        </article>
 
-        <article className="editor-shell">
-          <div className="editor-topbar">
-            <span className="editor-project">{EDITOR_LABEL}</span>
+          <div className="controls">
+            <div className="ctrl-top">
+              <div>
+                <span className="ctrl-step-num">{activeStep.stepLabel}</span>
+                <span className="ctrl-step-label">{activeStep.label}</span>
+              </div>
+              <div className="dots" aria-label="Steps">
+                {steps.map((step, i) => (
+                  <button
+                    type="button"
+                    key={step.stepLabel + step.label}
+                    aria-label={`Jump to ${step.stepLabel}`}
+                    className={`d ${i === stepIndex ? 'active' : ''} ${
+                      i < stepIndex ? 'done' : ''
+                    }`}
+                    onClick={() => goToStep(i)}
+                  />
+                ))}
+              </div>
+            </div>
+            <div className="ctrl-desc">{activeStep.description}</div>
+            <div className="ctrl-btns">
+              <button
+                type="button"
+                className="btn"
+                onClick={goBack}
+                disabled={stepIndex === 0}
+              >
+                ← Back
+              </button>
+              <button type="button" className="btn" onClick={reset}>
+                <Icon name="reset" style={{ width: 13, height: 13 }} /> Reset
+              </button>
+              <button type="button" className="btn primary" onClick={goNext}>
+                {stepIndex === steps.length - 1 ? 'Restart demo' : 'Next step →'}
+              </button>
+            </div>
           </div>
-          <div className="editor-body">
-            <aside className="activity-rail" aria-label="Activity rail">
-              <button aria-label="Explorer" className="rail-action" type="button">
-                <ActivityGlyph icon="files" />
+        </section>
+
+        <section className="pane right vs" aria-label="VS Code live preview">
+          <div className="pane-label">vs code · live</div>
+
+          <div className="vs-titlebar">
+            <span className="traffic" aria-hidden>
+              <span />
+              <span />
+              <span />
+            </span>
+            <span>{EDITOR_LABEL}</span>
+          </div>
+
+          <div className="vs-body">
+            <aside className="vs-activity" aria-label="Activity bar">
+              <button type="button" className="ab" aria-label="Explorer">
+                <Icon name="files" />
               </button>
-              <button aria-label="Search" className="rail-action" type="button">
-                <ActivityGlyph icon="search" />
+              <button type="button" className="ab" aria-label="Search">
+                <Icon name="search" />
               </button>
-              <button aria-label="Source Control" className="rail-action active" type="button">
-                <ActivityGlyph icon="git" />
-                <span className={`rail-badge ${changeCount > 0 ? 'live' : ''}`}>{changeCount}</span>
+              <button type="button" className="ab active" aria-label="Source control">
+                <Icon name="git" />
+                <span className={`badge ${activityChangeCount > 0 ? 'live' : ''}`}>
+                  {activityChangeCount}
+                </span>
               </button>
-              <button aria-label="Run and Debug" className="rail-action" type="button">
-                <ActivityGlyph icon="debug" />
+              <button type="button" className="ab" aria-label="Run and debug">
+                <Icon name="debug" />
               </button>
-              <button aria-label="Extensions" className="rail-action" type="button">
-                <ActivityGlyph icon="extensions" />
+              <button type="button" className="ab" aria-label="Extensions">
+                <Icon name="extensions" />
               </button>
-              <span className="rail-spacer" />
-              <button aria-label="Account" className="rail-action" type="button">
-                <ActivityGlyph icon="account" />
+              <span className="sp" />
+              <button type="button" className="ab" aria-label="Account">
+                <Icon name="account" />
               </button>
-              <button aria-label="Settings" className="rail-action" type="button">
-                <ActivityGlyph icon="settings" />
+              <button type="button" className="ab" aria-label="Settings">
+                <Icon name="settings" />
               </button>
             </aside>
 
-            <section className="source-panel">
-              <div className="source-header-row">
-                <p className="source-title">Source Control</p>
-                <div className="source-actions">
-                  <button aria-label="Create branch" className="source-action-btn" type="button">
-                    <ActivityGlyph icon="plus" className="source-action-glyph" />
+            <div className="vs-sc">
+              <div className="vs-sc-head">
+                <span>Source Control</span>
+                <span className="sc-actions">
+                  <button type="button" aria-label="Create branch">
+                    <Icon name="plus" />
                   </button>
-                  <button aria-label="Refresh" className="source-action-btn" type="button">
-                    <ActivityGlyph icon="refresh" className="source-action-glyph" />
+                  <button type="button" aria-label="Refresh">
+                    <Icon name="refresh" />
                   </button>
-                  <button aria-label="More" className="source-action-btn" type="button">
-                    <ActivityGlyph icon="more" className="source-action-glyph" />
+                  <button type="button" aria-label="More">
+                    <Icon name="more" />
                   </button>
-                </div>
+                </span>
               </div>
-              <p className="source-branch">{activeStep.branch}</p>
-              <p className="source-note">{activeStep.sourceNote}</p>
 
               <div
-                className="worktree-list"
-                key={`worktrees-${mode}-${stepIndex}-${animationSeed}`}
+                className="vs-sc-scroll"
+                key={`sc-${mode}-${stepIndex}-${animationSeed}`}
               >
-                <div className="worktree-item base active">
-                  <div className="worktree-head">
-                    <ActivityGlyph icon="branch" className="worktree-branch-icon" />
-                    <p className="worktree-name">dev</p>
-                    <p className="worktree-tag">base · clean</p>
-                  </div>
-                  <p className="worktree-message">Baseline branch — no agent activity.</p>
-                </div>
-
-                {activeStep.worktrees.map((worktree, index) => (
-                  <div
-                    className={`worktree-item active just-added ${worktree.kind ?? 'active'}`}
-                    key={`${worktree.branch}-${index}`}
-                    style={{ animationDelay: `${index * 110}ms` }}
-                  >
-                    <div className="worktree-head">
-                      <ActivityGlyph icon="branch" className="worktree-branch-icon" />
-                      <p className="worktree-name">{worktree.name}</p>
-                    </div>
-                    <p className="worktree-branch">{worktree.branch}</p>
-                    {worktree.files && worktree.files.length > 0 ? (
-                      <div className="worktree-files">
-                        <p className="worktree-files-head">
-                          Changes
-                          <span className="worktree-count">{worktree.files.length}</span>
-                        </p>
-                        {worktree.files.map((file) => {
-                          const match = file.match(/^([A-Z✓])\s+(.*)$/)
-                          const status = match?.[1] ?? '•'
-                          const label = match?.[2] ?? file
-                          const statusTone =
-                            status === 'M'
-                              ? 'modified'
-                              : status === 'U'
-                                ? 'added'
-                                : status === 'D'
-                                  ? 'removed'
-                                  : status === '✓'
-                                    ? 'ok'
-                                    : 'neutral'
-
-                          return (
-                            <p className="worktree-file-row" key={file}>
-                              <span className={`file-status ${statusTone}`}>{status}</span>
-                              <span className="file-label">{label}</span>
-                            </p>
-                          )
-                        })}
-                      </div>
-                    ) : null}
-                  </div>
+                <WorktreeCard
+                  baseline
+                  showPull={showPull}
+                  wt={{
+                    id: 'dev',
+                    name: 'dev',
+                    branch: 'dev',
+                    kind: 'active',
+                    message: 'Baseline branch — no agent activity.',
+                  }}
+                />
+                {activeStep.worktrees.map((w, i) => (
+                  <WorktreeCard
+                    key={`${w.id}-${animationSeed}`}
+                    wt={w}
+                    animationIndex={i}
+                  />
                 ))}
               </div>
-            </section>
+            </div>
 
-            <section className="code-panel">
-              <p className="code-title">{activeStep.codeTitle}</p>
+            <div className="vs-editor">
+              <div className="vs-tabs">
+                {activeStep.tabs.length === 0 ? (
+                  <div className="vs-tab active">
+                    <span className="fico default">—</span>
+                    <span className="title-text">no file open</span>
+                  </div>
+                ) : (
+                  activeStep.tabs.map((tab) => (
+                    <div
+                      key={tab.path + tab.label}
+                      className={`vs-tab ${tab.active ? 'active' : ''} ${
+                        tab.state === 'conflict' ? 'conflict' : ''
+                      }`}
+                    >
+                      <span className={`fico ${tab.ext}`}>{tab.ext.toUpperCase()}</span>
+                      <span className="title-text">{tab.label}</span>
+                      {tab.badge ? (
+                        <span
+                          className="mono"
+                          style={{
+                            color: 'var(--purple)',
+                            fontSize: 10,
+                            marginLeft: 4,
+                          }}
+                        >
+                          {tab.badge}
+                        </span>
+                      ) : null}
+                      <span className="cl">
+                        <Icon name="x" style={{ width: 11, height: 11 }} />
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
+
               <div
-                className="code-lines"
+                className={`vs-code ${activeStep.pulseEditor ? 'pulsed' : ''}`}
                 key={`code-${mode}-${stepIndex}-${animationSeed}`}
               >
-                {activeStep.codeLines.map((line, index) => (
-                  <p
-                    className={`code-line ${line.tone ?? 'normal'}`}
-                    key={`${line.text}-${index}`}
-                    style={{ animationDelay: `${index * 45}ms` }}
+                {activeStep.codeLines.map((line, i) => (
+                  <div
+                    key={`line-${i}-${animationSeed}`}
+                    className={`line ${line.kind ?? ''}`}
+                    style={{ animationDelay: `${i * 45}ms` }}
                   >
-                    <span className="line-number">{index + 1}</span>
-                    <span>{line.text}</span>
-                  </p>
+                    <span className="ln">{i + 1}</span>
+                    <span className="gutter" />
+                    <span className="content">
+                      {line.parts.map((part, pi) => (
+                        <span key={pi} className={part.token ? `tok-${part.token}` : ''}>
+                          {part.text}
+                        </span>
+                      ))}
+                      {line.typing ? <span className="caret" /> : null}
+                    </span>
+                  </div>
                 ))}
               </div>
-            </section>
+
+              <div className="vs-status">
+                <span className="item">
+                  <Icon name="branch" />
+                  {statusBranch}
+                </span>
+                <span className="item">{statusSync}</span>
+                <span className="item">⊘ {statusErrors} ⚠ 0</span>
+                <span className="sp" />
+                <span className="item">Ln 1, Col 1</span>
+                <span className="item">UTF-8</span>
+                <span className="item">TypeScript React</span>
+              </div>
+            </div>
           </div>
-        </article>
-      </section>
-
-      <footer className="stepbar">
-        <div className="step-description">
-          <p className="step-id">{activeStep.stepLabel}</p>
-          <p className="step-title">{activeStep.title}</p>
-          <p className="step-copy">{activeStep.description}</p>
-        </div>
-
-        <div className="step-actions">
-          <button
-            className="ghost-btn"
-            disabled={stepIndex === 0}
-            onClick={goBack}
-            type="button"
-          >
-            ← Back
-          </button>
-          <button className="ghost-btn" onClick={reset} type="button">
-            Reset
-          </button>
-          <button className="cta-btn" onClick={goNext} type="button">
-            {stepIndex === steps.length - 1 ? 'Restart demo ↺' : 'Next step →'}
-          </button>
-        </div>
-      </footer>
+        </section>
+      </div>
     </main>
   )
 }
