@@ -21,11 +21,16 @@ GuardeX exists to stop that loop.
 
 ```mermaid
 flowchart LR
-    A[Agent A edits file X] --> C[Conflict / overwrite]
-    B[Agent B edits file X] --> C
-    C --> D[Deleted or lost code]
-    D --> E[Rework and confusion]
-    E --> C
+    A[Agent A edits shared files] --> S[Same target surface]
+    B[Agent B edits shared files] --> S
+    C[Agent C edits shared files] --> S
+    D[Agent D edits shared files] --> S
+    E[Agent E edits shared files] --> S
+    S --> F[Conflict / overwrite churn]
+    F --> G[Deleted or lost code]
+    G --> H[Rework and confusion]
+    H --> I[Regression risk grows]
+    I --> F
 ```
 
 ## What GuardeX enforces
