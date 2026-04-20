@@ -1,10 +1,11 @@
 {
   "name": "@imdeadpool/guardex",
-  "version": "7.0.9",
-  "description": "GuardeX: the Guardian T-Rex for your repo, with hardened multi-agent git guardrails.",
+  "version": "7.0.10",
+  "description": "GitGuardex: hardened multi-agent git guardrails for parallel agent work.",
   "license": "MIT",
   "preferGlobal": true,
   "bin": {
+    "gitguardex": "bin/multiagent-safety.js",
     "guardex": "bin/multiagent-safety.js",
     "gx": "bin/multiagent-safety.js",
     "multiagent-safety": "bin/multiagent-safety.js"
@@ -43,6 +44,7 @@
     "CONTRIBUTING.md"
   ],
   "keywords": [
+    "gitguardex",
     "guardex",
     "multi-agent",
     "git-hooks",

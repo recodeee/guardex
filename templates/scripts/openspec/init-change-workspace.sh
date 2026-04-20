@@ -89,5 +89,5 @@ The system SHALL enforce ${CAPABILITY_SLUG} behavior as defined by this change.
 SPECEOF
 fi
 
-echo "[guardex] OpenSpec change workspace ready: ${CHANGE_DIR}"
-echo "[guardex] OpenSpec change spec scaffold: ${SPEC_DIR}/spec.md"
+echo "[gitguardex] OpenSpec change workspace ready: ${CHANGE_DIR}"
+echo "[gitguardex] OpenSpec change spec scaffold: ${SPEC_DIR}/spec.md"

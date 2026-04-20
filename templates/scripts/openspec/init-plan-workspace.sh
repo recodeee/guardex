@@ -114,5 +114,5 @@ Role workspace for \`${role}\`.
 "
 done
 
-echo "[guardex] OpenSpec plan workspace ready: ${PLAN_DIR}"
-echo "[guardex] Roles: ${ROLES[*]}"
+echo "[gitguardex] OpenSpec plan workspace ready: ${PLAN_DIR}"
+echo "[gitguardex] Roles: ${ROLES[*]}"

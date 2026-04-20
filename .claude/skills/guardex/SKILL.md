@@ -1,41 +1,10 @@
 ---
 name: guardex
-description: "Use when you need to check, repair, or bootstrap multi-agent safety guardrails in this repository."
+description: "Legacy alias for gitguardex."
 ---
 
-# GuardeX (Codex skill)
+Legacy alias. Use `gitguardex`.
 
-Use this skill whenever branch safety, lock ownership, or guardrail setup may be broken.
-
-## Fast path
-
-1. Run `gx status`.
-2. If repo safety is degraded, run `gx doctor`.
-3. If issues remain, run `gx scan` and address the findings.
-
-## Setup path
-
-If guardrails are missing entirely, run:
-
-```sh
-gx setup
-# alias
-gx init
-```
-
-Then verify:
-
-```sh
-gx status
-gx scan
-```
-
-## Operator notes
-
-- Prefer `gx doctor` for one-step repair + verification.
-- Keep agent work isolated (`agent/*` branches + lock claims).
-- For every new user message/task, restart the full loop on a fresh agent branch/worktree.
-- For one-command Codex sandbox startup, use `bash scripts/codex-agent.sh "<task>" "<agent-name>"`.
-- `scripts/codex-agent.sh` auto-syncs the sandbox branch against base before each task and auto-finishes merge/PR flow after Codex exits.
-- Auto-finish keeps the branch/worktree by default; remove merged branches explicitly with `gx cleanup` (or `gx cleanup --branch "<agent-branch>"`).
-- Do not bypass protected branch safeguards unless explicitly required.
+1. `gx status`
+2. If degraded, `gx doctor`
+3. If still degraded, `gx status --strict`

@@ -1,10 +1,10 @@
-# GuardeX — Guardian T-Rex for your repo
+# GitGuardex — Guardian T-Rex for your repo
 
 [![npm version](https://img.shields.io/npm/v/%40imdeadpool%2Fguardex?color=cb3837&logo=npm)](https://www.npmjs.com/package/@imdeadpool/guardex)
 [![CI](https://github.com/recodeee/guardex/actions/workflows/ci.yml/badge.svg)](https://github.com/recodeee/guardex/actions/workflows/ci.yml)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/recodeee/guardex/badge)](https://securityscorecards.dev/viewer/?uri=github.com/recodeee/guardex)
 
-GuardeX is a safety layer for parallel Codex/agent work in git repos.
+GitGuardex is a safety layer for parallel Codex/agent work in git repos.
 
 > [!WARNING]
 > Not affiliated with OpenAI or Codex. Not an official tool.
@@ -20,7 +20,7 @@ Multiple Codex agents worked on the same files at the same time.
 They started overwriting or deleting each other's changes.
 Progress became **de-progressive**: more activity, less real forward movement.
 
-GuardeX exists to stop that loop.
+GitGuardex exists to stop that loop.
 
 ![Multi-agent dashboard example](https://raw.githubusercontent.com/recodeee/guardex/main/docs/images/dashboard-multi-agent.png)
 
@@ -38,7 +38,7 @@ flowchart LR
     I --> F
 ```
 
-## What GuardeX enforces
+## What GitGuardex enforces
 
 - isolated `agent/*` branch + worktree per task
 - explicit file lock claiming before edits
@@ -57,7 +57,8 @@ gx setup
 Alias support:
 
 - preferred: `gx`
-- full: `guardex`
+- full: `gitguardex`
+- legacy: `guardex`
 
 ## Copy-paste: daily workflow (per new user task)
 
@@ -354,8 +355,8 @@ scripts/install-agent-git-hooks.sh
 scripts/openspec/init-plan-workspace.sh
 .githooks/pre-commit
 .githooks/pre-push
-.codex/skills/guardex/SKILL.md
-.claude/commands/guardex.md
+.codex/skills/gitguardex/SKILL.md
+.claude/commands/gitguardex.md
 .github/pull.yml.example
 .github/workflows/cr.yml
 .omx/state/agent-file-locks.json
@@ -411,6 +412,13 @@ npm pack --dry-run
 ```
 
 ## Release notes
+
+### v7.0.10
+
+- **Changed: primary user-facing long name is now GitGuardex.** The CLI/help surface now presents `gitguardex` as the long-form command while keeping `gx` as the preferred short command and `guardex` as a legacy compatibility alias.
+- **Changed: installed Codex/Claude startup files now use `gitguardex` paths.** `gx setup` now installs `.codex/skills/gitguardex/SKILL.md` and `.claude/commands/gitguardex.md`, matching the new product name without carrying the old fixed-context path names.
+- **Changed: startup context is smaller again.** The managed marker block, GitGuardex skill, and GitGuardex command were compressed further to cut fixed context from 4340 bytes to 1930 bytes across the three always-loaded template files.
+- **Changed: package metadata advanced to the next publishable release.** Bumped `@imdeadpool/guardex` from `7.0.9` to `7.0.10` so the renamed GitGuardex surface is ready for the next npm publish.
 
 ### v7.0.9
 

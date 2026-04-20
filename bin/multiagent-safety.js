@@ -7,7 +7,7 @@ const cp = require('node:child_process');
 const packageJsonPath = path.resolve(__dirname, '..', 'package.json');
 const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
 
-const TOOL_NAME = 'guardex';
+const TOOL_NAME = 'gitguardex';
 const SHORT_TOOL_NAME = 'gx';
 const LEGACY_NAMES = ['guardex', 'multiagent-safety'];
 const OPENSPEC_PACKAGE = '@fission-ai/openspec';
@@ -58,9 +58,9 @@ const TEMPLATE_FILES = [
   'githooks/pre-push',
   'githooks/post-merge',
   'githooks/post-checkout',
-  'codex/skills/guardex/SKILL.md',
+  'codex/skills/gitguardex/SKILL.md',
   'codex/skills/guardex-merge-skills-to-dev/SKILL.md',
-  'claude/commands/guardex.md',
+  'claude/commands/gitguardex.md',
   'github/pull.yml.example',
   'github/workflows/cr.yml',
 ];
@@ -143,9 +143,9 @@ const MANAGED_GITIGNORE_PATHS = [
   '.githooks/post-merge',
   '.githooks/post-checkout',
   'oh-my-codex/',
-  '.codex/skills/guardex/SKILL.md',
+  '.codex/skills/gitguardex/SKILL.md',
   '.codex/skills/guardex-merge-skills-to-dev/SKILL.md',
-  '.claude/commands/guardex.md',
+  '.claude/commands/gitguardex.md',
   LOCK_FILE_RELATIVE,
 ];
 const OMX_SCAFFOLD_DIRECTORIES = [
@@ -196,7 +196,7 @@ const SUGGESTIBLE_COMMANDS = [
   'release',
 ];
 const CLI_COMMAND_DESCRIPTIONS = [
-  ['status', 'Show GuardeX CLI + service health without modifying files'],
+  ['status', 'Show GitGuardex CLI + service health without modifying files'],
   ['setup', 'Install, repair, and verify guardrails (flags: --repair, --install-only, --target)'],
   ['doctor', 'Repair drift + verify (auto-sandboxes on protected main)'],
   ['protect', 'Manage protected branches (list/add/remove/set/reset)'],
@@ -223,24 +223,20 @@ const AGENT_BOT_DESCRIPTIONS = [
   ['agents', 'Start/stop review + cleanup bots for this repo'],
 ];
 
-const AI_SETUP_PROMPT = `GuardeX (gx) setup checklist for Codex/Claude in this repo.
+const AI_SETUP_PROMPT = `GitGuardex (gx) setup checklist for Codex/Claude in this repo.
 
-1) Install:         npm i -g @imdeadpool/guardex && gh --version
-2) Bootstrap:       gx setup         # installs hooks/templates + verifies; prompts Y/N for global OMX/OpenSpec/codex-auth
-3) If degraded:     gx doctor        # repair + re-verify
-4) Per task:        bash scripts/codex-agent.sh "<task>" "<agent>"
-                    # or manual:
-                    #   bash scripts/agent-branch-start.sh "<task>" "<agent>"
-                    #   python3 scripts/agent-file-locks.py claim --branch "$(git rev-parse --abbrev-ref HEAD)" <file...>
-                    #   bash scripts/agent-branch-finish.sh --branch "$(git rev-parse --abbrev-ref HEAD)" --via-pr --wait-for-merge
-5) Finalize all:    gx finish --all
-6) Cleanup:         gx cleanup
-7) OpenSpec:        /opsx:propose -> /opsx:apply -> /opsx:archive   (see docs/openspec-getting-started.md)
-8) Protect:         gx protect add release staging                  (optional)
-9) Sync:            gx sync --check && gx sync                      (optional; rebase onto base)
-10) Fork sync:      cp .github/pull.yml.example .github/pull.yml    (optional; install https://github.com/apps/pull)
-11) PR review bot:  install https://github.com/apps/cr-gpt + set OPENAI_API_KEY in Actions variables (uses .github/workflows/cr.yml)
-12) GitHub repo:    enable Settings -> PRs -> Automatically delete head branches
+1) Install:    npm i -g @imdeadpool/guardex && gh --version
+2) Bootstrap:  gx setup
+3) Repair:     gx doctor
+4) Task loop:  bash scripts/codex-agent.sh "<task>" "<agent>"
+               or branch-start -> claim -> branch-finish
+5) Finish:     gx finish --all
+6) Cleanup:    gx cleanup
+7) OpenSpec:   /opsx:propose -> /opsx:apply -> /opsx:archive
+8) Optional:   gx protect add release staging
+9) Optional:   gx sync --check && gx sync
+10) Review bot: install https://github.com/apps/cr-gpt + set OPENAI_API_KEY
+11) Fork sync:  cp .github/pull.yml.example .github/pull.yml
 `;
 
 const AI_SETUP_COMMANDS = `npm i -g @imdeadpool/guardex
@@ -251,7 +247,7 @@ bash scripts/codex-agent.sh "<task>" "<agent>"
 gx finish --all
 gx cleanup
 gx protect add release staging
-gx sync
+gx sync --check && gx sync
 `;
 
 const SCORECARD_RISK_BY_CHECK = {
@@ -808,7 +804,7 @@ function ensureAgentsSnippet(repoRoot, dryRun, options = {}) {
     if (!dryRun) {
       fs.writeFileSync(agentsPath, next, 'utf8');
     }
-    return { status: 'updated', file: 'AGENTS.md', note: 'refreshed guardex-managed block' };
+    return { status: 'updated', file: 'AGENTS.md', note: 'refreshed gitguardex-managed block' };
   }
 
   if (existing.includes(AGENTS_MARKER_START)) {
@@ -839,7 +835,7 @@ function ensureManagedGitignore(repoRoot, dryRun) {
     if (!dryRun) {
       fs.writeFileSync(gitignorePath, `${managedBlock}\n`, 'utf8');
     }
-    return { status: 'created', file: '.gitignore', note: 'added guardex-managed entries' };
+    return { status: 'created', file: '.gitignore', note: 'added gitguardex-managed entries' };
   }
 
   const existing = fs.readFileSync(gitignorePath, 'utf8');
@@ -851,14 +847,14 @@ function ensureManagedGitignore(repoRoot, dryRun) {
     if (!dryRun) {
       fs.writeFileSync(gitignorePath, next, 'utf8');
     }
-    return { status: 'updated', file: '.gitignore', note: 'refreshed guardex-managed entries' };
+    return { status: 'updated', file: '.gitignore', note: 'refreshed gitguardex-managed entries' };
   }
 
   const separator = existing.endsWith('\n') ? '\n' : '\n\n';
   if (!dryRun) {
     fs.writeFileSync(gitignorePath, `${existing}${separator}${managedBlock}\n`, 'utf8');
   }
-  return { status: 'updated', file: '.gitignore', note: 'appended guardex-managed entries' };
+  return { status: 'updated', file: '.gitignore', note: 'appended gitguardex-managed entries' };
 }
 
 function configureHooks(repoRoot, dryRun) {

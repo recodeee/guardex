@@ -319,9 +319,9 @@ test('setup provisions workflow files and repo config', () => {
     '.githooks/pre-commit',
     '.githooks/pre-push',
     '.githooks/post-merge',
-    '.codex/skills/guardex/SKILL.md',
+    '.codex/skills/gitguardex/SKILL.md',
     '.codex/skills/guardex-merge-skills-to-dev/SKILL.md',
-    '.claude/commands/guardex.md',
+    '.claude/commands/gitguardex.md',
     '.github/pull.yml.example',
     '.github/workflows/cr.yml',
     '.omx/state/agent-file-locks.json',
@@ -374,9 +374,9 @@ test('setup provisions workflow files and repo config', () => {
   assert.match(gitignoreContent, /\.omx\//);
   assert.match(gitignoreContent, /\.omc\//);
   assert.match(gitignoreContent, /oh-my-codex\//);
-  assert.match(gitignoreContent, /\.codex\/skills\/guardex\/SKILL\.md/);
+  assert.match(gitignoreContent, /\.codex\/skills\/gitguardex\/SKILL\.md/);
   assert.match(gitignoreContent, /\.codex\/skills\/guardex-merge-skills-to-dev\/SKILL\.md/);
-  assert.match(gitignoreContent, /\.claude\/commands\/guardex\.md/);
+  assert.match(gitignoreContent, /\.claude\/commands\/gitguardex\.md/);
   assert.match(gitignoreContent, /\.omx\/state\/agent-file-locks\.json/);
   assert.match(gitignoreContent, /# multiagent-safety:END/);
 
@@ -441,7 +441,7 @@ test('setup refreshes existing managed AGENTS block by default', () => {
   assert.match(currentAgents, /explicit final completion\/cleanup section/);
   assert.match(currentAgents, /PR URL \+ final `MERGED` evidence/);
   assert.doesNotMatch(currentAgents, /legacy managed clause/);
-  assert.match(result.stdout, /refreshed guardex-managed block/);
+  assert.match(result.stdout, /refreshed gitguardex-managed block/);
 });
 
 test('doctor refreshes existing managed AGENTS block by default', () => {
@@ -474,7 +474,7 @@ Trailing project notes after managed block.
   assert.match(currentAgents, /explicit final completion\/cleanup section/);
   assert.match(currentAgents, /PR URL \+ final `MERGED` evidence/);
   assert.doesNotMatch(currentAgents, /legacy managed clause/);
-  assert.match(result.stdout, /refreshed guardex-managed block/);
+  assert.match(result.stdout, /refreshed gitguardex-managed block/);
 });
 
 test('repo hook settings reference real local hook directories', () => {
@@ -1684,21 +1684,21 @@ test('default invocation runs non-mutating status output', () => {
 
   const result = runNode([], repoDir);
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.match(result.stdout, /\[guardex\] CLI:/);
-  assert.match(result.stdout, /\[guardex\] Global services:/);
-  assert.match(result.stdout, /\[guardex\] Repo safety service:/);
+  assert.match(result.stdout, /\[gitguardex\] CLI:/);
+  assert.match(result.stdout, /\[gitguardex\] Global services:/);
+  assert.match(result.stdout, /\[gitguardex\] Repo safety service:/);
   assert.match(result.stdout, /●/);
-  const serviceIdx = result.stdout.indexOf('[guardex] Repo safety service:');
-  const repoIdx = result.stdout.indexOf('[guardex] Repo:');
-  const branchIdx = result.stdout.indexOf('[guardex] Branch:');
-  const toolsIdx = result.stdout.indexOf('guardex-tools logs:');
+  const serviceIdx = result.stdout.indexOf('[gitguardex] Repo safety service:');
+  const repoIdx = result.stdout.indexOf('[gitguardex] Repo:');
+  const branchIdx = result.stdout.indexOf('[gitguardex] Branch:');
+  const toolsIdx = result.stdout.indexOf('gitguardex-tools logs:');
   assert.equal(serviceIdx >= 0, true);
   assert.equal(repoIdx > serviceIdx, true);
   assert.equal(branchIdx > repoIdx, true);
   assert.equal(toolsIdx > branchIdx, true);
-  assert.match(result.stdout, /guardex-tools logs:/);
+  assert.match(result.stdout, /gitguardex-tools logs:/);
   assert.match(result.stdout, /USAGE\n\s+\$ gx <command> \[options\]/);
-  assert.match(result.stdout, /COMMANDS\n\s+status\s+Show GuardeX CLI \+ service health without modifying files/);
+  assert.match(result.stdout, /COMMANDS\n\s+status\s+Show GitGuardex CLI \+ service health without modifying files/);
   assert.match(
     result.stdout,
     /AGENT BOT\n\s+agents\s+Start\/stop review \+ cleanup bots for this repo/,
@@ -1999,7 +1999,7 @@ test('warning-only degraded status avoids zero-error wording and improves scan h
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.match(result.stdout, /Repo safety service: .*degraded \(\d+ warning\(s\)\)\./);
   assert.doesNotMatch(result.stdout, /0 error\(s\),/);
-  assert.match(result.stdout, /Run 'guardex scan' to review warning details\./);
+  assert.match(result.stdout, /Run 'gitguardex scan' to review warning details\./);
 });
 
 test('default invocation outside git repo reports inactive repo service', () => {
@@ -2007,8 +2007,8 @@ test('default invocation outside git repo reports inactive repo service', () => 
 
   const result = runNode([], outsideDir);
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.match(result.stdout, /\[guardex\] CLI:/);
-  assert.match(result.stdout, /\[guardex\] Global services:/);
+  assert.match(result.stdout, /\[gitguardex\] CLI:/);
+  assert.match(result.stdout, /\[gitguardex\] Global services:/);
   assert.match(result.stdout, /Repo safety service: .*inactive/);
 });
 
@@ -3779,7 +3779,7 @@ test('prompt outputs AI setup instructions', () => {
   const result = runNode(['prompt'], repoDir);
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.match(result.stdout, /npm i -g @imdeadpool\/guardex/);
-  assert.match(result.stdout, /GuardeX \(gx\) setup checklist/);
+  assert.match(result.stdout, /GitGuardex \(gx\) setup checklist/);
   assert.match(result.stdout, /gx setup/);
   assert.match(result.stdout, /gx doctor/);
   assert.match(result.stdout, /codex-agent\.sh/);
@@ -3802,14 +3802,14 @@ test('prompt --exec outputs command-only checklist', () => {
   assert.match(result.stdout, /codex-agent\.sh/);
   assert.match(result.stdout, /^gx finish --all$/m);
   assert.match(result.stdout, /^gx cleanup$/m);
-  assert.doesNotMatch(result.stdout, /GuardeX \(gx\) setup checklist/);
+  assert.doesNotMatch(result.stdout, /GitGuardex \(gx\) setup checklist/);
 });
 
 test('deprecated copy-prompt alias still works and warns', () => {
   const repoDir = initRepo();
   const result = runNode(['copy-prompt'], repoDir);
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.match(result.stdout, /GuardeX \(gx\) setup checklist/);
+  assert.match(result.stdout, /GitGuardex \(gx\) setup checklist/);
   assert.match(result.stderr, /'copy-prompt' is deprecated/);
   assert.match(result.stderr, /gx prompt/);
 });
