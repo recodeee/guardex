@@ -146,6 +146,79 @@ button {
 .dotc.a { background: var(--accent); }
 .dotc.p { background: var(--purple); }
 .dotc.m { background: var(--warn); }
+.dotc.i { background: var(--info); }
+
+/* Install command pill in the top bar */
+.install-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px 6px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 11.5px;
+  position: relative;
+  transition: background-color 180ms ease, border-color 180ms ease;
+  max-width: 100%;
+  white-space: nowrap;
+}
+
+.install-pill:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-2);
+}
+
+.install-pill:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.install-pill .dollar {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.install-pill .cmd {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.install-pill .copy-ind {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-dim);
+  transition: color 180ms ease, background-color 180ms ease;
+}
+
+.install-pill:hover .copy-ind {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.install-pill.copied .copy-ind {
+  color: var(--accent);
+  background: rgba(61, 220, 151, 0.14);
+}
+
+.install-pill .copy-toast {
+  position: absolute;
+  right: 10px;
+  bottom: -18px;
+  font-size: 10px;
+  color: var(--accent);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
 
 .top .rgt {
   display: flex;

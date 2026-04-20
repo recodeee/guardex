@@ -9,7 +9,7 @@ import {
   useState,
 } from 'react'
 
-type ModeKey = 'execute' | 'plan' | 'merge'
+type ModeKey = 'execute' | 'plan' | 'merge' | 'installation'
 
 type MessageKind =
   | 'user'
@@ -113,11 +113,12 @@ interface TutorialStep {
 interface ModeConfig {
   key: ModeKey
   label: string
-  dotClass: 'a' | 'p' | 'm'
+  dotClass: 'a' | 'p' | 'm' | 'i'
   steps: TutorialStep[]
 }
 
-const MODE_ORDER: ModeKey[] = ['execute', 'plan', 'merge']
+const MODE_ORDER: ModeKey[] = ['execute', 'plan', 'merge', 'installation']
+const INSTALL_COMMAND = 'npm i -g @imdeadpool/guardex'
 const PRODUCT_LABEL = 'Recodee'
 const EDITOR_LABEL = 'recodee — VS Code'
 
@@ -458,11 +459,12 @@ const EXECUTE_STEPS: TutorialStep[] = [
   },
   {
     stepLabel: 'Step 06',
-    label: 'Second worktree for the ticket UX',
+    label: 'Claude joins in parallel',
     description: (
       <>
-        Need a parallel effort? Start another prompt while this one runs. Each gets its <em>own</em>{' '}
-        worktree — they never collide.
+        Need a parallel effort? Start another session with <strong>Claude</strong> while Codex keeps
+        working. Each agent gets its <em>own</em> worktree — they never collide, and both show up
+        side-by-side in Source Control.
       </>
     ),
     messages: [
@@ -470,29 +472,34 @@ const EXECUTE_STEPS: TutorialStep[] = [
         kind: 'user',
         content: (
           <>
-            <strong>You</strong>: Also fix the hydration flash on project sidebar.
+            <strong>You</strong> (Claude): Also fix the hydration flash on the project sidebar.
           </>
         ),
       },
       {
         kind: 'assistant',
-        content: <>Spinning up a second worktree — this won&rsquo;t interrupt the Rust port.</>,
+        content: (
+          <>
+            Spinning up a Claude worktree alongside the Codex port — they run independently and land
+            as separate PRs.
+          </>
+        ),
       },
       {
         kind: 'tool',
         title: '1 tool call',
-        sub: '· scripts/agent-branch-start.sh',
+        sub: '· scripts/agent-branch-start.sh (claude)',
         elapsed: '0.4s',
         rows: [
           {
             kind: 'shell',
             label: 'bash:',
-            value: 'scripts/agent-branch-start.sh "projects-hydration-fix"',
+            value: 'scripts/agent-branch-start.sh "projects-hydration-fix" "claude-sidebar"',
           },
         ],
       },
     ],
-    branch: 'agent/codex/projects-hydration-mismatch-sidebar',
+    branch: 'agent/claude/projects-hydration-mismatch-sidebar',
     tabs: [{ path: 'reader.rs', label: 'reader.rs', ext: 'rs', active: true }],
     worktrees: [
       {
@@ -508,31 +515,35 @@ const EXECUTE_STEPS: TutorialStep[] = [
       },
       {
         id: 'wt-hydration',
-        name: 'agent_codex__projects-hydration-mismatch-sidebar',
-        branch: 'agent/codex/projects-hydration-mismatch-sidebar',
+        name: 'agent_claude__projects-hydration-mismatch-sidebar',
+        branch: 'agent/claude/projects-hydration-mismatch-sidebar',
         kind: 'active',
-        message: 'Message (Ctrl+Enter to commit on "agent/codex/projects-hydration-mismatch-sidebar")',
+        tag: 'claude · parallel',
+        message:
+          'Message (Ctrl+Enter to commit on "agent/claude/projects-hydration-mismatch-sidebar")',
       },
     ],
     codeLines: [
-      { parts: [c('// Parallel lane created — Rust port continues independently.', 'c')] },
+      { parts: [c('// Parallel lane (Claude) — Codex Rust port keeps running.', 'c')] },
+      { parts: [c('// Both agents show up as separate worktrees in Source Control.', 'c')] },
     ],
-    statusBranch: 'agent/codex/projects-hydration-mismatch-sidebar',
+    statusBranch: 'agent/claude/projects-hydration-mismatch-sidebar',
   },
   {
     stepLabel: 'Step 07',
-    label: 'Files stream into the second sandbox',
+    label: 'Files stream into the Claude sandbox',
     description: (
       <>
-        Two agent sessions, two isolated branches, simultaneous progress. Your <code>dev</code>{' '}
-        checkout is still untouched.
+        Two agents, two isolated branches, simultaneous progress. <strong>Claude</strong> is writing
+        TSX while <strong>Codex</strong> keeps writing Rust. Your <code>dev</code> checkout is still
+        untouched.
       </>
     ),
     messages: [
       {
         kind: 'tool',
         title: '3 tool calls',
-        sub: '· second lane writes',
+        sub: '· claude lane writes',
         elapsed: '1.4s',
         rows: [
           {
@@ -545,7 +556,7 @@ const EXECUTE_STEPS: TutorialStep[] = [
         ],
       },
     ],
-    branch: 'agent/codex/projects-hydration-mismatch-sidebar',
+    branch: 'agent/claude/projects-hydration-mismatch-sidebar',
     tabs: [
       { path: 'loading-overlay.tsx', label: 'loading-overlay.tsx', ext: 'tsx', active: true },
     ],
@@ -563,9 +574,10 @@ const EXECUTE_STEPS: TutorialStep[] = [
       },
       {
         id: 'wt-hydration',
-        name: 'agent_codex__projects-hydration-mismatch-sidebar',
-        branch: 'agent/codex/projects-hydration-mismatch-sidebar',
+        name: 'agent_claude__projects-hydration-mismatch-sidebar',
+        branch: 'agent/claude/projects-hydration-mismatch-sidebar',
         kind: 'active',
+        tag: 'claude · parallel',
         files: [
           file('apps/frontend/src/components/layout/loading-overlay.tsx', 'U'),
           file('apps/frontend/src/components/ui/spinner.tsx', 'M'),
@@ -610,7 +622,7 @@ const EXECUTE_STEPS: TutorialStep[] = [
         ],
       },
     ],
-    statusBranch: 'agent/codex/projects-hydration-mismatch-sidebar',
+    statusBranch: 'agent/claude/projects-hydration-mismatch-sidebar',
   },
   {
     stepLabel: 'Step 08',
@@ -1643,10 +1655,315 @@ const MERGE_STEPS: TutorialStep[] = [
   },
 ]
 
+const INSTALL_STEPS: TutorialStep[] = [
+  {
+    stepLabel: 'Step 01',
+    label: 'Install the CLI globally',
+    description: (
+      <>
+        GuardeX ships as a single npm package. Install once and you get the <code>gx</code>,{' '}
+        <code>guardex</code>, and <code>multiagent-safety</code> binaries on your PATH.
+      </>
+    ),
+    messages: [
+      {
+        kind: 'user',
+        content: (
+          <>
+            <strong>You</strong>: How do I start using the same agent-worktree flow in my repo?
+          </>
+        ),
+      },
+      {
+        kind: 'assistant',
+        content: (
+          <>
+            One command. Copy the install line from the top of this page and run it in a new shell.
+          </>
+        ),
+      },
+      {
+        kind: 'tool',
+        title: '1 shell call',
+        sub: '· global install',
+        elapsed: '3.8s',
+        rows: [
+          { kind: 'shell', label: 'bash:', value: 'npm i -g @imdeadpool/guardex' },
+        ],
+      },
+    ],
+    branch: 'dev',
+    tabs: [
+      {
+        path: 'terminal',
+        label: 'install.sh',
+        ext: 'sh',
+        active: true,
+      },
+    ],
+    worktrees: [],
+    codeLines: [
+      { parts: [c('$ npm i -g @imdeadpool/guardex', 'c')] },
+      { parts: [c('added 1 package in 3.8s')] },
+      { parts: [c('')] },
+      { parts: [c('$ gx --version')] },
+      { parts: [c('guardex 7.0.6', 'f')] },
+    ],
+    statusBranch: 'dev',
+  },
+  {
+    stepLabel: 'Step 02',
+    label: 'Audit the repo with gx doctor',
+    description: (
+      <>
+        <code>gx doctor</code> scans for the guardrails GuardeX needs: git hooks, file-lock
+        scripts, OpenSpec workspace, and ignore patterns. It reports what&rsquo;s missing and offers
+        to repair.
+      </>
+    ),
+    messages: [
+      {
+        kind: 'assistant',
+        content: (
+          <>
+            I&rsquo;ll audit the repo to see what guardrails are already in place and what needs to
+            be installed.
+          </>
+        ),
+      },
+      {
+        kind: 'tool',
+        title: '1 shell call',
+        sub: '· gx doctor',
+        elapsed: '0.6s',
+        rows: [{ kind: 'shell', label: 'bash:', value: 'gx doctor' }],
+      },
+    ],
+    branch: 'dev',
+    tabs: [
+      {
+        path: 'terminal',
+        label: 'doctor.log',
+        ext: 'sh',
+        active: true,
+      },
+    ],
+    worktrees: [],
+    codeLines: [
+      { parts: [c('$ gx doctor', 'c')] },
+      { parts: [c('✓ node v22.x  ·  git 2.45  ·  gh 2.60  ·  python3 3.13', 'f')] },
+      { parts: [c('⚠ agent git hooks missing in .githooks/')] },
+      { parts: [c('⚠ agent-file-locks.py not installed in scripts/')] },
+      { parts: [c('⚠ no OpenSpec workspace at openspec/')] },
+      { parts: [c('')] },
+      { parts: [c('Run: gx setup --repair', 'p')] },
+    ],
+    statusBranch: 'dev',
+  },
+  {
+    stepLabel: 'Step 03',
+    label: 'Wire the repo with gx setup',
+    description: (
+      <>
+        <code>gx setup</code> installs the guardrails: git hooks that block primary-branch edits,
+        the file-lock scripts, the OpenSpec scaffold, and the agent-branch helpers.
+      </>
+    ),
+    messages: [
+      {
+        kind: 'assistant',
+        content: <>Running setup — this wires every guardrail into your repo in one pass.</>,
+      },
+      {
+        kind: 'tool',
+        title: '1 shell call',
+        sub: '· gx setup',
+        elapsed: '1.9s',
+        rows: [{ kind: 'shell', label: 'bash:', value: 'gx setup' }],
+      },
+    ],
+    branch: 'dev',
+    tabs: [
+      {
+        path: 'terminal',
+        label: 'setup.log',
+        ext: 'sh',
+        active: true,
+      },
+    ],
+    worktrees: [],
+    codeLines: [
+      { parts: [c('$ gx setup', 'c')] },
+      { parts: [c('installing git hooks → .githooks/'), c(' ✓', 'f')] },
+      { parts: [c('installing scripts → scripts/'), c(' ✓', 'f')] },
+      { parts: [c('  scripts/agent-branch-start.sh')] },
+      { parts: [c('  scripts/agent-branch-finish.sh')] },
+      { parts: [c('  scripts/agent-file-locks.py')] },
+      { parts: [c('  scripts/codex-agent.sh')] },
+      { parts: [c('scaffolding OpenSpec → openspec/'), c(' ✓', 'f')] },
+      { parts: [c('protecting main, dev branches'), c(' ✓', 'f')] },
+      { parts: [c('')] },
+      { parts: [c('GuardeX ready. Start your first agent with `gx start`.', 'p')] },
+    ],
+    statusBranch: 'dev',
+  },
+  {
+    stepLabel: 'Step 04',
+    label: 'Start an agent worktree',
+    description: (
+      <>
+        <code>gx start &quot;&lt;task&gt;&quot; &quot;&lt;agent-name&gt;&quot;</code> creates an isolated sandbox branch
+        under <code>.omx/agent-worktrees/</code> — same flow Execute mode demos. Use{' '}
+        <code>claude-*</code> or <code>codex-*</code> prefixes; the script works with both.
+      </>
+    ),
+    messages: [
+      {
+        kind: 'user',
+        content: (
+          <>
+            <strong>You</strong>: gx start &quot;refactor-payments&quot; &quot;claude-alice&quot;
+          </>
+        ),
+      },
+      {
+        kind: 'assistant',
+        content: (
+          <>
+            Sandbox created. You&rsquo;re now on an <code>agent/claude-alice/*</code> branch with a
+            dedicated worktree — safe to edit.
+          </>
+        ),
+      },
+      {
+        kind: 'tool',
+        title: '2 shell calls',
+        sub: '· spawn sandbox',
+        elapsed: '0.5s',
+        rows: [
+          { kind: 'shell', label: 'bash:', value: 'gx start "refactor-payments" "claude-alice"' },
+          { kind: 'shell', label: 'bash:', value: 'cd .omx/agent-worktrees/agent__claude-alice__refactor-payments' },
+        ],
+      },
+    ],
+    branch: 'agent/claude-alice/refactor-payments',
+    tabs: [
+      {
+        path: 'terminal',
+        label: 'start.log',
+        ext: 'sh',
+        active: true,
+      },
+    ],
+    worktrees: [
+      {
+        id: 'wt-alice',
+        name: 'agent_claude-alice__refactor-payments',
+        branch: 'agent/claude-alice/refactor-payments',
+        kind: 'active',
+        tag: 'claude · ready',
+        message: 'Sandbox ready — edit files here, dev stays clean.',
+      },
+    ],
+    codeLines: [
+      { parts: [c('$ gx start "refactor-payments" "claude-alice"', 'c')] },
+      {
+        parts: [
+          c('[agent-branch-start] Created branch: '),
+          c('agent/claude-alice/refactor-payments', 'f'),
+        ],
+      },
+      {
+        parts: [
+          c('[agent-branch-start] Worktree: '),
+          c('.omx/agent-worktrees/agent__claude-alice__refactor-payments', 's'),
+        ],
+      },
+      { parts: [c('[agent-branch-start] OpenSpec change workspace ready')] },
+      { parts: [c('')] },
+      { parts: [c('Next: cd into the worktree and start editing.', 'c')] },
+    ],
+    statusBranch: 'agent/claude-alice/refactor-payments',
+  },
+  {
+    stepLabel: 'Step 05',
+    label: 'Finish with PR + auto-cleanup',
+    description: (
+      <>
+        <code>gx finish --via-pr --wait-for-merge --cleanup</code> commits, pushes, opens a PR,
+        waits for checks, merges, and prunes the worktree. One command closes the loop.
+      </>
+    ),
+    messages: [
+      {
+        kind: 'assistant',
+        content: (
+          <>
+            Work done. Firing the full finish chain — GuardeX will commit, push, PR, wait for merge,
+            and clean the sandbox.
+          </>
+        ),
+      },
+      {
+        kind: 'tool',
+        title: '1 shell call',
+        sub: '· gx finish',
+        elapsed: '42s',
+        rows: [
+          {
+            kind: 'shell',
+            label: 'bash:',
+            value: 'gx finish --via-pr --wait-for-merge --cleanup',
+          },
+        ],
+      },
+      {
+        kind: 'assistant',
+        content: (
+          <>
+            PR #124 merged. Sandbox pruned. You&rsquo;re back on a clean <code>dev</code> with the
+            merge commit pulled in. 🎉
+          </>
+        ),
+      },
+    ],
+    branch: 'dev',
+    tabs: [
+      {
+        path: 'terminal',
+        label: 'finish.log',
+        ext: 'sh',
+        active: true,
+      },
+    ],
+    worktrees: [],
+    codeLines: [
+      { parts: [c('$ gx finish --via-pr --wait-for-merge --cleanup', 'c')] },
+      { parts: [c('[finish] commit'), c('   ✓', 'f')] },
+      { parts: [c('[finish] push'), c('     ✓', 'f')] },
+      { parts: [c('[finish] open PR'), c('  ✓ #124', 'f')] },
+      { parts: [c('[finish] checks'), c('   ✓', 'f')] },
+      { parts: [c('[finish] merge'), c('    ✓', 'f')] },
+      { parts: [c('[finish] prune'), c('    ✓', 'f')] },
+      { parts: [c('')] },
+      { parts: [c('On branch dev  ·  working tree clean', 'c')] },
+    ],
+    statusBranch: 'dev',
+    statusSync: '↓ 1 ↑ 0',
+    showPullAnimation: true,
+  },
+]
+
 const TUTORIAL: Record<ModeKey, ModeConfig> = {
   execute: { key: 'execute', label: 'Execute mode', dotClass: 'a', steps: EXECUTE_STEPS },
   plan: { key: 'plan', label: 'Plan mode', dotClass: 'p', steps: PLAN_STEPS },
   merge: { key: 'merge', label: 'Merge mode', dotClass: 'm', steps: MERGE_STEPS },
+  installation: {
+    key: 'installation',
+    label: 'Installation',
+    dotClass: 'i',
+    steps: INSTALL_STEPS,
+  },
 }
 
 /* ======================= ICONS ======================= */
@@ -1676,6 +1993,7 @@ type IconName =
   | 'reset'
   | 'caret'
   | 'x'
+  | 'copy'
 
 function Icon({ name, className, style }: { name: IconName; className?: string; style?: CSSProperties }) {
   let content: ReactNode = null
@@ -1795,6 +2113,14 @@ function Icon({ name, className, style }: { name: IconName; className?: string; 
         <>
           <path d="M18 6 6 18" />
           <path d="M6 6l12 12" />
+        </>
+      )
+      break
+    case 'copy':
+      content = (
+        <>
+          <rect x="9" y="9" width="12" height="12" rx="2" />
+          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
         </>
       )
       break
@@ -1991,6 +2317,29 @@ export default function Home() {
   const [mode, setMode] = useState<ModeKey>('execute')
   const [stepIndex, setStepIndex] = useState(0)
   const [animationSeed, setAnimationSeed] = useState(0)
+  const [copied, setCopied] = useState(false)
+
+  const copyInstall = useCallback(async () => {
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard) {
+        await navigator.clipboard.writeText(INSTALL_COMMAND)
+      } else if (typeof document !== 'undefined') {
+        const ta = document.createElement('textarea')
+        ta.value = INSTALL_COMMAND
+        ta.setAttribute('readonly', '')
+        ta.style.position = 'fixed'
+        ta.style.opacity = '0'
+        document.body.appendChild(ta)
+        ta.select()
+        document.execCommand('copy')
+        document.body.removeChild(ta)
+      }
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1600)
+    } catch {
+      /* clipboard blocked — ignore */
+    }
+  }, [])
 
   const modeData = TUTORIAL[mode]
   const steps = modeData.steps
@@ -2092,6 +2441,29 @@ export default function Home() {
             <div className="sub">Watch an agent run — from prompt to merged PR</div>
           </div>
         </div>
+
+        <button
+          type="button"
+          className={`install-pill ${copied ? 'copied' : ''}`}
+          onClick={copyInstall}
+          aria-label="Copy install command"
+          title="Copy install command"
+        >
+          <span className="dollar" aria-hidden>
+            $
+          </span>
+          <span className="cmd">{INSTALL_COMMAND}</span>
+          <span className="copy-ind" aria-hidden>
+            {copied ? (
+              <Icon name="check" style={{ width: 13, height: 13 }} />
+            ) : (
+              <Icon name="copy" style={{ width: 13, height: 13 }} />
+            )}
+          </span>
+          <span className="copy-toast" role="status" aria-live="polite">
+            {copied ? 'copied' : ''}
+          </span>
+        </button>
 
         <nav className="mode-seg" aria-label="Workflow modes">
           {MODE_ORDER.map((key) => {
