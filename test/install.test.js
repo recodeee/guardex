@@ -215,6 +215,30 @@ function extractOpenSpecChangeSlug(output) {
   return match[1].trim();
 }
 
+function extractHookCommands(settings) {
+  const hooks = settings && typeof settings === 'object' ? settings.hooks : null;
+  if (!hooks || typeof hooks !== 'object') {
+    return [];
+  }
+  const commands = [];
+  for (const entries of Object.values(hooks)) {
+    if (!Array.isArray(entries)) {
+      continue;
+    }
+    for (const entry of entries) {
+      if (!entry || !Array.isArray(entry.hooks)) {
+        continue;
+      }
+      for (const hook of entry.hooks) {
+        if (hook && typeof hook.command === 'string') {
+          commands.push(hook.command);
+        }
+      }
+    }
+  }
+  return commands;
+}
+
 function isPidAlive(pid) {
   if (!Number.isInteger(pid) || pid <= 0) {
     return false;
@@ -387,6 +411,51 @@ test('setup and doctor preserve existing AGENTS managed block by default', () =>
   currentAgents = fs.readFileSync(path.join(repoDir, 'AGENTS.md'), 'utf8');
   assert.equal(currentAgents, customAgents, 'doctor should preserve existing managed block');
   assert.match(result.stdout, /preserved existing guardex-managed block/);
+});
+
+test('repo hook settings reference real local hook directories', () => {
+  const repoRoot = path.resolve(__dirname, '..');
+  const hookCases = [
+    {
+      settingsPath: '.codex/settings.json',
+      hookDir: '.codex/hooks',
+      scripts: ['skill_activation.py', 'skill_guard.py', 'post_edit_tracker.py', 'skill_tracker.py'],
+    },
+    {
+      settingsPath: '.claude/settings.json',
+      hookDir: '.claude/hooks',
+      scripts: ['skill_activation.py', 'skill_guard.py', 'post_edit_tracker.py', 'skill_tracker.py'],
+    },
+  ];
+
+  for (const hookCase of hookCases) {
+    const settingsAbsolutePath = path.join(repoRoot, hookCase.settingsPath);
+    const settings = JSON.parse(fs.readFileSync(settingsAbsolutePath, 'utf8'));
+    const commands = extractHookCommands(settings);
+
+    assert.ok(commands.length > 0, `${hookCase.settingsPath} has no hook commands`);
+
+    for (const scriptName of hookCase.scripts) {
+      const expectedFragment = `/${hookCase.hookDir}/${scriptName}`;
+      assert.ok(
+        commands.some((command) => command.includes(expectedFragment)),
+        `${hookCase.settingsPath} missing command for ${expectedFragment}`,
+      );
+      assert.equal(
+        fs.existsSync(path.join(repoRoot, hookCase.hookDir, scriptName)),
+        true,
+        `${hookCase.hookDir}/${scriptName} missing`,
+      );
+    }
+
+    for (const command of commands) {
+      assert.doesNotMatch(
+        command,
+        /\/\.agents\/hooks\//,
+        `${hookCase.settingsPath} contains stale .agents/hooks reference: ${command}`,
+      );
+    }
+  }
 });
 
 test('setup and doctor preserve existing agent scripts in package.json by default', () => {
