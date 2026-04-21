@@ -4098,41 +4098,58 @@ test('OpenSpec plan workspace scaffold creates expected role/task structure', ()
   assert.equal(scaffold.status, 0, scaffold.stderr || scaffold.stdout);
 
   const planDir = path.join(repoDir, 'openspec', 'plan', planSlug);
-  const expected = [
+  const rootExpected = [
+    'README.md',
     'summary.md',
     'checkpoints.md',
-    'planner/plan.md',
-    'planner/prompt.md',
-    'planner/tasks.md',
-    'architect/prompt.md',
-    'architect/tasks.md',
-    'critic/prompt.md',
-    'critic/tasks.md',
-    'executor/prompt.md',
-    'executor/tasks.md',
-    'writer/prompt.md',
-    'writer/tasks.md',
-    'verifier/prompt.md',
-    'verifier/tasks.md',
+    'coordinator-prompt.md',
+    'kickoff-prompts.md',
+    'phases.md',
   ];
-  for (const rel of expected) {
+  for (const rel of rootExpected) {
     assert.equal(fs.existsSync(path.join(planDir, rel)), true, `${rel} missing`);
   }
 
+  for (const role of ['planner', 'architect', 'critic', 'executor', 'writer', 'verifier']) {
+    assert.equal(fs.existsSync(path.join(planDir, role, 'README.md')), true, `${role}/README.md missing`);
+    assert.equal(fs.existsSync(path.join(planDir, role, '.openspec.yaml')), true, `${role}/.openspec.yaml missing`);
+    assert.equal(fs.existsSync(path.join(planDir, role, 'proposal.md')), true, `${role}/proposal.md missing`);
+    assert.equal(fs.existsSync(path.join(planDir, role, 'tasks.md')), true, `${role}/tasks.md missing`);
+    assert.equal(
+      fs.existsSync(path.join(planDir, role, 'specs', role, 'spec.md')),
+      true,
+      `${role}/specs/${role}/spec.md missing`,
+    );
+  }
+  assert.equal(fs.existsSync(path.join(planDir, 'planner', 'plan.md')), true, 'planner/plan.md missing');
+  assert.equal(
+    fs.existsSync(path.join(planDir, 'executor', 'checkpoints.md')),
+    true,
+    'executor/checkpoints.md missing',
+  );
+
+  const coordinatorPrompt = fs.readFileSync(path.join(planDir, 'coordinator-prompt.md'), 'utf8');
+  assert.match(coordinatorPrompt, /Drive this plan from draft to execution-ready status/);
+  assert.match(coordinatorPrompt, /kickoff-prompts\.md/);
+
+  const phasesContent = fs.readFileSync(path.join(planDir, 'phases.md'), 'utf8');
+  assert.match(phasesContent, /\[PH01\]/);
+  assert.match(phasesContent, /session: codex/);
+
   const plannerTasks = fs.readFileSync(path.join(planDir, 'planner', 'tasks.md'), 'utf8');
-  assert.match(plannerTasks, /## Ownership/);
+  assert.match(plannerTasks, /# planner tasks/);
   assert.match(plannerTasks, /## 1\. Spec/);
   assert.match(plannerTasks, /## 2\. Tests/);
   assert.match(plannerTasks, /## 3\. Implementation/);
   assert.match(plannerTasks, /## 4\. Checkpoints/);
   assert.match(plannerTasks, /## 5\. Collaboration/);
   assert.match(plannerTasks, /## 6\. Cleanup/);
-  assert.match(plannerTasks, /gx finish --via-pr --wait-for-merge --cleanup/);
-  assert.match(plannerTasks, /Claim this role's files in the shared owner branch\/worktree before editing/);
+  assert.match(plannerTasks, /\[P1\] READY - Initial planning draft checkpoint/);
+  assert.match(plannerTasks, /bash scripts\/agent-branch-finish\.sh/);
 
-  const plannerPrompt = fs.readFileSync(path.join(planDir, 'planner', 'prompt.md'), 'utf8');
-  assert.match(plannerPrompt, /claim --branch <owner-branch>/);
-  assert.match(plannerPrompt, /change tasks 4\.1-4\.3/);
+  const plannerPlan = fs.readFileSync(path.join(planDir, 'planner', 'plan.md'), 'utf8');
+  assert.match(plannerPlan, /This ExecPlan is a living document/);
+  assert.match(plannerPlan, /## Idempotence and Recovery/);
 });
 
 test('OpenSpec change workspace scaffold creates proposal/tasks/spec defaults', () => {
@@ -4157,10 +4174,42 @@ test('OpenSpec change workspace scaffold creates proposal/tasks/spec defaults', 
   assert.equal(fs.existsSync(path.join(changeDir, 'specs', capabilitySlug, 'spec.md')), true, 'spec.md missing');
 
   const tasksContent = fs.readFileSync(path.join(changeDir, 'tasks.md'), 'utf8');
-  assert.match(tasksContent, /## 4\. Cleanup/);
-  assert.match(tasksContent, /gx finish --via-pr --wait-for-merge --cleanup/);
-  assert.match(tasksContent, /Record PR URL \+ final `MERGED` state in the completion handoff\./);
-  assert.match(tasksContent, /Confirm sandbox cleanup/);
+  assert.match(tasksContent, /## Definition of Done/);
+  assert.match(tasksContent, /append a `BLOCKED:` line under section 4/);
+  assert.match(tasksContent, /## 4\. Cleanup \(mandatory; run before claiming completion\)/);
+  assert.match(tasksContent, /Run the cleanup pipeline:/);
+  assert.match(tasksContent, /Record the PR URL and final merge state \(`MERGED`\)/);
+  assert.match(tasksContent, /Confirm the sandbox worktree is gone/);
+});
+
+test('OpenSpec change workspace scaffold supports minimal T1 notes mode', () => {
+  const repoDir = initRepo();
+
+  const setupResult = runNode(['setup', '--target', repoDir, '--no-global-install'], repoDir);
+  assert.equal(setupResult.status, 0, setupResult.stderr || setupResult.stdout);
+
+  const changeSlug = 'change-workspace-minimal';
+  const capabilitySlug = 'runtime-migration';
+  const agentBranch = 'agent/codex/minimal-change';
+  const scaffold = runCmd(
+    'bash',
+    ['scripts/openspec/init-change-workspace.sh', changeSlug, capabilitySlug, agentBranch],
+    repoDir,
+    { GUARDEX_OPENSPEC_MINIMAL: '1' },
+  );
+  assert.equal(scaffold.status, 0, scaffold.stderr || scaffold.stdout);
+
+  const changeDir = path.join(repoDir, 'openspec', 'changes', changeSlug);
+  assert.equal(fs.existsSync(path.join(changeDir, '.openspec.yaml')), true, '.openspec.yaml missing');
+  assert.equal(fs.existsSync(path.join(changeDir, 'notes.md')), true, 'notes.md missing');
+  assert.equal(fs.existsSync(path.join(changeDir, 'proposal.md')), false, 'proposal.md should not exist in minimal mode');
+  assert.equal(fs.existsSync(path.join(changeDir, 'tasks.md')), false, 'tasks.md should not exist in minimal mode');
+
+  const notesContent = fs.readFileSync(path.join(changeDir, 'notes.md'), 'utf8');
+  assert.match(notesContent, /minimal \/ T1/);
+  assert.match(notesContent, new RegExp(agentBranch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.match(notesContent, /Commit message is the spec of record/);
+  assert.match(notesContent, /Record PR URL \+ `MERGED` state/);
 });
 
 test('validate blocks unapproved deletions until allow-delete is set', () => {

@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -lt 1 || $# -gt 2 ]]; then
-  echo "Usage: $0 <change-slug> [capability-slug]"
-  echo "Example: $0 add-dashboard-live-usage runtime-migration"
+if [[ $# -lt 1 || $# -gt 3 ]]; then
+  echo "Usage: $0 <change-slug> [capability-slug] [agent-branch]"
+  echo "Example: $0 add-dashboard-live-usage runtime-migration agent/claude-odin/add-dashboard-live-usage-123456"
   exit 1
 fi
 
 CHANGE_SLUG="$1"
 CAPABILITY_SLUG="${2:-$CHANGE_SLUG}"
+AGENT_BRANCH="${3:-agent/<your-name>/<branch-slug>}"
 
 if [[ "$CHANGE_SLUG" =~ [^a-z0-9-] ]]; then
   echo "Error: change slug must be kebab-case (lowercase letters, numbers, hyphens)."
@@ -24,13 +25,44 @@ CHANGE_DIR="openspec/changes/${CHANGE_SLUG}"
 SPEC_DIR="${CHANGE_DIR}/specs/${CAPABILITY_SLUG}"
 TODAY="$(date -u +%Y-%m-%d)"
 
-mkdir -p "$SPEC_DIR"
+MINIMAL_RAW="${GUARDEX_OPENSPEC_MINIMAL:-0}"
+case "$(printf '%s' "$MINIMAL_RAW" | tr '[:upper:]' '[:lower:]')" in
+  1|true|yes|on) MINIMAL=1 ;;
+  *) MINIMAL=0 ;;
+esac
+
+if [[ "$MINIMAL" -eq 1 ]]; then
+  mkdir -p "$CHANGE_DIR"
+else
+  mkdir -p "$SPEC_DIR"
+fi
 
 if [[ ! -f "${CHANGE_DIR}/.openspec.yaml" ]]; then
   cat > "${CHANGE_DIR}/.openspec.yaml" <<YAMLEOF
 schema: spec-driven
 created: ${TODAY}
 YAMLEOF
+fi
+
+if [[ "$MINIMAL" -eq 1 ]]; then
+  if [[ ! -f "${CHANGE_DIR}/notes.md" ]]; then
+    cat > "${CHANGE_DIR}/notes.md" <<NOTESEOF
+# ${CHANGE_SLUG} (minimal / T1)
+
+Branch: \`${AGENT_BRANCH}\`
+
+Describe the change in a sentence or two. Commit message is the spec of record.
+
+## Cleanup
+
+- [ ] Run: \`bash scripts/agent-branch-finish.sh --branch ${AGENT_BRANCH} --base dev --via-pr --wait-for-merge --cleanup\`
+- [ ] Record PR URL + \`MERGED\` state in the completion handoff.
+- [ ] Confirm sandbox worktree is gone (\`git worktree list\`, \`git branch -a\`).
+NOTESEOF
+  fi
+  echo "[guardex] OpenSpec change workspace (minimal) ready: ${CHANGE_DIR}"
+  echo "[guardex] Notes-only scaffold: ${CHANGE_DIR}/notes.md"
+  exit 0
 fi
 
 if [[ ! -f "${CHANGE_DIR}/proposal.md" ]]; then
@@ -51,6 +83,14 @@ fi
 
 if [[ ! -f "${CHANGE_DIR}/tasks.md" ]]; then
   cat > "${CHANGE_DIR}/tasks.md" <<TASKSEOF
+## Definition of Done
+
+This change is complete only when **all** of the following are true:
+
+- Every checkbox below is checked.
+- The agent branch reaches \`MERGED\` state on \`origin\` and the PR URL + state are recorded in the completion handoff.
+- If any step blocks (test failure, conflict, ambiguous result), append a \`BLOCKED:\` line under section 4 explaining the blocker and **STOP**. Do not tick remaining cleanup boxes; do not silently skip the cleanup pipeline.
+
 ## 1. Specification
 
 - [ ] 1.1 Finalize proposal scope and acceptance criteria for \`${CHANGE_SLUG}\`.
@@ -67,11 +107,11 @@ if [[ ! -f "${CHANGE_DIR}/tasks.md" ]]; then
 - [ ] 3.2 Run \`openspec validate ${CHANGE_SLUG} --type change --strict\`.
 - [ ] 3.3 Run \`openspec validate --specs\`.
 
-## 4. Cleanup
+## 4. Cleanup (mandatory; run before claiming completion)
 
-- [ ] 4.1 Finish the agent branch via PR merge + cleanup (\`gx finish --via-pr --wait-for-merge --cleanup\` or \`bash scripts/agent-branch-finish.sh --branch <agent-branch> --base <base-branch> --via-pr --wait-for-merge --cleanup\`).
-- [ ] 4.2 Record PR URL + final \`MERGED\` state in the completion handoff.
-- [ ] 4.3 Confirm sandbox cleanup (\`git worktree list\`, \`git branch -a\`) or capture a \`BLOCKED:\` handoff if merge/cleanup is pending.
+- [ ] 4.1 Run the cleanup pipeline: \`bash scripts/agent-branch-finish.sh --branch ${AGENT_BRANCH} --base dev --via-pr --wait-for-merge --cleanup\`. This handles commit -> push -> PR create -> merge wait -> worktree prune in one invocation.
+- [ ] 4.2 Record the PR URL and final merge state (\`MERGED\`) in the completion handoff.
+- [ ] 4.3 Confirm the sandbox worktree is gone (\`git worktree list\` no longer shows the agent path; \`git branch -a\` shows no surviving local/remote refs for the branch).
 TASKSEOF
 fi
 
@@ -89,5 +129,5 @@ The system SHALL enforce ${CAPABILITY_SLUG} behavior as defined by this change.
 SPECEOF
 fi
 
-echo "[gitguardex] OpenSpec change workspace ready: ${CHANGE_DIR}"
-echo "[gitguardex] OpenSpec change spec scaffold: ${SPEC_DIR}/spec.md"
+echo "[guardex] OpenSpec change workspace ready: ${CHANGE_DIR}"
+echo "[guardex] OpenSpec change spec scaffold: ${SPEC_DIR}/spec.md"
