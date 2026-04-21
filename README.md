@@ -34,7 +34,7 @@ flowchart LR
     I --> S
 ```
 
-![Guarded VS Code Source Control example](https://raw.githubusercontent.com/recodeee/gitguardex/main/docs/images/workflow-source-control-grouped.png)
+![Multi-agent dashboard example](https://raw.githubusercontent.com/recodeee/gitguardex/main/docs/images/dashboard-multi-agent.png)
 
 Coming soon: [recodee.com](https://recodee.com) — live account health, usage, routing, and capacity in one place.
 
@@ -122,7 +122,7 @@ gx finish --all
 
 This is the real Source Control shape Guardex is aiming for: isolated agent branches, clear OpenSpec artifacts, and no pile-up on one shared checkout.
 
-![Exact VS Code Source Control workflow screenshot](https://raw.githubusercontent.com/recodeee/gitguardex/main/docs/images/workflow-vscode-source-control-exact.png)
+![Guarded VS Code Source Control example](https://raw.githubusercontent.com/recodeee/gitguardex/main/docs/images/workflow-source-control-grouped.png)
 
 ---
 
