@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-TASK_NAME="${MUSAFETY_TASK_NAME:-task}"
-AGENT_NAME="${MUSAFETY_AGENT_NAME:-agent}"
-BASE_BRANCH="${MUSAFETY_BASE_BRANCH:-}"
+TASK_NAME="${GUARDEX_TASK_NAME:-task}"
+AGENT_NAME="${GUARDEX_AGENT_NAME:-agent}"
+BASE_BRANCH="${GUARDEX_BASE_BRANCH:-}"
 BASE_BRANCH_EXPLICIT=0
-CODEX_BIN="${MUSAFETY_CODEX_BIN:-codex}"
-AUTO_FINISH_RAW="${MUSAFETY_CODEX_AUTO_FINISH:-true}"
-AUTO_REVIEW_ON_CONFLICT_RAW="${MUSAFETY_CODEX_AUTO_REVIEW_ON_CONFLICT:-true}"
-AUTO_CLEANUP_RAW="${MUSAFETY_CODEX_AUTO_CLEANUP:-true}"
-AUTO_WAIT_FOR_MERGE_RAW="${MUSAFETY_CODEX_WAIT_FOR_MERGE:-true}"
-OPENSPEC_AUTO_INIT_RAW="${MUSAFETY_OPENSPEC_AUTO_INIT:-true}"
-OPENSPEC_PLAN_SLUG_OVERRIDE="${MUSAFETY_OPENSPEC_PLAN_SLUG:-}"
-OPENSPEC_CHANGE_SLUG_OVERRIDE="${MUSAFETY_OPENSPEC_CHANGE_SLUG:-}"
-OPENSPEC_CAPABILITY_SLUG_OVERRIDE="${MUSAFETY_OPENSPEC_CAPABILITY_SLUG:-}"
+CODEX_BIN="${GUARDEX_CODEX_BIN:-codex}"
+AUTO_FINISH_RAW="${GUARDEX_CODEX_AUTO_FINISH:-true}"
+AUTO_REVIEW_ON_CONFLICT_RAW="${GUARDEX_CODEX_AUTO_REVIEW_ON_CONFLICT:-true}"
+AUTO_CLEANUP_RAW="${GUARDEX_CODEX_AUTO_CLEANUP:-true}"
+AUTO_WAIT_FOR_MERGE_RAW="${GUARDEX_CODEX_WAIT_FOR_MERGE:-true}"
+OPENSPEC_AUTO_INIT_RAW="${GUARDEX_OPENSPEC_AUTO_INIT:-true}"
+OPENSPEC_PLAN_SLUG_OVERRIDE="${GUARDEX_OPENSPEC_PLAN_SLUG:-}"
+OPENSPEC_CHANGE_SLUG_OVERRIDE="${GUARDEX_OPENSPEC_CHANGE_SLUG:-}"
+OPENSPEC_CAPABILITY_SLUG_OVERRIDE="${GUARDEX_OPENSPEC_CAPABILITY_SLUG:-}"
 
 normalize_bool() {
   local raw="${1:-}"
@@ -130,6 +130,23 @@ if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 fi
 repo_root="$(git rev-parse --show-toplevel)"
 
+guardex_env_helper="${repo_root}/scripts/guardex-env.sh"
+if [[ -f "$guardex_env_helper" ]]; then
+  # shellcheck source=/dev/null
+  source "$guardex_env_helper"
+fi
+if declare -F guardex_repo_is_enabled >/dev/null 2>&1 && ! guardex_repo_is_enabled "$repo_root"; then
+  toggle_source="$(guardex_repo_toggle_source "$repo_root" || true)"
+  toggle_raw="$(guardex_repo_toggle_raw "$repo_root" || true)"
+  if [[ -n "$toggle_source" && -n "$toggle_raw" ]]; then
+    echo "[codex-agent] Guardex is disabled for this repo (${toggle_source}: GUARDEX_ON=${toggle_raw})." >&2
+  else
+    echo "[codex-agent] Guardex is disabled for this repo." >&2
+  fi
+  echo "[codex-agent] Skip Guardex sandbox flow or re-enable with GUARDEX_ON=1." >&2
+  exit 1
+fi
+
 sanitize_slug() {
   local raw="$1"
   local fallback="${2:-task}"
@@ -200,32 +217,6 @@ hydrate_local_helper_in_worktree() {
   fi
 
   echo "[codex-agent] Hydrated local helper in sandbox: ${relative_path}"
-}
-
-resolve_local_helper_script_path() {
-  local worktree="$1"
-  local relative_path="$2"
-  local candidate=""
-
-  candidate="${worktree}/${relative_path}"
-  if [[ -f "$candidate" ]]; then
-    printf '%s' "$candidate"
-    return 0
-  fi
-
-  candidate="${repo_root}/${relative_path}"
-  if [[ -f "$candidate" ]]; then
-    printf '%s' "$candidate"
-    return 0
-  fi
-
-  candidate="${repo_root}/templates/${relative_path}"
-  if [[ -f "$candidate" ]]; then
-    printf '%s' "$candidate"
-    return 0
-  fi
-
-  return 1
 }
 
 resolve_start_base_branch() {
@@ -300,11 +291,13 @@ start_sandbox_fallback() {
     return 1
   fi
 
-  git -C "$repo_root" worktree add -b "$branch_name" "$worktree_path" "$start_ref" >/dev/null
-  git -C "$repo_root" config "branch.${branch_name}.musafetyBase" "$base_branch" >/dev/null 2>&1 || true
-  if git -C "$repo_root" show-ref --verify --quiet "refs/remotes/origin/${base_branch}"; then
-    git -C "$worktree_path" branch --set-upstream-to="origin/${base_branch}" "$branch_name" >/dev/null 2>&1 || true
+  local worktree_add_output=""
+  if ! worktree_add_output="$(git -C "$repo_root" worktree add -b "$branch_name" "$worktree_path" "$start_ref" 2>&1)"; then
+    printf '%s\n' "$worktree_add_output" >&2
+    return 1
   fi
+  git -C "$repo_root" config "branch.${branch_name}.guardexBase" "$base_branch" >/dev/null 2>&1 || true
+  git -C "$worktree_path" branch --unset-upstream "$branch_name" >/dev/null 2>&1 || true
 
   printf '[agent-branch-start] Created branch: %s\n' "$branch_name"
   printf '[agent-branch-start] Worktree: %s\n' "$worktree_path"
@@ -324,7 +317,7 @@ initial_repo_branch="$(git -C "$repo_root" rev-parse --abbrev-ref HEAD 2>/dev/nu
 start_output=""
 start_status=0
 set +e
-start_output="$(MUSAFETY_OPENSPEC_AUTO_INIT=0 bash "${repo_root}/scripts/agent-branch-start.sh" "${start_args[@]}" 2>&1)"
+start_output="$(GUARDEX_OPENSPEC_AUTO_INIT=0 bash "${repo_root}/scripts/agent-branch-start.sh" "${start_args[@]}" 2>&1)"
 start_status=$?
 set -e
 
@@ -377,6 +370,30 @@ fi
 
 has_origin_remote() {
   git -C "$repo_root" remote get-url origin >/dev/null 2>&1
+}
+
+has_explicit_gh_bin_override() {
+  [[ -n "${GUARDEX_GH_BIN:-}" ]]
+}
+
+gh_cli_available() {
+  local gh_bin="${GUARDEX_GH_BIN:-gh}"
+  if [[ "$gh_bin" == */* ]]; then
+    [[ -x "$gh_bin" ]]
+    return
+  fi
+  command -v "$gh_bin" >/dev/null 2>&1
+}
+
+origin_remote_supports_pr_finish() {
+  local origin_url
+  origin_url="$(git -C "$repo_root" remote get-url origin 2>/dev/null || true)"
+  case "$origin_url" in
+    ''|/*|./*|../*|file://*)
+      return 1
+      ;;
+  esac
+  return 0
 }
 
 resolve_worktree_base_branch() {
@@ -446,11 +463,16 @@ ensure_openspec_plan_workspace() {
     return 0
   fi
 
-  local openspec_script
-  if ! openspec_script="$(resolve_local_helper_script_path "$wt" "scripts/openspec/init-plan-workspace.sh")"; then
+  hydrate_local_helper_in_worktree "$wt" "scripts/openspec/init-plan-workspace.sh"
+
+  local openspec_script="${wt}/scripts/openspec/init-plan-workspace.sh"
+  if [[ ! -f "$openspec_script" ]]; then
     echo "[codex-agent] Missing OpenSpec init script in sandbox: ${openspec_script}" >&2
     echo "[codex-agent] Run 'gx setup --target ${repo_root}' and retry." >&2
     return 1
+  fi
+  if [[ ! -x "$openspec_script" ]]; then
+    chmod +x "$openspec_script" 2>/dev/null || true
   fi
 
   local plan_slug
@@ -458,7 +480,7 @@ ensure_openspec_plan_workspace() {
   local init_output=""
   if ! init_output="$(
     cd "$wt"
-    bash "$openspec_script" "$plan_slug" 2>&1
+    bash "scripts/openspec/init-plan-workspace.sh" "$plan_slug" 2>&1
   )"; then
     printf '%s\n' "$init_output" >&2
     echo "[codex-agent] OpenSpec workspace initialization failed for plan '${plan_slug}'." >&2
@@ -478,11 +500,16 @@ ensure_openspec_change_workspace() {
     return 0
   fi
 
-  local openspec_script
-  if ! openspec_script="$(resolve_local_helper_script_path "$wt" "scripts/openspec/init-change-workspace.sh")"; then
+  hydrate_local_helper_in_worktree "$wt" "scripts/openspec/init-change-workspace.sh"
+
+  local openspec_script="${wt}/scripts/openspec/init-change-workspace.sh"
+  if [[ ! -f "$openspec_script" ]]; then
     echo "[codex-agent] Missing OpenSpec change init script in sandbox: ${openspec_script}" >&2
     echo "[codex-agent] Run 'gx setup --target ${repo_root}' and retry." >&2
     return 1
+  fi
+  if [[ ! -x "$openspec_script" ]]; then
+    chmod +x "$openspec_script" 2>/dev/null || true
   fi
 
   local change_slug capability_slug init_output=""
@@ -490,7 +517,7 @@ ensure_openspec_change_workspace() {
   capability_slug="$(resolve_openspec_capability_slug)"
   if ! init_output="$(
     cd "$wt"
-    bash "$openspec_script" "$change_slug" "$capability_slug" 2>&1
+    bash "scripts/openspec/init-change-workspace.sh" "$change_slug" "$capability_slug" 2>&1
   )"; then
     printf '%s\n' "$init_output" >&2
     echo "[codex-agent] OpenSpec workspace initialization failed for change '${change_slug}'." >&2
@@ -501,6 +528,7 @@ ensure_openspec_change_workspace() {
   fi
   echo "[codex-agent] OpenSpec change workspace: ${wt}/openspec/changes/${change_slug}"
 }
+
 worktree_has_changes() {
   local wt="$1"
   if ! git -C "$wt" diff --quiet -- . ":(exclude).omx/state/agent-file-locks.json"; then
@@ -520,7 +548,7 @@ claim_changed_files() {
   local branch="$2"
   local lock_script="${repo_root}/scripts/agent-file-locks.py"
 
-  if [[ ! -x "$lock_script" ]]; then
+  if [[ ! -f "$lock_script" ]]; then
     return 0
   fi
 
@@ -552,18 +580,18 @@ auto_commit_worktree_changes() {
   local branch="$2"
 
   if ! worktree_has_changes "$wt"; then
-    return 0
+    return 2
   fi
 
   claim_changed_files "$wt" "$branch"
   git -C "$wt" add -A
 
   if git -C "$wt" diff --cached --quiet -- . ":(exclude).omx/state/agent-file-locks.json"; then
-    return 0
+    return 2
   fi
 
   local default_message="Auto-finish: ${TASK_NAME}"
-  local commit_message="${MUSAFETY_CODEX_AUTO_COMMIT_MESSAGE:-$default_message}"
+  local commit_message="${GUARDEX_CODEX_AUTO_COMMIT_MESSAGE:-$default_message}"
   local commit_output=""
 
   if commit_output="$(git -C "$wt" commit -m "$commit_message" 2>&1)"; then
@@ -677,11 +705,16 @@ run_finish_flow() {
   fi
 
   if has_origin_remote; then
-    if ! command -v "${MUSAFETY_GH_BIN:-gh}" >/dev/null 2>&1 && ! command -v gh >/dev/null 2>&1; then
-      echo "[codex-agent] Auto-finish requires GitHub CLI for PR flow; command not found: ${MUSAFETY_GH_BIN:-gh}" >&2
+    if ! gh_cli_available; then
+      echo "[codex-agent] Auto-finish requires GitHub CLI for PR flow; command not found: ${GUARDEX_GH_BIN:-gh}" >&2
       return 2
     fi
-    finish_args+=(--via-pr)
+    if [[ -n "${GUARDEX_GH_BIN:-}" ]] || origin_remote_supports_pr_finish; then
+      finish_args+=(--via-pr)
+    else
+      echo "[codex-agent] Origin remote does not provide a mergeable PR surface; skipping auto-finish merge/PR pipeline." >&2
+      return 2
+    fi
   else
     echo "[codex-agent] No origin remote detected; skipping auto-finish merge/PR pipeline." >&2
     return 2
@@ -776,7 +809,10 @@ if [[ "$AUTO_FINISH" -eq 1 && -n "$worktree_branch" && "$worktree_branch" != "HE
       fi
     fi
   else
-    if [[ "$final_exit" -eq 0 ]]; then
+    commit_status="$?"
+    if [[ "$commit_status" -eq 2 ]]; then
+      echo "[codex-agent] No sandbox changes detected on '${worktree_branch}'. Skipping auto-finish and leaving sandbox worktree in place."
+    elif [[ "$final_exit" -eq 0 ]]; then
       final_exit=1
     fi
   fi

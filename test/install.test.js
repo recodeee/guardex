@@ -111,11 +111,35 @@ function initRepoOnBranch(branchName) {
 }
 
 function seedCommit(repoDir) {
-  let result = runCmd('git', ['add', '.'], repoDir);
+  let result = runCmd('git', ['config', 'user.email', 'bot@example.com'], repoDir);
+  assert.equal(result.status, 0, result.stderr);
+  result = runCmd('git', ['config', 'user.name', 'Bot'], repoDir);
+  assert.equal(result.status, 0, result.stderr);
+  result = runCmd('git', ['add', '.'], repoDir);
   assert.equal(result.status, 0, result.stderr);
   result = runCmd('git', ['commit', '-m', 'seed'], repoDir);
   assert.equal(result.status, 0, result.stderr);
 }
+
+test('seedCommit seeds local git identity for ad hoc repos', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'guardex-seed-identity-'));
+  const nestedRepoDir = path.join(tempDir, 'frontend');
+  fs.mkdirSync(nestedRepoDir, { recursive: true });
+
+  let result = runCmd('git', ['init', '-b', 'main'], nestedRepoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  fs.writeFileSync(path.join(nestedRepoDir, 'package.json'), '{}\n', 'utf8');
+
+  seedCommit(nestedRepoDir);
+
+  result = runCmd('git', ['config', '--local', '--get', 'user.email'], nestedRepoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(result.stdout.trim(), 'bot@example.com');
+
+  result = runCmd('git', ['config', '--local', '--get', 'user.name'], nestedRepoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(result.stdout.trim(), 'Bot');
+});
 
 function attachOriginRemote(repoDir) {
   return attachOriginRemoteForBranch(repoDir, 'dev');
@@ -2298,6 +2322,9 @@ test('codex-agent waits for PR merge completion and cleans merged sandbox branch
   const ghMergeState = path.join(repoDir, '.codex-agent-gh-merge-attempts');
 
   const { fakePath: fakeGhPath } = createFakeGhScript(`
+if [[ "$1" == "auth" && "$2" == "status" ]]; then
+  exit 0
+fi
 if [[ "$1" == "pr" && "$2" == "create" ]]; then
   exit 0
 fi
