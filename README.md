@@ -1,7 +1,13 @@
 # GitGuardex — Guardian T-Rex for your repo
 
-[![npm version](https://img.shields.io/npm/v/%40imdeadpool%2Fguardex?color=cb3837&logo=npm)](https://www.npmjs.com/package/@imdeadpool/guardex)
-[![CI](https://github.com/recodeee/gitguardex/actions/workflows/ci.yml/badge.svg)](https://github.com/recodeee/gitguardex/actions/workflows/ci.yml)
+[![npm version](https://img.shields.io/npm/v/%40imdeadpool%2Fguardex?label=npm&color=cb3837&logo=npm)](https://www.npmjs.com/package/@imdeadpool/guardex)
+[![npm downloads](https://img.shields.io/npm/dm/%40imdeadpool%2Fguardex?label=downloads&color=0b76c5)](https://www.npmjs.com/package/@imdeadpool/guardex)
+[![GitHub stars](https://img.shields.io/github/stars/recodeee/gitguardex?label=stars&color=d4ac0d)](https://github.com/recodeee/gitguardex/stargazers)
+[![License](https://img.shields.io/npm/l/%40imdeadpool%2Fguardex?label=License&color=97ca00)](./LICENSE)
+
+[![CI](https://img.shields.io/github/actions/workflow/status/recodeee/gitguardex/ci.yml?branch=main&label=CI)](https://github.com/recodeee/gitguardex/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/actions/workflow/status/recodeee/gitguardex/release.yml?label=Release)](https://github.com/recodeee/gitguardex/actions/workflows/release.yml)
+[![CodeQL](https://img.shields.io/github/actions/workflow/status/recodeee/gitguardex/codeql.yml?branch=main&label=CodeQL)](https://github.com/recodeee/gitguardex/actions/workflows/codeql.yml)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/recodeee/gitguardex/badge)](https://securityscorecards.dev/viewer/?uri=github.com/recodeee/gitguardex)
 
 **GitGuardex is a safety layer for parallel agent work in git repos.** If you're running more than one Codex or Claude agent on the same codebase, this is what keeps them from deleting each other's work.
@@ -281,6 +287,7 @@ npm i -g oh-my-codex
 ```
 
 Repo: <https://github.com/Yeachan-Heo/oh-my-codex>
+[![GitHub stars](https://img.shields.io/github/stars/Yeachan-Heo/oh-my-codex?style=social)](https://github.com/Yeachan-Heo/oh-my-codex)
 
 ### oh-my-claudecode — Claude Code equivalent
 
@@ -291,6 +298,7 @@ npm i -g oh-my-claude-sisyphus@latest
 ```
 
 Repo: <https://github.com/Yeachan-Heo/oh-my-claudecode>
+[![GitHub stars](https://img.shields.io/github/stars/Yeachan-Heo/oh-my-claudecode?style=social)](https://github.com/Yeachan-Heo/oh-my-claudecode)
 
 ### Caveman — output compression for long agent runs
 
@@ -301,6 +309,7 @@ npx skills add JuliusBrussee/caveman
 ```
 
 Repo: <https://github.com/JuliusBrussee/caveman>
+[![GitHub stars](https://img.shields.io/github/stars/JuliusBrussee/caveman?style=social)](https://github.com/JuliusBrussee/caveman)
 
 ### Cavemem — local persistent memory for agents
 
@@ -313,6 +322,7 @@ cavemem status
 ```
 
 Repo: <https://github.com/JuliusBrussee/cavemem>
+[![GitHub stars](https://img.shields.io/github/stars/JuliusBrussee/cavemem?style=social)](https://github.com/JuliusBrussee/cavemem)
 
 ### Cavekit — spec-driven build loop
 
@@ -323,6 +333,7 @@ npx skills add JuliusBrussee/cavekit
 ```
 
 Repo: <https://github.com/JuliusBrussee/cavekit>
+[![GitHub stars](https://img.shields.io/github/stars/JuliusBrussee/cavekit?style=social)](https://github.com/JuliusBrussee/cavekit)
 
 ### OpenSpec — spec-driven workflows
 
@@ -333,6 +344,7 @@ npm i -g @fission-ai/openspec
 ```
 
 Repo: <https://github.com/Fission-AI/OpenSpec>
+[![GitHub stars](https://img.shields.io/github/stars/Fission-AI/OpenSpec?style=social)](https://github.com/Fission-AI/OpenSpec)
 
 ### codex-auth — multi-account switcher
 
@@ -348,6 +360,7 @@ codex-auth current
 ```
 
 Repo: [recodeecom/codex-account-switcher-cli](https://github.com/recodeecom/codex-account-switcher-cli)
+[![GitHub stars](https://img.shields.io/github/stars/recodeecom/codex-account-switcher-cli?style=social)](https://github.com/recodeecom/codex-account-switcher-cli)
 
 ### GitHub CLI (`gh`)
 
