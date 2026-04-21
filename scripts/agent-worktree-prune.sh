@@ -8,11 +8,16 @@ FORCE_DIRTY=0
 DELETE_BRANCHES=0
 DELETE_REMOTE_BRANCHES=0
 ONLY_DIRTY_WORKTREES=0
+INCLUDE_PR_MERGED=0
 TARGET_BRANCH=""
 IDLE_MINUTES=0
 NOW_EPOCH_RAW="${GUARDEX_PRUNE_NOW_EPOCH:-}"
 IDLE_SECONDS=0
 NOW_EPOCH=0
+GH_BIN="${GUARDEX_GH_BIN:-gh}"
+PR_MERGED_LOOKUP_DISABLED=0
+PR_MERGED_LOOKUP_LOADED=0
+declare -A MERGED_PR_BRANCHES=()
 
 if [[ -n "$BASE_BRANCH" ]]; then
   BASE_BRANCH_EXPLICIT=1
@@ -45,6 +50,10 @@ while [[ $# -gt 0 ]]; do
       ONLY_DIRTY_WORKTREES=1
       shift
       ;;
+    --include-pr-merged)
+      INCLUDE_PR_MERGED=1
+      shift
+      ;;
     --branch)
       TARGET_BRANCH="${2:-}"
       shift 2
@@ -55,7 +64,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     *)
       echo "[agent-worktree-prune] Unknown argument: $1" >&2
-      echo "Usage: $0 [--base <branch>] [--dry-run] [--force-dirty] [--delete-branches] [--delete-remote-branches] [--only-dirty-worktrees] [--branch <agent/...>] [--idle-minutes <minutes>]" >&2
+      echo "Usage: $0 [--base <branch>] [--dry-run] [--force-dirty] [--delete-branches] [--delete-remote-branches] [--only-dirty-worktrees] [--include-pr-merged] [--branch <agent/...>] [--idle-minutes <minutes>]" >&2
       exit 1
       ;;
   esac
@@ -99,6 +108,44 @@ resolve_base_branch() {
   done
 
   printf '%s' ""
+}
+
+load_merged_pr_branches() {
+  if [[ "$INCLUDE_PR_MERGED" -ne 1 ]]; then
+    return 1
+  fi
+  if [[ "$PR_MERGED_LOOKUP_DISABLED" -eq 1 ]]; then
+    return 1
+  fi
+  if [[ "$PR_MERGED_LOOKUP_LOADED" -eq 1 ]]; then
+    return 0
+  fi
+  if ! command -v "$GH_BIN" >/dev/null 2>&1; then
+    PR_MERGED_LOOKUP_DISABLED=1
+    return 1
+  fi
+
+  local merged_branches=""
+  merged_branches="$(
+    "$GH_BIN" pr list --state merged --base "$BASE_BRANCH" --limit 200 --json headRefName --jq '.[].headRefName' 2>/dev/null || true
+  )"
+  if [[ -n "$merged_branches" ]]; then
+    while IFS= read -r merged_branch; do
+      [[ -z "$merged_branch" ]] && continue
+      MERGED_PR_BRANCHES["$merged_branch"]=1
+    done <<< "$merged_branches"
+  fi
+  PR_MERGED_LOOKUP_LOADED=1
+  return 0
+}
+
+branch_has_merged_pr() {
+  local branch="$1"
+  if [[ "$INCLUDE_PR_MERGED" -ne 1 ]]; then
+    return 1
+  fi
+  load_merged_pr_branches || return 1
+  [[ -n "${MERGED_PR_BRANCHES[$branch]:-}" ]]
 }
 
 if [[ "$BASE_BRANCH_EXPLICIT" -eq 1 && -z "$BASE_BRANCH" ]]; then
@@ -342,6 +389,7 @@ process_entry() {
   fi
 
   local remove_reason=""
+  local branch_delete_mode="safe"
 
   if [[ -z "$branch_ref" ]]; then
     remove_reason="detached-worktree"
@@ -352,6 +400,9 @@ process_entry() {
       if [[ "$DELETE_BRANCHES" -eq 1 ]]; then
         remove_reason="merged-agent-branch"
       fi
+    elif [[ "$DELETE_BRANCHES" -eq 1 ]] && branch_has_merged_pr "$branch"; then
+      remove_reason="merged-agent-pr"
+      branch_delete_mode="force"
     elif [[ "$ONLY_DIRTY_WORKTREES" -eq 1 ]] && is_clean_worktree "$wt"; then
       remove_reason="clean-agent-worktree"
     fi
@@ -383,13 +434,19 @@ process_entry() {
 
   if git -C "$repo_root" show-ref --verify --quiet "refs/heads/${branch}" && ! branch_has_worktree "$branch"; then
     if [[ "$branch" == agent/* && "$DELETE_BRANCHES" -eq 1 ]]; then
-      if run_cmd git -C "$repo_root" branch -d "$branch" >/dev/null 2>&1; then
+      local delete_flag="-d"
+      local deleted_label="merged"
+      if [[ "$branch_delete_mode" == "force" ]]; then
+        delete_flag="-D"
+        deleted_label="merged PR"
+      fi
+      if run_cmd git -C "$repo_root" branch "$delete_flag" "$branch" >/dev/null 2>&1; then
         removed_branches=$((removed_branches + 1))
-        echo "[agent-worktree-prune] Deleted merged branch: ${branch}"
+        echo "[agent-worktree-prune] Deleted ${deleted_label} branch: ${branch}"
         if [[ "$DELETE_REMOTE_BRANCHES" -eq 1 ]]; then
           if git -C "$repo_root" ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
             run_cmd git -C "$repo_root" push origin --delete "$branch" >/dev/null 2>&1 || true
-            echo "[agent-worktree-prune] Deleted merged remote branch: ${branch}"
+            echo "[agent-worktree-prune] Deleted ${deleted_label} remote branch: ${branch}"
           fi
         fi
       fi
@@ -420,7 +477,7 @@ while IFS= read -r line || [[ -n "$line" ]]; do
       current_branch_ref="${line#branch }"
       ;;
   esac
-done < <(git -C "$repo_root" worktree list --porcelain)
+  done < <(git -C "$repo_root" worktree list --porcelain)
 
 process_entry "$current_wt" "$current_branch_ref"
 
@@ -436,14 +493,27 @@ if [[ "$DELETE_BRANCHES" -eq 1 ]]; then
     if ! branch_idle_gate "$branch" "" "stale-merged-branch"; then
       continue
     fi
+    merged_by_ancestor=0
+    merged_by_pr=0
     if git -C "$repo_root" merge-base --is-ancestor "$branch" "$BASE_BRANCH"; then
-      if run_cmd git -C "$repo_root" branch -d "$branch" >/dev/null 2>&1; then
+      merged_by_ancestor=1
+    elif branch_has_merged_pr "$branch"; then
+      merged_by_pr=1
+    fi
+    if [[ "$merged_by_ancestor" -eq 1 || "$merged_by_pr" -eq 1 ]]; then
+      delete_flag="-d"
+      deleted_label="merged"
+      if [[ "$merged_by_pr" -eq 1 && "$merged_by_ancestor" -eq 0 ]]; then
+        delete_flag="-D"
+        deleted_label="merged PR"
+      fi
+      if run_cmd git -C "$repo_root" branch "$delete_flag" "$branch" >/dev/null 2>&1; then
         removed_branches=$((removed_branches + 1))
-        echo "[agent-worktree-prune] Deleted stale merged branch: ${branch}"
+        echo "[agent-worktree-prune] Deleted stale ${deleted_label} branch: ${branch}"
         if [[ "$DELETE_REMOTE_BRANCHES" -eq 1 ]]; then
           if git -C "$repo_root" ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
             run_cmd git -C "$repo_root" push origin --delete "$branch" >/dev/null 2>&1 || true
-            echo "[agent-worktree-prune] Deleted stale merged remote branch: ${branch}"
+            echo "[agent-worktree-prune] Deleted stale ${deleted_label} remote branch: ${branch}"
           fi
         fi
       fi

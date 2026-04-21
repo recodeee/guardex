@@ -115,15 +115,26 @@ const REQUIRED_WORKFLOW_FILES = [
 ];
 
 const REQUIRED_PACKAGE_SCRIPTS = {
+  'agent:codex': 'bash ./scripts/codex-agent.sh',
   'agent:branch:start': 'bash ./scripts/agent-branch-start.sh',
   'agent:branch:finish': 'bash ./scripts/agent-branch-finish.sh',
-  'agent:cleanup': 'bash ./scripts/agent-worktree-prune.sh',
+  'agent:cleanup': 'gx cleanup',
   'agent:hooks:install': 'bash ./scripts/install-agent-git-hooks.sh',
   'agent:locks:claim': 'python3 ./scripts/agent-file-locks.py claim',
+  'agent:locks:allow-delete': 'python3 ./scripts/agent-file-locks.py allow-delete',
   'agent:locks:release': 'python3 ./scripts/agent-file-locks.py release',
   'agent:locks:status': 'python3 ./scripts/agent-file-locks.py status',
   'agent:plan:init': 'bash ./scripts/openspec/init-plan-workspace.sh',
   'agent:change:init': 'bash ./scripts/openspec/init-change-workspace.sh',
+  'agent:protect:list': 'gx protect list',
+  'agent:branch:sync': 'gx sync',
+  'agent:branch:sync:check': 'gx sync --check',
+  'agent:safety:setup': 'gx setup',
+  'agent:safety:scan': 'gx status --strict',
+  'agent:safety:fix': 'gx setup --repair',
+  'agent:safety:doctor': 'gx doctor',
+  'agent:review:watch': 'bash ./scripts/review-bot-watch.sh',
+  'agent:finish': 'gx finish --all',
 };
 
 const EXECUTABLE_RELATIVE_PATHS = new Set([
@@ -185,6 +196,7 @@ const MANAGED_GITIGNORE_PATHS = [
   '.claude/commands/gitguardex.md',
   LOCK_FILE_RELATIVE,
 ];
+const REPO_SCAFFOLD_DIRECTORIES = ['bin'];
 const OMX_SCAFFOLD_DIRECTORIES = [
   '.omx',
   '.omx/state',
@@ -266,14 +278,14 @@ const AI_SETUP_PROMPT = `GitGuardex (gx) setup checklist for Codex/Claude in thi
 2) Bootstrap:  gx setup
 3) Repair:     gx doctor
 4) Task loop:  bash scripts/codex-agent.sh "<task>" "<agent>"
-               or branch-start -> claim -> branch-finish
+               or branch-start -> python3 scripts/agent-file-locks.py claim -> branch-finish
 5) Finish:     gx finish --all
 6) Cleanup:    gx cleanup
 7) OpenSpec:   /opsx:propose -> /opsx:apply -> /opsx:archive
 8) Optional:   gx protect add release staging
 9) Optional:   gx sync --check && gx sync
 10) Review bot: install https://github.com/apps/cr-gpt + set OPENAI_API_KEY
-11) Fork sync:  cp .github/pull.yml.example .github/pull.yml
+11) Fork sync:  install https://github.com/apps/pull + cp .github/pull.yml.example .github/pull.yml
 `;
 
 const AI_SETUP_COMMANDS = `npm i -g @imdeadpool/guardex
@@ -281,6 +293,7 @@ gh --version
 gx setup
 gx doctor
 bash scripts/codex-agent.sh "<task>" "<agent>"
+python3 scripts/agent-file-locks.py claim --branch "<agent-branch>" <file...>
 gx finish --all
 gx cleanup
 gx protect add release staging
@@ -688,6 +701,22 @@ function lockFilePath(repoRoot) {
 
 function ensureOmxScaffold(repoRoot, dryRun) {
   const operations = [];
+
+  for (const relativeDir of REPO_SCAFFOLD_DIRECTORIES) {
+    const absoluteDir = path.join(repoRoot, relativeDir);
+    if (fs.existsSync(absoluteDir)) {
+      if (!fs.statSync(absoluteDir).isDirectory()) {
+        throw new Error(`Expected directory at ${relativeDir} but found a file.`);
+      }
+      operations.push({ status: 'unchanged', file: relativeDir });
+      continue;
+    }
+
+    if (!dryRun) {
+      fs.mkdirSync(absoluteDir, { recursive: true });
+    }
+    operations.push({ status: 'created', file: relativeDir });
+  }
 
   for (const relativeDir of OMX_SCAFFOLD_DIRECTORIES) {
     const absoluteDir = path.join(repoRoot, relativeDir);
