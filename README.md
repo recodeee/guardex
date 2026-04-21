@@ -20,23 +20,23 @@ I was running ~30 Codex agents in parallel and hit a wall: they kept working on 
 
 GitGuardex exists to stop that loop. Every agent gets its own worktree, claims the files it's touching, and can't clobber files another agent has claimed. Your local branch stays clean; agents stay in their lanes.
 
+```mermaid
+flowchart LR
+    A[Agent A adds assertions in a shared test] --> S[Several agents touch the same files]
+    B[Agent B rewrites the same test flow] --> S
+    C[Agent C updates the shared helper] --> S
+    D[Agent D deletes lines Agent A just added] --> S
+    E[Agent E saves an older snapshot of the file] --> S
+    S --> F[One agent overwrites another agent's edits]
+    F --> G[Another agent deletes code the others just added]
+    G --> H[Lost work, rework, and review confusion]
+    H --> I[Regression risk and flaky fixes grow]
+    I --> S
+```
+
 ![Guarded VS Code Source Control example](https://raw.githubusercontent.com/recodeee/gitguardex/main/docs/images/workflow-source-control-grouped.png)
 
 Coming soon: [recodee.com](https://recodee.com) — live account health, usage, routing, and capacity in one place.
-
-```mermaid
-flowchart LR
-    A[Agent A edits shared files] --> S[Same target surface]
-    B[Agent B edits shared files] --> S
-    C[Agent C edits shared files] --> S
-    D[Agent D edits shared files] --> S
-    E[Agent E edits shared files] --> S
-    S --> F[Conflict / overwrite churn]
-    F --> G[Deleted or lost code]
-    G --> H[Rework and confusion]
-    H --> I[Regression risk grows]
-    I --> F
-```
 
 ---
 
@@ -237,7 +237,7 @@ A few things worth knowing up front:
 
 - Running `gx` with no command opens the status/health view.
 - `gx init` is just an alias for `gx setup`.
-- Setup/doctor can install missing global companion CLIs (OMC runtime, OpenSpec, cavemem, codex-auth) — but only with explicit Y/N confirmation.
+- Setup/doctor can install missing companion tooling (OMC runtime, OpenSpec, cavemem, codex-auth, caveman, cavekit) — but only with explicit Y/N confirmation.
 - Direct commits/pushes to protected branches are **blocked** by default. Agents must use the `agent/*` + PR flow.
 - **Exception:** VS Code Source Control commits are allowed on protected branches that exist only locally (no upstream, no remote branch).
 - On protected `main`, `gx doctor` auto-runs in a sandbox agent branch/worktree so it can't touch your real main.
@@ -255,13 +255,15 @@ git config multiagent.allowVscodeProtectedBranchWrites true
 
 ## Companion tools
 
-GitGuardex is designed to work alongside these. All optional — but if you're running many agents, you probably want them. `gx status` reports the machine-detectable global helpers; plugin/skills-first add-ons like `caveman` and `cavekit` are documented below for manual setup.
+GitGuardex is designed to work alongside these. All optional — but if you're running many agents, you probably want them. `gx status` reports the machine-detectable companion helpers, including local `caveman` / `cavekit` installs when their home-directory footprints are present.
 
 ```text
 ● oh-my-codex: active
 ● oh-my-claude-sisyphus: active
 ● @fission-ai/openspec: active
 ● cavemem: active
+● cavekit: active
+● caveman: active
 ● @imdeadpool/codex-account-switcher: active
 ● gh: active
 ```

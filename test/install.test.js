@@ -10,12 +10,21 @@ const cliVersion = JSON.parse(
   fs.readFileSync(path.resolve(__dirname, '..', 'package.json'), 'utf8'),
 ).version;
 const withPackageJson = true;
+const defaultGuardexHomeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'guardex-home-'));
+
+function withGuardexHome(extraEnv = {}) {
+  return {
+    ...process.env,
+    GUARDEX_HOME_DIR: extraEnv.GUARDEX_HOME_DIR || defaultGuardexHomeDir,
+    ...extraEnv,
+  };
+}
 
 function runNode(args, cwd) {
   return cp.spawnSync('node', [cliPath, ...args], {
     cwd,
     encoding: 'utf8',
-    env: process.env,
+    env: withGuardexHome(),
   });
 }
 
@@ -23,7 +32,7 @@ function runNodeWithEnv(args, cwd, extraEnv) {
   return cp.spawnSync('node', [cliPath, ...args], {
     cwd,
     encoding: 'utf8',
-    env: { ...process.env, ...extraEnv },
+    env: withGuardexHome(extraEnv),
   });
 }
 
@@ -64,6 +73,14 @@ function createFakeOpenSpecScript(scriptBody) {
   fs.writeFileSync(fakeOpenSpecPath, `#!/usr/bin/env bash\nset -e\n${scriptBody}\n`, 'utf8');
   fs.chmodSync(fakeOpenSpecPath, 0o755);
   return fakeOpenSpecPath;
+}
+
+function createFakeNpxScript(scriptBody) {
+  const fakeBin = fs.mkdtempSync(path.join(os.tmpdir(), 'guardex-fake-npx-'));
+  const fakePath = path.join(fakeBin, 'npx');
+  fs.writeFileSync(fakePath, `#!/usr/bin/env bash\nset -e\n${scriptBody}\n`, 'utf8');
+  fs.chmodSync(fakePath, 0o755);
+  return fakePath;
 }
 
 function createFakeScorecardScript(scriptBody) {
@@ -132,6 +149,21 @@ function initRepoOnBranch(branchName) {
   }
   runCmd('git', ['checkout', branchName], repoDir);
   return repoDir;
+}
+
+function createGuardexCompanionHome({ cavekit = false, caveman = false } = {}) {
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'guardex-companion-home-'));
+  if (cavekit) {
+    const cavekitDir = path.join(homeDir, '.cavekit');
+    fs.mkdirSync(cavekitDir, { recursive: true });
+    fs.writeFileSync(path.join(cavekitDir, 'plugin.json'), '{}\n', 'utf8');
+  }
+  if (caveman) {
+    const cavemanDir = path.join(homeDir, '.config', 'caveman');
+    fs.mkdirSync(cavemanDir, { recursive: true });
+    fs.writeFileSync(path.join(cavemanDir, 'config.json'), '{"mode":"off"}\n', 'utf8');
+  }
+  return homeDir;
 }
 
 function seedCommit(repoDir) {
@@ -2170,9 +2202,36 @@ test('status --json returns cli, services, and repo summary', () => {
   assert.equal(Array.isArray(parsed.services), true);
   assert.ok(parsed.services.some((service) => service.name === 'oh-my-claude-sisyphus'));
   assert.ok(parsed.services.some((service) => service.name === 'cavemem'));
+  assert.ok(parsed.services.some((service) => service.name === 'cavekit'));
+  assert.ok(parsed.services.some((service) => service.name === 'caveman'));
   assert.equal(parsed.repo.inGitRepo, true);
   assert.equal(typeof parsed.repo.serviceStatus, 'string');
   assert.equal(parsed.repo.scan.repoRoot, repoDir);
+});
+
+test('status detects local cavekit and caveman companion installs', () => {
+  const repoDir = initRepo();
+  const fakeHome = createGuardexCompanionHome({ cavekit: true, caveman: true });
+  const fakeNpm = createFakeNpmScript(`
+if [[ "$1" == "list" ]]; then
+  cat <<'JSON'
+{"dependencies":{"oh-my-codex":{"version":"1.0.0"},"oh-my-claude-sisyphus":{"version":"1.0.0"},"@fission-ai/openspec":{"version":"1.0.0"},"cavemem":{"version":"1.0.0"},"@imdeadpool/codex-account-switcher":{"version":"1.0.0"}}}
+JSON
+  exit 0
+fi
+echo "unexpected npm args: $*" >&2
+exit 1
+`);
+
+  const result = runNodeWithEnv(['status', '--target', repoDir, '--json'], repoDir, {
+    GUARDEX_HOME_DIR: fakeHome,
+    GUARDEX_NPM_BIN: fakeNpm,
+  });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const parsed = JSON.parse(result.stdout);
+  assert.equal(parsed.services.find((service) => service.name === 'cavekit')?.status, 'active');
+  assert.equal(parsed.services.find((service) => service.name === 'caveman')?.status, 'active');
 });
 
 test('setup appends managed gitignore block without clobbering existing entries', () => {
@@ -3834,6 +3893,7 @@ test('setup dry-run accepts explicit global install approval flags', () => {
 
 test('setup skips global install when companion npm tools are already installed', () => {
   const repoDir = initRepo();
+  const fakeHome = createGuardexCompanionHome({ cavekit: true, caveman: true });
   const marker = path.join(repoDir, '.global-install-called');
   const fakeNpm = createFakeNpmScript(`
 if [[ "$1" == "list" ]]; then
@@ -3852,16 +3912,19 @@ exit 1
 
   const result = runNodeWithEnv(['setup', '--target', repoDir, '--yes-global-install'], repoDir, {
     GUARDEX_NPM_BIN: fakeNpm,
+    GUARDEX_HOME_DIR: fakeHome,
   });
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.match(result.stdout, /Already installed globally/);
+  assert.match(result.stdout, /Already installed locally: cavekit, caveman/);
   assert.match(result.stdout, /already installed\. Skipping/);
   assert.equal(fs.existsSync(marker), false, 'global install should be skipped');
 });
 
 test('setup installs only missing global tools', () => {
   const repoDir = initRepo();
+  const fakeHome = createGuardexCompanionHome({ cavekit: true, caveman: true });
   const marker = path.join(repoDir, '.global-install-called');
   const fakeNpm = createFakeNpmScript(`
 if [[ "$1" == "list" ]]; then
@@ -3880,12 +3943,65 @@ exit 1
 
   const result = runNodeWithEnv(['setup', '--target', repoDir, '--yes-global-install'], repoDir, {
     GUARDEX_NPM_BIN: fakeNpm,
+    GUARDEX_HOME_DIR: fakeHome,
   });
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.equal(fs.existsSync(marker), true, 'global install should run for missing package');
   const args = fs.readFileSync(marker, 'utf8').trim();
   assert.equal(args, 'i -g oh-my-claude-sisyphus @fission-ai/openspec cavemem @imdeadpool/codex-account-switcher');
+});
+
+test('setup installs missing local companion tools with explicit approval', () => {
+  const repoDir = initRepo();
+  const fakeHome = createGuardexCompanionHome();
+  const npmMarker = path.join(repoDir, '.global-install-called');
+  const npxMarker = path.join(repoDir, '.local-install-called');
+  const fakeNpm = createFakeNpmScript(`
+if [[ "$1" == "list" ]]; then
+  cat <<'JSON'
+{"dependencies":{"oh-my-codex":{"version":"1.0.0"},"oh-my-claude-sisyphus":{"version":"1.0.0"},"@fission-ai/openspec":{"version":"1.0.0"},"cavemem":{"version":"1.0.0"},"@imdeadpool/codex-account-switcher":{"version":"1.0.0"}}}
+JSON
+  exit 0
+fi
+if [[ "$1" == "i" && "$2" == "-g" ]]; then
+  echo "$@" > "${npmMarker}"
+  exit 0
+fi
+echo "unexpected npm args: $*" >&2
+exit 1
+`);
+  const fakeNpx = createFakeNpxScript(`
+echo "$@" >> "${npxMarker}"
+if [[ "$1" == "skills" && "$2" == "add" && "$3" == "JuliusBrussee/cavekit" ]]; then
+  mkdir -p "${fakeHome}/.cavekit"
+  echo '{}' > "${fakeHome}/.cavekit/plugin.json"
+  exit 0
+fi
+if [[ "$1" == "skills" && "$2" == "add" && "$3" == "JuliusBrussee/caveman" ]]; then
+  mkdir -p "${fakeHome}/.config/caveman"
+  echo '{"mode":"off"}' > "${fakeHome}/.config/caveman/config.json"
+  exit 0
+fi
+echo "unexpected npx args: $*" >&2
+exit 1
+`);
+
+  const result = runNodeWithEnv(['setup', '--target', repoDir, '--yes-global-install'], repoDir, {
+    GUARDEX_HOME_DIR: fakeHome,
+    GUARDEX_NPM_BIN: fakeNpm,
+    GUARDEX_NPX_BIN: fakeNpx,
+  });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(fs.existsSync(npmMarker), false, 'npm global install should be skipped');
+  assert.equal(fs.existsSync(npxMarker), true, 'local companion install should run');
+  const args = fs.readFileSync(npxMarker, 'utf8').trim().split('\n');
+  assert.deepEqual(args, [
+    'skills add JuliusBrussee/cavekit',
+    'skills add JuliusBrussee/caveman',
+  ]);
+  assert.match(result.stdout, /Companion tools installed \(cavekit, caveman\)\./);
 });
 
 test('status reports gh dependency as inactive when gh is unavailable', () => {
@@ -3903,6 +4019,7 @@ test('status reports gh dependency as inactive when gh is unavailable', () => {
 
 test('setup warns when gh dependency is missing', () => {
   const repoDir = initRepo();
+  const fakeHome = createGuardexCompanionHome({ cavekit: true, caveman: true });
   const fakeNpm = createFakeNpmScript(`
 if [[ "$1" == "list" ]]; then
   cat <<'JSON'
@@ -3916,6 +4033,7 @@ exit 1
 
   const result = runNodeWithEnv(['setup', '--target', repoDir, '--yes-global-install'], repoDir, {
     GUARDEX_NPM_BIN: fakeNpm,
+    GUARDEX_HOME_DIR: fakeHome,
     GUARDEX_GH_BIN: 'gh-command-not-found-for-test',
   });
 

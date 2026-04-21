@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const cp = require('node:child_process');
 
@@ -13,12 +14,34 @@ const LEGACY_NAMES = ['guardex', 'multiagent-safety'];
 const OPENSPEC_PACKAGE = '@fission-ai/openspec';
 const OMC_PACKAGE = 'oh-my-claude-sisyphus';
 const CAVEMEM_PACKAGE = 'cavemem';
+const NPX_BIN = process.env.GUARDEX_NPX_BIN || 'npx';
+const GUARDEX_HOME_DIR = path.resolve(process.env.GUARDEX_HOME_DIR || os.homedir());
 const GLOBAL_TOOLCHAIN_PACKAGES = [
   'oh-my-codex',
   OMC_PACKAGE,
   OPENSPEC_PACKAGE,
   CAVEMEM_PACKAGE,
   '@imdeadpool/codex-account-switcher',
+];
+const OPTIONAL_LOCAL_COMPANION_TOOLS = [
+  {
+    name: 'cavekit',
+    candidatePaths: [
+      '.cavekit/plugin.json',
+      '.codex/local-marketplaces/cavekit/.agents/plugins/marketplace.json',
+    ],
+    installCommand: `${NPX_BIN} skills add JuliusBrussee/cavekit`,
+    installArgs: ['skills', 'add', 'JuliusBrussee/cavekit'],
+  },
+  {
+    name: 'caveman',
+    candidatePaths: [
+      '.config/caveman/config.json',
+      '.cavekit/skills/caveman/SKILL.md',
+    ],
+    installCommand: `${NPX_BIN} skills add JuliusBrussee/caveman`,
+    installArgs: ['skills', 'add', 'JuliusBrussee/caveman'],
+  },
 ];
 const GH_BIN = process.env.GUARDEX_GH_BIN || 'gh';
 const REQUIRED_SYSTEM_TOOLS = [
@@ -3616,15 +3639,44 @@ function detectRequiredSystemTools() {
   return services;
 }
 
+function detectOptionalLocalCompanionTools() {
+  return OPTIONAL_LOCAL_COMPANION_TOOLS.map((tool) => {
+    const detectedPath = tool.candidatePaths
+      .map((relativePath) => path.join(GUARDEX_HOME_DIR, relativePath))
+      .find((candidatePath) => fs.existsSync(candidatePath));
+    return {
+      name: tool.name,
+      displayName: tool.displayName || tool.name,
+      installCommand: tool.installCommand,
+      installArgs: [...tool.installArgs],
+      status: detectedPath ? 'active' : 'inactive',
+      detectedPath: detectedPath || null,
+    };
+  });
+}
+
+function describeCompanionInstallCommands(missingPackages, missingLocalTools) {
+  const commands = [];
+  if (missingPackages.length > 0) {
+    commands.push(`${NPM_BIN} i -g ${missingPackages.join(' ')}`);
+  }
+  for (const tool of missingLocalTools) {
+    commands.push(tool.installCommand);
+  }
+  return commands;
+}
+
 function askGlobalInstallForMissing(options, missingPackages) {
   const approval = resolveGlobalInstallApproval(options);
   if (!approval.approved) {
     return approval;
   }
 
+  const missingLocalTools = detectOptionalLocalCompanionTools().filter((tool) => tool.status !== 'active');
+  const installCommands = describeCompanionInstallCommands(missingPackages, missingLocalTools);
   if (approval.source === 'prompt') {
     const approved = promptYesNoStrict(
-      `Install missing global tools now? (npm i -g ${missingPackages.join(' ')})`,
+      `Install missing companion tools now? (${installCommands.join(' && ')})`,
     );
     return { approved, source: 'prompt' };
   }
@@ -3638,36 +3690,61 @@ function installGlobalToolchain(options) {
   }
 
   const detection = detectGlobalToolchainPackages();
+  const localCompanionTools = detectOptionalLocalCompanionTools();
   if (!detection.ok) {
     console.log(`[${TOOL_NAME}] ⚠️ Could not detect global packages: ${detection.error}`);
   } else {
     if (detection.installed.length > 0) {
       console.log(`[${TOOL_NAME}] Already installed globally: ${detection.installed.join(', ')}`);
     }
-    if (detection.missing.length === 0) {
+    const installedLocalTools = localCompanionTools
+      .filter((tool) => tool.status === 'active')
+      .map((tool) => tool.name);
+    if (installedLocalTools.length > 0) {
+      console.log(`[${TOOL_NAME}] Already installed locally: ${installedLocalTools.join(', ')}`);
+    }
+    if (detection.missing.length === 0 && localCompanionTools.every((tool) => tool.status === 'active')) {
       return { status: 'already-installed' };
     }
   }
 
   const missingPackages = detection.ok ? detection.missing : [...GLOBAL_TOOLCHAIN_PACKAGES];
+  const missingLocalTools = localCompanionTools.filter((tool) => tool.status !== 'active');
   const approval = askGlobalInstallForMissing(options, missingPackages);
   if (!approval.approved) {
     return { status: 'skipped', reason: approval.source };
   }
 
-  console.log(
-    `[${TOOL_NAME}] Installing global toolchain: npm i -g ${missingPackages.join(' ')}`,
-  );
-  const result = run(NPM_BIN, ['i', '-g', ...missingPackages], { stdio: 'inherit' });
-  if (result.status !== 0) {
-    const stderr = (result.stderr || '').trim();
-    return {
-      status: 'failed',
-      reason: stderr || 'npm global install failed',
-    };
+  const installed = [];
+  if (missingPackages.length > 0) {
+    console.log(
+      `[${TOOL_NAME}] Installing global toolchain: npm i -g ${missingPackages.join(' ')}`,
+    );
+    const result = run(NPM_BIN, ['i', '-g', ...missingPackages], { stdio: 'inherit' });
+    if (result.status !== 0) {
+      const stderr = (result.stderr || '').trim();
+      return {
+        status: 'failed',
+        reason: stderr || 'npm global install failed',
+      };
+    }
+    installed.push(...missingPackages);
   }
 
-  return { status: 'installed', packages: missingPackages };
+  for (const tool of missingLocalTools) {
+    console.log(`[${TOOL_NAME}] Installing local companion tool: ${tool.installCommand}`);
+    const result = run(NPX_BIN, tool.installArgs, { stdio: 'inherit' });
+    if (result.status !== 0) {
+      const stderr = (result.stderr || '').trim();
+      return {
+        status: 'failed',
+        reason: stderr || `${tool.name} install failed`,
+      };
+    }
+    installed.push(tool.name);
+  }
+
+  return { status: 'installed', packages: installed };
 }
 
 function gitRefExists(repoRoot, refName) {
@@ -4018,9 +4095,15 @@ function status(rawArgs) {
       status: toolchain.installed.includes(pkg) ? 'active' : 'inactive',
     };
   });
+  const localCompanionServices = detectOptionalLocalCompanionTools().map((tool) => ({
+    name: tool.name,
+    displayName: tool.displayName || tool.name,
+    status: tool.status,
+  }));
   const requiredSystemTools = detectRequiredSystemTools();
   const services = [
     ...npmServices,
+    ...localCompanionServices,
     ...requiredSystemTools.map((tool) => ({
       name: tool.name,
       displayName: tool.displayName || tool.name,
@@ -4078,6 +4161,17 @@ function status(rawArgs) {
   for (const service of services) {
     const serviceLabel = service.displayName || service.name;
     console.log(`  - ${statusDot(service.status)} ${serviceLabel}: ${service.status}`);
+  }
+  const inactiveOptionalCompanions = [...npmServices, ...localCompanionServices]
+    .filter((service) => service.status !== 'active')
+    .map((service) => service.displayName || service.name);
+  if (inactiveOptionalCompanions.length > 0) {
+    console.log(
+      `[${TOOL_NAME}] Optional companion tools inactive: ${inactiveOptionalCompanions.join(', ')}`,
+    );
+    console.log(
+      `[${TOOL_NAME}] Run '${SHORT_TOOL_NAME} setup' to install missing companions with an explicit Y/N prompt.`,
+    );
   }
   const missingSystemTools = requiredSystemTools.filter((tool) => tool.status !== 'active');
   if (missingSystemTools.length > 0) {
@@ -4713,19 +4807,23 @@ function setup(rawArgs) {
   const globalInstallStatus = installGlobalToolchain(options);
   if (globalInstallStatus.status === 'installed') {
     console.log(
-      `[${TOOL_NAME}] ✅ Global tools installed (${(globalInstallStatus.packages || []).join(', ')}).`,
+      `[${TOOL_NAME}] ✅ Companion tools installed (${(globalInstallStatus.packages || []).join(', ')}).`,
     );
   } else if (globalInstallStatus.status === 'already-installed') {
-    console.log(`[${TOOL_NAME}] ✅ Companion npm global tools already installed. Skipping.`);
+    console.log(`[${TOOL_NAME}] ✅ Companion tools already installed. Skipping.`);
   } else if (globalInstallStatus.status === 'failed') {
+    const installCommands = describeCompanionInstallCommands(
+      GLOBAL_TOOLCHAIN_PACKAGES,
+      OPTIONAL_LOCAL_COMPANION_TOOLS,
+    );
     console.log(
       `[${TOOL_NAME}] ⚠️ Global install failed: ${globalInstallStatus.reason}\n` +
       `[${TOOL_NAME}] Continue with local safety setup. You can retry later with:\n` +
-      `  ${NPM_BIN} i -g ${GLOBAL_TOOLCHAIN_PACKAGES.join(' ')}`,
+      installCommands.map((command) => `  ${command}`).join('\n'),
     );
   } else if (globalInstallStatus.status === 'skipped' && globalInstallStatus.reason === 'non-interactive-default') {
     console.log(
-      `[${TOOL_NAME}] Skipping global installs (non-interactive mode). ` +
+      `[${TOOL_NAME}] Skipping companion installs (non-interactive mode). ` +
       `Use --yes-global-install to force or run interactively for Y/N prompt.`,
     );
   }
