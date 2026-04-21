@@ -1310,11 +1310,32 @@ function resolveSandboxTarget(repoRoot, worktreePath, targetPath) {
 
 function buildSandboxSetupArgs(options, sandboxTarget) {
   const args = ['setup', '--target', sandboxTarget, '--no-global-install', '--no-recursive'];
+  if (options.dryRun) args.push('--dry-run');
   if (options.force) args.push('--force');
   if (options.skipAgents) args.push('--skip-agents');
   if (options.skipPackageJson) args.push('--skip-package-json');
   if (options.skipGitignore) args.push('--no-gitignore');
+  if (options.parentWorkspaceView) args.push('--parent-workspace-view');
+  return args;
+}
+
+function buildSandboxInstallArgs(options, sandboxTarget) {
+  const args = ['install', '--target', sandboxTarget];
   if (options.dryRun) args.push('--dry-run');
+  if (options.force) args.push('--force');
+  if (options.skipAgents) args.push('--skip-agents');
+  if (options.skipPackageJson) args.push('--skip-package-json');
+  if (options.skipGitignore) args.push('--no-gitignore');
+  return args;
+}
+
+function buildSandboxFixArgs(options, sandboxTarget) {
+  const args = ['fix', '--target', sandboxTarget];
+  if (options.dryRun) args.push('--dry-run');
+  if (options.skipAgents) args.push('--skip-agents');
+  if (options.skipPackageJson) args.push('--skip-package-json');
+  if (options.skipGitignore) args.push('--no-gitignore');
+  if (!options.dropStaleLocks) args.push('--keep-stale-locks');
   return args;
 }
 
@@ -1395,7 +1416,7 @@ function resolveProtectedBaseSandboxStartRef(repoRoot, baseBranch) {
   if (currentBranchName(repoRoot) === baseBranch) {
     return null;
   }
-  throw new Error(`Unable to find base ref for sandbox bootstrap: ${baseBranch}`);
+  throw new Error(`Unable to find base ref for protected-base sandbox: ${baseBranch}`);
 }
 
 function startProtectedBaseSandboxFallback(blocked, sandboxSuffix) {
@@ -1419,7 +1440,7 @@ function startProtectedBaseSandboxFallback(blocked, sandboxSuffix) {
   }
 
   if (!selectedBranch || !selectedWorktreePath) {
-    throw new Error('Unable to allocate unique sandbox branch/worktree');
+    throw new Error('Unable to allocate unique protected-base sandbox branch/worktree');
   }
 
   fs.mkdirSync(path.dirname(selectedWorktreePath), { recursive: true });
@@ -1432,7 +1453,7 @@ function startProtectedBaseSandboxFallback(blocked, sandboxSuffix) {
     throw addResult.error;
   }
   if (addResult.status !== 0) {
-    throw new Error((addResult.stderr || addResult.stdout || 'failed to create sandbox').trim());
+    throw new Error((addResult.stderr || addResult.stdout || 'failed to create protected-base sandbox').trim());
   }
 
   if (!startRef) {
@@ -1497,7 +1518,7 @@ function startProtectedBaseSandbox(blocked, { taskName, sandboxSuffix }) {
     if (!restoreResult.ok) {
       const detail = [restoreResult.stderr, restoreResult.stdout].filter(Boolean).join('\n').trim();
       throw new Error(
-        `sandbox startup switched protected base checkout and could not restore '${blocked.branch}'.` +
+        `protected-base sandbox startup switched '${blocked.branch}' and could not restore it.` +
         (detail ? `\n${detail}` : ''),
       );
     }
@@ -1515,10 +1536,10 @@ function cleanupProtectedBaseSandbox(repoRoot, metadata) {
   const result = {
     worktree: 'skipped',
     branch: 'skipped',
-    note: 'missing sandbox metadata',
+    note: '',
   };
-
   if (!metadata?.worktreePath || !metadata?.branch) {
+    result.note = 'missing sandbox metadata';
     return result;
   }
 
@@ -1542,17 +1563,15 @@ function cleanupProtectedBaseSandbox(repoRoot, metadata) {
   }
 
   if (gitRefExists(repoRoot, `refs/heads/${metadata.branch}`)) {
-    const branchDeleteResult = run(
-      'git',
-      ['-C', repoRoot, 'branch', '-D', metadata.branch],
-      { timeout: 20_000 },
-    );
-    if (isSpawnFailure(branchDeleteResult)) {
-      throw branchDeleteResult.error;
+    const deleteResult = run('git', ['-C', repoRoot, 'branch', '-D', metadata.branch], {
+      timeout: 20_000,
+    });
+    if (isSpawnFailure(deleteResult)) {
+      throw deleteResult.error;
     }
-    if (branchDeleteResult.status !== 0) {
+    if (deleteResult.status !== 0) {
       throw new Error(
-        (branchDeleteResult.stderr || branchDeleteResult.stdout || 'failed to delete sandbox branch').trim(),
+        (deleteResult.stderr || deleteResult.stdout || 'failed to delete sandbox branch').trim(),
       );
     }
     result.branch = 'deleted';
@@ -1560,7 +1579,7 @@ function cleanupProtectedBaseSandbox(repoRoot, metadata) {
     result.branch = 'missing';
   }
 
-  result.note = 'sandbox worktree pruned';
+  result.note = 'sandbox branch/worktree pruned';
   return result;
 }
 
@@ -1571,7 +1590,7 @@ function parseGitPathList(output) {
     .filter((line) => line && line !== LOCK_FILE_RELATIVE);
 }
 
-function collectDoctorChangedPaths(worktreePath) {
+function collectSandboxChangedPaths(worktreePath) {
   const changed = new Set();
   const commands = [
     ['diff', '--name-only'],
@@ -1587,7 +1606,7 @@ function collectDoctorChangedPaths(worktreePath) {
   return Array.from(changed);
 }
 
-function collectDoctorDeletedPaths(worktreePath) {
+function collectSandboxDeletedPaths(worktreePath) {
   const deleted = new Set();
   const commands = [
     ['diff', '--name-only', '--diff-filter=D'],
@@ -1602,7 +1621,7 @@ function collectDoctorDeletedPaths(worktreePath) {
   return Array.from(deleted);
 }
 
-function claimDoctorChangedLocks(metadata) {
+function claimSandboxChangedLocks(metadata, noteLabel) {
   const lockScript = path.join(metadata.worktreePath, 'scripts', 'agent-file-locks.py');
   if (!fs.existsSync(lockScript) || !metadata.branch) {
     return {
@@ -1613,8 +1632,8 @@ function claimDoctorChangedLocks(metadata) {
     };
   }
 
-  const changedPaths = collectDoctorChangedPaths(metadata.worktreePath);
-  const deletedPaths = collectDoctorDeletedPaths(metadata.worktreePath);
+  const changedPaths = collectSandboxChangedPaths(metadata.worktreePath);
+  const deletedPaths = collectSandboxDeletedPaths(metadata.worktreePath);
   if (changedPaths.length > 0) {
     run('python3', [lockScript, 'claim', '--branch', metadata.branch, ...changedPaths], {
       cwd: metadata.worktreePath,
@@ -1630,13 +1649,13 @@ function claimDoctorChangedLocks(metadata) {
 
   return {
     status: 'claimed',
-    note: 'claimed locks for doctor auto-commit',
+    note: `claimed locks for ${noteLabel}`,
     changedCount: changedPaths.length,
     deletedCount: deletedPaths.length,
   };
 }
 
-function autoCommitDoctorSandboxChanges(metadata) {
+function autoCommitSandboxChanges(metadata, { noteLabel, commitMessage }) {
   if (!metadata.worktreePath || !metadata.branch) {
     return {
       status: 'skipped',
@@ -1644,7 +1663,7 @@ function autoCommitDoctorSandboxChanges(metadata) {
     };
   }
 
-  claimDoctorChangedLocks(metadata);
+  claimSandboxChangedLocks(metadata, noteLabel);
   run('git', ['-C', metadata.worktreePath, 'add', '-A'], { timeout: 20_000 });
   const staged = run(
     'git',
@@ -1655,19 +1674,19 @@ function autoCommitDoctorSandboxChanges(metadata) {
   if (stagedFiles.length === 0) {
     return {
       status: 'no-changes',
-      note: 'no committable doctor changes found in sandbox',
+      note: `no committable ${noteLabel} changes found in sandbox`,
     };
   }
 
   const commitResult = run(
     'git',
-    ['-C', metadata.worktreePath, 'commit', '-m', 'Auto-finish: gx doctor repairs'],
+    ['-C', metadata.worktreePath, 'commit', '-m', commitMessage],
     { timeout: 30_000 },
   );
   if (commitResult.status !== 0) {
     return {
       status: 'failed',
-      note: 'doctor sandbox auto-commit failed',
+      note: `${noteLabel} sandbox auto-commit failed`,
       stdout: commitResult.stdout || '',
       stderr: commitResult.stderr || '',
     };
@@ -1675,10 +1694,17 @@ function autoCommitDoctorSandboxChanges(metadata) {
 
   return {
     status: 'committed',
-    note: 'doctor sandbox repairs committed',
-    commitMessage: 'Auto-finish: gx doctor repairs',
+    note: `${noteLabel} sandbox changes committed`,
+    commitMessage,
     stagedFiles,
   };
+}
+
+function autoCommitDoctorSandboxChanges(metadata) {
+  return autoCommitSandboxChanges(metadata, {
+    noteLabel: 'doctor',
+    commitMessage: 'Auto-finish: gx doctor repairs',
+  });
 }
 
 function hasOriginRemote(repoRoot) {
@@ -1702,7 +1728,7 @@ function extractAgentBranchFinishPrUrl(output) {
   return match ? match[1] : '';
 }
 
-function doctorFinishFlowIsPending(output) {
+function sandboxFinishFlowIsPending(output) {
   return (
     /\[agent-branch-finish\] PR merge not completed yet; leaving PR open\./.test(output) ||
     /\[agent-branch-finish\] Merge pending review\/check policy\. Branch cleanup skipped for now\./.test(output) ||
@@ -1710,7 +1736,7 @@ function doctorFinishFlowIsPending(output) {
   );
 }
 
-function finishDoctorSandboxBranch(blocked, metadata, options = {}) {
+function finishProtectedBaseSandboxBranch(blocked, metadata, options = {}) {
   const finishScript = path.join(metadata.worktreePath, 'scripts', 'agent-branch-finish.sh');
   if (!fs.existsSync(finishScript)) {
     return {
@@ -1756,13 +1782,22 @@ function finishDoctorSandboxBranch(blocked, metadata, options = {}) {
 
   const finishResult = run(
     'bash',
-    [finishScript, '--branch', metadata.branch, '--base', blocked.branch, '--via-pr', waitForMergeArg],
+    [
+      finishScript,
+      '--branch',
+      metadata.branch,
+      '--base',
+      blocked.branch,
+      '--via-pr',
+      waitForMergeArg,
+      ...(options.cleanup ? ['--cleanup'] : []),
+    ],
     { cwd: metadata.worktreePath, timeout: finishTimeoutMs },
   );
   if (isSpawnFailure(finishResult)) {
     return {
       status: 'failed',
-      note: 'doctor sandbox finish flow errored',
+      note: `${options.noteLabel || 'sandbox'} finish flow errored`,
       stdout: finishResult.stdout || '',
       stderr: finishResult.stderr || '',
     };
@@ -1770,14 +1805,14 @@ function finishDoctorSandboxBranch(blocked, metadata, options = {}) {
   if (finishResult.status !== 0) {
     return {
       status: 'failed',
-      note: 'doctor sandbox finish flow failed',
+      note: `${options.noteLabel || 'sandbox'} finish flow failed`,
       stdout: finishResult.stdout || '',
       stderr: finishResult.stderr || '',
     };
   }
 
   const combinedOutput = `${finishResult.stdout || ''}\n${finishResult.stderr || ''}`;
-  if (doctorFinishFlowIsPending(combinedOutput)) {
+  if (sandboxFinishFlowIsPending(combinedOutput)) {
     return {
       status: 'pending',
       note: 'PR created and waiting for merge policy/checks',
@@ -1789,10 +1824,17 @@ function finishDoctorSandboxBranch(blocked, metadata, options = {}) {
 
   return {
     status: 'completed',
-    note: 'doctor sandbox finish flow completed',
+    note: `${options.noteLabel || 'sandbox'} finish flow completed`,
     stdout: finishResult.stdout || '',
     stderr: finishResult.stderr || '',
   };
+}
+
+function finishDoctorSandboxBranch(blocked, metadata, options = {}) {
+  return finishProtectedBaseSandboxBranch(blocked, metadata, {
+    ...options,
+    noteLabel: options.noteLabel || 'doctor sandbox',
+  });
 }
 
 function syncProtectedBaseDoctorRepairs(options, blocked) {
@@ -4777,7 +4819,12 @@ function install(rawArgs) {
     allowProtectedBaseWrite: false,
   });
 
-  assertProtectedMainWriteAllowed(options, 'install');
+  const blocked = protectedBaseWriteBlock(options, { requireBootstrap: false });
+  if (blocked) {
+    runProtectedBaseMaintenanceInSandbox('install', options, blocked);
+    process.exitCode = 0;
+    return;
+  }
   const payload = runInstallInternal(options);
   printOperations('Install target', payload, options.dryRun);
 
@@ -4809,7 +4856,12 @@ function fix(rawArgs) {
     allowProtectedBaseWrite: false,
   });
 
-  assertProtectedMainWriteAllowed(options, 'fix');
+  const blocked = protectedBaseWriteBlock(options, { requireBootstrap: false });
+  if (blocked) {
+    runProtectedBaseMaintenanceInSandbox('fix', options, blocked);
+    process.exitCode = 0;
+    return;
+  }
   const payload = runFixInternal(options);
   printOperations('Fix target', payload, options.dryRun);
 
@@ -5023,6 +5075,140 @@ function doctor(rawArgs) {
     );
   }
   setExitCodeFromScan(scanResult);
+}
+
+function buildSandboxArgs(commandName, options, sandboxTarget) {
+  if (commandName === 'setup') {
+    return buildSandboxSetupArgs(options, sandboxTarget);
+  }
+  if (commandName === 'install') {
+    return buildSandboxInstallArgs(options, sandboxTarget);
+  }
+  if (commandName === 'fix') {
+    return buildSandboxFixArgs(options, sandboxTarget);
+  }
+  throw new Error(`Unsupported sandbox command: ${commandName}`);
+}
+
+function sandboxCommitMessage(commandName) {
+  if (commandName === 'setup') return 'Auto-finish: gx setup bootstrap';
+  if (commandName === 'install') return 'Auto-finish: gx install bootstrap';
+  if (commandName === 'fix') return 'Auto-finish: gx fix repairs';
+  throw new Error(`Unsupported sandbox command: ${commandName}`);
+}
+
+function runProtectedBaseMaintenanceInSandbox(commandName, options, blocked) {
+  const startResult = startProtectedBaseSandbox(blocked, {
+    taskName: `${SHORT_TOOL_NAME}-${commandName}`,
+    sandboxSuffix: `gx-${commandName}`,
+  });
+  const metadata = startResult.metadata;
+
+  console.log(
+    `[${TOOL_NAME}] ${commandName} detected protected branch '${blocked.branch}'. ` +
+    `Running in sandbox branch '${metadata.branch || 'agent/<auto>'}'.`,
+  );
+  if (startResult.stdout) process.stdout.write(startResult.stdout);
+  if (startResult.stderr) process.stderr.write(startResult.stderr);
+
+  const sandboxTarget = resolveSandboxTarget(blocked.repoRoot, metadata.worktreePath, options.target);
+  const nestedResult = run(
+    process.execPath,
+    [__filename, ...buildSandboxArgs(commandName, options, sandboxTarget)],
+    { cwd: metadata.worktreePath },
+  );
+  if (isSpawnFailure(nestedResult)) {
+    throw nestedResult.error;
+  }
+  if (nestedResult.stdout) process.stdout.write(nestedResult.stdout);
+  if (nestedResult.stderr) process.stderr.write(nestedResult.stderr);
+  if (nestedResult.status !== 0) {
+    throw new Error(
+      `sandboxed ${commandName} failed for protected branch '${blocked.branch}'. ` +
+      `Inspect sandbox at ${metadata.worktreePath}`,
+    );
+  }
+
+  let autoCommitResult = {
+    status: 'skipped',
+    note: `${commandName} sandbox did not complete successfully`,
+  };
+  let finishResult = {
+    status: 'skipped',
+    note: `${commandName} sandbox did not complete successfully`,
+  };
+  let cleanupResult = {
+    status: 'skipped',
+    note: `${commandName} sandbox kept for follow-up`,
+  };
+
+  if (options.dryRun) {
+    cleanupResult = cleanupProtectedBaseSandbox(blocked.repoRoot, metadata);
+    autoCommitResult = {
+      status: 'skipped',
+      note: 'dry-run skips sandbox auto-commit',
+    };
+    finishResult = {
+      status: 'skipped',
+      note: 'dry-run skips sandbox finish flow',
+    };
+  } else {
+    autoCommitResult = autoCommitSandboxChanges(metadata, {
+      noteLabel: commandName,
+      commitMessage: sandboxCommitMessage(commandName),
+    });
+    if (autoCommitResult.status === 'committed') {
+      finishResult = finishProtectedBaseSandboxBranch(blocked, metadata, {
+        cleanup: true,
+        noteLabel: `${commandName} sandbox`,
+      });
+      if (finishResult.status === 'completed') {
+        cleanupResult = cleanupProtectedBaseSandbox(blocked.repoRoot, metadata);
+      } else {
+        cleanupResult = {
+          status: 'kept',
+          note: 'sandbox branch/worktree kept for follow-up',
+        };
+      }
+    } else if (autoCommitResult.status === 'no-changes') {
+      cleanupResult = cleanupProtectedBaseSandbox(blocked.repoRoot, metadata);
+      finishResult = {
+        status: 'skipped',
+        note: 'no sandbox changes to finish',
+      };
+    } else if (autoCommitResult.status === 'failed') {
+      cleanupResult = {
+        status: 'kept',
+        note: 'sandbox branch/worktree kept because auto-commit failed',
+      };
+    }
+  }
+
+  if (autoCommitResult.status === 'committed') {
+    console.log(`[${TOOL_NAME}] Auto-committed ${commandName} changes in sandbox branch '${metadata.branch}'.`);
+  } else if (autoCommitResult.status === 'failed') {
+    console.log(`[${TOOL_NAME}] Sandbox auto-commit failed for ${commandName}; branch left for manual follow-up.`);
+  } else if (autoCommitResult.status === 'no-changes') {
+    console.log(`[${TOOL_NAME}] Sandbox ${commandName} produced no file changes to keep.`);
+  } else if (autoCommitResult.note) {
+    console.log(`[${TOOL_NAME}] Sandbox auto-commit skipped: ${autoCommitResult.note}.`);
+  }
+
+  if (finishResult.status === 'completed') {
+    console.log(`[${TOOL_NAME}] Auto-finish flow completed for sandbox branch '${metadata.branch}'.`);
+  } else if (finishResult.status === 'pending') {
+    console.log(
+      `[${TOOL_NAME}] Auto-finish pending for sandbox branch '${metadata.branch}': ${finishResult.note}.`,
+    );
+  } else if (finishResult.status === 'failed') {
+    console.log(`[${TOOL_NAME}] Auto-finish flow failed for sandbox branch '${metadata.branch}'.`);
+  } else if (finishResult.note) {
+    console.log(`[${TOOL_NAME}] Sandbox finish flow skipped: ${finishResult.note}.`);
+  }
+
+  if (cleanupResult.note) {
+    console.log(`[${TOOL_NAME}] Sandbox cleanup: ${cleanupResult.note}.`);
+  }
 }
 
 function review(rawArgs) {
@@ -5498,6 +5684,7 @@ function setup(rawArgs) {
   let aggregateErrors = 0;
   let aggregateWarnings = 0;
   let lastScanResult = null;
+  let sandboxedRepoCount = 0;
 
   for (const repoPath of discoveredRepos) {
     const perRepoOptions = { ...options, target: repoPath };
@@ -5507,12 +5694,10 @@ function setup(rawArgs) {
       console.log(`[${TOOL_NAME}] ── Setup target: ${repoPath} ──`);
     }
 
-    const blocked = protectedBaseWriteBlock(perRepoOptions);
+    const blocked = protectedBaseWriteBlock(perRepoOptions, { requireBootstrap: false });
     if (blocked) {
-      const sandboxResult = runSetupInSandbox(perRepoOptions, blocked, repoLabel);
-      aggregateErrors += sandboxResult.scanResult.errors;
-      aggregateWarnings += sandboxResult.scanResult.warnings;
-      lastScanResult = sandboxResult.scanResult;
+      runProtectedBaseMaintenanceInSandbox('setup', perRepoOptions, blocked);
+      sandboxedRepoCount += 1;
       continue;
     }
 
@@ -5562,6 +5747,14 @@ function setup(rawArgs) {
     const repoCount = discoveredRepos.length;
     const suffix = repoCount > 1 ? ` (${repoCount} repos)` : '';
     console.log(`[${TOOL_NAME}] ✅ Setup complete.${suffix}`);
+    if (sandboxedRepoCount > 0) {
+      console.log(
+        `[${TOOL_NAME}] Protected-base setup ran through sandbox branches so visible base checkouts stayed unchanged.`,
+      );
+      console.log(
+        `[${TOOL_NAME}] If auto-finish was skipped or is pending, continue from the printed sandbox branch/worktree path.`,
+      );
+    }
     console.log(`[${TOOL_NAME}] Copy AI setup prompt with: ${SHORT_TOOL_NAME} prompt`);
     console.log(
       `[${TOOL_NAME}] OpenSpec core workflow: /opsx:propose -> /opsx:apply -> /opsx:archive`,

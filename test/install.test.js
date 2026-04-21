@@ -20,8 +20,31 @@ function withGuardexHome(extraEnv = {}) {
   };
 }
 
+function maybeAppendProtectedMainSetupOverride(args, cwd, extraEnv = {}) {
+  if (!Array.isArray(args) || args[0] !== 'setup') {
+    return args;
+  }
+  if (args.includes('--allow-protected-base-write') || extraEnv.GUARDEX_TEST_FORCE_SANDBOX_SETUP === '1') {
+    return args;
+  }
+
+  const branchResult = cp.spawnSync('git', ['branch', '--show-current'], {
+    cwd,
+    encoding: 'utf8',
+    env: withGuardexHome(extraEnv),
+  });
+  if (branchResult.status !== 0) {
+    return args;
+  }
+  if (branchResult.stdout.trim() !== 'main') {
+    return args;
+  }
+  return [...args, '--allow-protected-base-write'];
+}
+
 function runNode(args, cwd) {
-  return cp.spawnSync('node', [cliPath, ...args], {
+  const finalArgs = maybeAppendProtectedMainSetupOverride(args, cwd);
+  return cp.spawnSync('node', [cliPath, ...finalArgs], {
     cwd,
     encoding: 'utf8',
     env: withGuardexHome(),
@@ -29,7 +52,8 @@ function runNode(args, cwd) {
 }
 
 function runNodeWithEnv(args, cwd, extraEnv) {
-  return cp.spawnSync('node', [cliPath, ...args], {
+  const finalArgs = maybeAppendProtectedMainSetupOverride(args, cwd, extraEnv);
+  return cp.spawnSync('node', [cliPath, ...finalArgs], {
     cwd,
     encoding: 'utf8',
     env: withGuardexHome(extraEnv),
@@ -252,6 +276,13 @@ function extractCreatedWorktree(output) {
   const match = String(output || '').match(/\[agent-branch-start\] Worktree: (.+)/);
   assert.ok(match, `missing worktree path in output: ${output}`);
   return match[1].trim();
+}
+
+function assertSandboxBranch(branchName, sandboxSuffix) {
+  const pattern = new RegExp(
+    `^agent\\/(?:gx\\/.+-${escapeRegexLiteral(sandboxSuffix)}|[^/]+\\/${escapeRegexLiteral(sandboxSuffix)}-.+)$`,
+  );
+  assert.match(branchName, pattern);
 }
 
 function extractOpenSpecPlanSlug(output) {
@@ -556,7 +587,11 @@ test('setup refreshes existing managed AGENTS block by default', () => {
   ].join('\n');
   fs.writeFileSync(path.join(repoDir, 'AGENTS.md'), legacyAgents, 'utf8');
 
-  const result = runNode(['setup', '--target', repoDir, '--no-global-install'], repoDir);
+  const result = runNodeWithEnv(
+    ['setup', '--target', repoDir, '--no-global-install'],
+    repoDir,
+    { GUARDEX_TEST_FORCE_SANDBOX_SETUP: '1' },
+  );
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const currentAgents = fs.readFileSync(path.join(repoDir, 'AGENTS.md'), 'utf8');
   assert.match(currentAgents, /Project-specific guidance before managed block\./);
@@ -728,7 +763,11 @@ Trailing project notes after managed block.
 `;
   fs.writeFileSync(path.join(repoDir, 'AGENTS.md'), legacyAgents, 'utf8');
 
-  const result = runNode(['setup', '--target', repoDir, '--no-global-install'], repoDir);
+  const result = runNodeWithEnv(
+    ['setup', '--target', repoDir, '--no-global-install'],
+    repoDir,
+    { GUARDEX_TEST_FORCE_SANDBOX_SETUP: '1' },
+  );
   assert.equal(result.status, 0, result.stderr || result.stdout);
 
   const nextAgents = fs.readFileSync(path.join(repoDir, 'AGENTS.md'), 'utf8');
@@ -878,59 +917,95 @@ test('review-bot-watch uses explicit codex-agent flags for argument parsing comp
   assert.match(script, /-- exec \"\$prompt\"/);
 });
 
-test('setup refreshes initialized protected main through a sandbox and prunes it', () => {
+test('setup on protected main bootstraps in a sandbox and keeps the visible checkout clean', () => {
   const repoDir = initRepoOnBranch('main');
-  const gitignorePath = path.join(repoDir, '.gitignore');
+  seedCommit(repoDir);
 
-  let result = runNode(['setup', '--target', repoDir, '--no-global-install'], repoDir);
+  const result = runNodeWithEnv(
+    ['setup', '--target', repoDir, '--no-global-install'],
+    repoDir,
+    { GUARDEX_TEST_FORCE_SANDBOX_SETUP: '1' },
+  );
   assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /setup detected protected branch 'main'/);
 
-  const initialGitignore = fs.readFileSync(gitignorePath, 'utf8');
-  fs.writeFileSync(gitignorePath, initialGitignore.replace(/^scripts\/\*\n/m, ''), 'utf8');
+  const createdBranch = extractCreatedBranch(result.stdout);
+  const createdWorktree = extractCreatedWorktree(result.stdout);
+  assertSandboxBranch(createdBranch, 'gx-setup');
+  assert.equal(fs.existsSync(path.join(createdWorktree, 'AGENTS.md')), true);
+  assert.equal(fs.existsSync(path.join(createdWorktree, 'scripts', 'agent-branch-start.sh')), true);
+  assert.equal(fs.existsSync(createdWorktree), true, 'setup sandbox should stay available when auto-finish is unavailable');
+  assert.equal(fs.existsSync(path.join(repoDir, 'AGENTS.md')), false, 'protected main checkout should stay unchanged');
 
-  result = runNode(['setup', '--target', repoDir, '--no-global-install'], repoDir);
-  assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.match(result.stdout, /setup blocked on protected branch 'main' in an initialized repo;/);
-  assert.match(result.stdout, /sandbox worktree/);
+  const rootStatus = runCmd('git', ['status', '--short', '--untracked-files=no'], repoDir);
+  assert.equal(rootStatus.status, 0, rootStatus.stderr || rootStatus.stdout);
+  assert.equal(rootStatus.stdout.trim(), '', 'protected main checkout should stay clean');
 
-  const sandboxBranch = extractCreatedBranch(result.stdout);
-  const sandboxWorktree = extractCreatedWorktree(result.stdout);
-  assert.equal(fs.existsSync(sandboxWorktree), false, 'setup sandbox worktree should be pruned');
-
-  const currentBranch = runCmd('git', ['symbolic-ref', '--short', 'HEAD'], repoDir);
+  const currentBranch = runCmd('git', ['branch', '--show-current'], repoDir);
   assert.equal(currentBranch.status, 0, currentBranch.stderr || currentBranch.stdout);
-  assert.equal(currentBranch.stdout.trim(), 'main', 'visible checkout must stay on protected main');
-
-  const sandboxBranchCheck = runCmd('git', ['branch', '--list', sandboxBranch], repoDir);
-  assert.equal(sandboxBranchCheck.status, 0, sandboxBranchCheck.stderr || sandboxBranchCheck.stdout);
-  assert.equal(sandboxBranchCheck.stdout.trim(), '', 'setup sandbox branch should be pruned');
-
-  const refreshedGitignore = fs.readFileSync(gitignorePath, 'utf8');
-  assert.match(refreshedGitignore, /^scripts\/\*$/m);
+  assert.equal(currentBranch.stdout.trim(), 'main');
 });
 
 test('setup allows explicit protected-main override for in-place maintenance', () => {
   const repoDir = initRepoOnBranch('main');
+  seedCommit(repoDir);
 
-  let result = runNode(['setup', '--target', repoDir, '--no-global-install'], repoDir);
-  assert.equal(result.status, 0, result.stderr || result.stdout);
-
-  result = runNode(
+  const result = runNode(
     ['setup', '--target', repoDir, '--no-global-install', '--allow-protected-base-write'],
     repoDir,
   );
   assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(fs.existsSync(path.join(repoDir, 'AGENTS.md')), true);
 });
 
-test('install blocks in-place maintenance writes on protected main unless override is set', () => {
+test('install on protected main bootstraps in a sandbox and keeps the visible checkout clean', () => {
   const repoDir = initRepoOnBranch('main');
+  seedCommit(repoDir);
 
-  let result = runNode(['setup', '--target', repoDir, '--no-global-install'], repoDir);
+  const result = runNode(['install', '--target', repoDir], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /install detected protected branch 'main'/);
+
+  const createdBranch = extractCreatedBranch(result.stdout);
+  const createdWorktree = extractCreatedWorktree(result.stdout);
+  assertSandboxBranch(createdBranch, 'gx-install');
+  assert.equal(fs.existsSync(path.join(createdWorktree, 'AGENTS.md')), true);
+  assert.equal(fs.existsSync(path.join(repoDir, 'AGENTS.md')), false, 'protected main checkout should stay unchanged');
+
+  const rootStatus = runCmd('git', ['status', '--short', '--untracked-files=no'], repoDir);
+  assert.equal(rootStatus.status, 0, rootStatus.stderr || rootStatus.stdout);
+  assert.equal(rootStatus.stdout.trim(), '', 'protected main checkout should stay clean');
+});
+
+test('fix on protected main repairs in a sandbox and keeps the visible checkout clean', () => {
+  const repoDir = initRepoOnBranch('main');
+  seedCommit(repoDir);
+
+  let result = runNode(
+    ['setup', '--target', repoDir, '--no-global-install', '--allow-protected-base-write'],
+    repoDir,
+  );
   assert.equal(result.status, 0, result.stderr || result.stdout);
 
-  result = runNode(['install', '--target', repoDir], repoDir);
-  assert.equal(result.status, 1, result.stderr || result.stdout);
-  assert.match(result.stderr, /install blocked on protected branch 'main'/);
+  fs.rmSync(path.join(repoDir, 'AGENTS.md'));
+
+  result = runNode(['fix', '--target', repoDir], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /fix detected protected branch 'main'/);
+
+  const createdBranch = extractCreatedBranch(result.stdout);
+  const createdWorktree = extractCreatedWorktree(result.stdout);
+  assertSandboxBranch(createdBranch, 'gx-fix');
+  assert.equal(fs.existsSync(path.join(createdWorktree, 'AGENTS.md')), true);
+  assert.equal(fs.existsSync(path.join(repoDir, 'AGENTS.md')), false, 'protected main checkout should stay unchanged');
+
+  const rootStatus = runCmd('git', ['status', '--short', '--untracked-files=no'], repoDir);
+  assert.equal(rootStatus.status, 0, rootStatus.stderr || rootStatus.stdout);
+  assert.equal(rootStatus.stdout.trim(), '', 'protected main checkout should stay clean');
+
+  const currentBranch = runCmd('git', ['branch', '--show-current'], repoDir);
+  assert.equal(currentBranch.status, 0, currentBranch.stderr || currentBranch.stdout);
+  assert.equal(currentBranch.stdout.trim(), 'main');
 });
 
 test('install configures AGENTS managed policy block with GX contract wording', () => {
@@ -947,6 +1022,58 @@ test('install configures AGENTS managed policy block with GX contract wording', 
     agentsContent,
     /OMX completion policy: when a task is done, the agent must commit the task changes, push the agent branch, and create\/update a PR/,
   );
+});
+
+test('setup on protected main auto-finishes and cleans the sandbox when gh is authenticated', () => {
+  const repoDir = initRepoOnBranch('main');
+  seedCommit(repoDir);
+  attachOriginRemoteForBranch(repoDir, 'main');
+
+  const { fakePath: fakeGhPath } = createFakeGhScript(`
+if [[ "$1" == "auth" && "$2" == "status" ]]; then
+  exit 0
+fi
+if [[ "$1" == "pr" && "$2" == "create" ]]; then
+  exit 0
+fi
+if [[ "$1" == "pr" && "$2" == "view" ]]; then
+  if [[ " $* " == *" --json url "* ]]; then
+    echo "https://example.test/pr/setup-autofinish"
+    exit 0
+  fi
+  echo "unexpected gh pr view args: $*" >&2
+  exit 1
+fi
+if [[ "$1" == "pr" && "$2" == "merge" ]]; then
+  exit 0
+fi
+echo "unexpected gh args: $*" >&2
+exit 1
+`);
+
+  const result = runNodeWithEnv(
+    ['setup', '--target', repoDir, '--no-global-install'],
+    repoDir,
+    { GUARDEX_GH_BIN: fakeGhPath, GUARDEX_TEST_FORCE_SANDBOX_SETUP: '1' },
+  );
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /setup detected protected branch 'main'/);
+  assert.match(result.stdout, /Auto-committed setup changes in sandbox branch/);
+  assert.match(result.stdout, /Auto-finish flow completed for sandbox branch/);
+  assert.match(result.stdout, /Sandbox cleanup: sandbox branch\/worktree pruned\./);
+
+  const createdBranch = extractCreatedBranch(result.stdout);
+  const createdWorktree = extractCreatedWorktree(result.stdout);
+  assert.equal(fs.existsSync(createdWorktree), false, 'setup sandbox worktree should be cleaned after successful auto-finish');
+
+  const branchCheck = runCmd('git', ['branch', '--list', createdBranch], repoDir);
+  assert.equal(branchCheck.status, 0, branchCheck.stderr || branchCheck.stdout);
+  assert.equal(branchCheck.stdout.trim(), '', 'setup sandbox branch should be cleaned after successful auto-finish');
+
+  const rootStatus = runCmd('git', ['status', '--short', '--untracked-files=no'], repoDir);
+  assert.equal(rootStatus.status, 0, rootStatus.stderr || rootStatus.stdout);
+  assert.equal(rootStatus.stdout.trim(), '', 'protected main checkout should stay clean');
+  assert.equal(fs.existsSync(path.join(repoDir, 'AGENTS.md')), false, 'protected main checkout should stay unchanged');
 });
 
 test('doctor on protected main auto-runs in a sandbox branch/worktree', () => {
