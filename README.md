@@ -74,6 +74,62 @@ That's it. Setup installs hooks, scripts, templates, and scaffolds OpenSpec/cave
 
 ---
 
+## AGENTS.md and CLAUDE.md behavior
+
+GitGuardex does **not** clear repo-owned guidance just because it needs to install its own contract.
+
+- `AGENTS.md` is managed by marker block. `gx setup` and `gx doctor` only refresh the `<!-- multiagent-safety:START --> ... <!-- multiagent-safety:END -->` section.
+- Text before or after that marker block stays yours.
+- If `AGENTS.md` exists but has no Guardex markers yet, GitGuardex appends its contract to the end instead of replacing the file.
+- If `AGENTS.md` does not exist, GitGuardex creates it.
+- Root `CLAUDE.md` is **not** separately rewritten by setup/doctor. If your repo keeps a separate `CLAUDE.md`, GitGuardex leaves it alone. In this repo `CLAUDE.md` is a symlink to `AGENTS.md`, so Claude reads the same contract. GitGuardex also installs `.claude/commands/gitguardex.md` for Claude command guidance.
+
+```mermaid
+flowchart TD
+    A[Existing AGENTS.md] --> B{Guardex markers already present?}
+    B -->|Yes| C[Refresh only the managed block]
+    B -->|No| D[Append managed block to the end]
+    E[No AGENTS.md yet] --> F[Create AGENTS.md with managed block]
+    C --> G[Keep repo-owned text before and after]
+    D --> G
+```
+
+Before / after:
+
+```md
+# AGENTS
+
+Project-specific guidance before managed block.
+
+<!-- multiagent-safety:START -->
+- old managed contract
+<!-- multiagent-safety:END -->
+
+Trailing repo notes after managed block.
+```
+
+```md
+# AGENTS
+
+Project-specific guidance before managed block.
+
+<!-- multiagent-safety:START -->
+- current GitGuardex-managed contract
+<!-- multiagent-safety:END -->
+
+Trailing repo notes after managed block.
+```
+
+Visual model:
+
+```text
+CLAUDE.md -> AGENTS.md
+             ├─ repo-owned text stays
+             └─ Guardex refreshes only the marker block
+```
+
+---
+
 ## What `gx` shows first
 
 Before you branch, repair, or start agents, run plain `gx`. It gives you a one-screen status view for the CLI, global helpers, repo safety service, current repo path, and active branch.
