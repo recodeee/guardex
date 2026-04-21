@@ -26,13 +26,23 @@ class SessionItem extends vscode.TreeItem {
   constructor(session) {
     super(session.label, vscode.TreeItemCollapsibleState.None);
     this.session = session;
-    this.description = `thinking · ${formatElapsedFrom(session.startedAt)}`;
-    this.tooltip = [
+    const descriptionParts = [session.activityLabel || 'thinking'];
+    if (session.activityCountLabel) {
+      descriptionParts.push(session.activityCountLabel);
+    }
+    descriptionParts.push(session.elapsedLabel || formatElapsedFrom(session.startedAt));
+    this.description = descriptionParts.join(' · ');
+    const tooltipLines = [
       session.branch,
       `${session.agentName} · ${session.taskName}`,
+      `Status ${this.description}`,
+      session.changeCount > 0
+        ? `Changed ${session.activityCountLabel}: ${session.activitySummary}`
+        : session.activitySummary,
       `Started ${session.startedAt}`,
       session.worktreePath,
-    ].join('\n');
+    ];
+    this.tooltip = tooltipLines.filter(Boolean).join('\n');
     this.iconPath = new vscode.ThemeIcon('loading~spin');
     this.contextValue = 'gitguardex.session';
     this.command = {

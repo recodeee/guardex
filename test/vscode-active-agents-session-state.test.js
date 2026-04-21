@@ -24,6 +24,22 @@ function runNode(scriptPath, args, options = {}) {
   });
 }
 
+function runGit(repoPath, args, options = {}) {
+  const result = cp.spawnSync('git', ['-C', repoPath, ...args], {
+    encoding: 'utf8',
+    ...options,
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  return result;
+}
+
+function initGitRepo(repoPath) {
+  fs.mkdirSync(repoPath, { recursive: true });
+  runGit(repoPath, ['init']);
+  runGit(repoPath, ['config', 'user.email', 'guardex-tests@example.com']);
+  runGit(repoPath, ['config', 'user.name', 'Guardex Tests']);
+}
+
 function loadExtensionWithMockVscode(mockVscode) {
   const Module = require('node:module');
   const originalLoad = Module._load;
@@ -214,6 +230,38 @@ test('session-schema ignores stale or invalid session records', () => {
   assert.equal(sessions[0].branch, liveRecord.branch);
 });
 
+test('session-schema derives working activity from dirty sandbox worktrees', () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'guardex-active-session-working-'));
+  const worktreePath = path.join(tempRoot, 'sandbox');
+  initGitRepo(worktreePath);
+  fs.writeFileSync(path.join(worktreePath, 'tracked.txt'), 'base\n', 'utf8');
+  runGit(worktreePath, ['add', 'tracked.txt']);
+  runGit(worktreePath, ['commit', '-m', 'baseline']);
+
+  fs.writeFileSync(path.join(worktreePath, 'tracked.txt'), 'base\nchanged\n', 'utf8');
+  fs.writeFileSync(path.join(worktreePath, 'new-file.txt'), 'new\n', 'utf8');
+
+  const record = sessionSchema.buildSessionRecord({
+    repoRoot: tempRoot,
+    branch: 'agent/codex/working-task',
+    taskName: 'working-task',
+    agentName: 'codex',
+    worktreePath,
+    pid: process.pid,
+    cliName: 'codex',
+  });
+  const sessionPath = sessionSchema.sessionFilePathForBranch(tempRoot, record.branch);
+  fs.mkdirSync(path.dirname(sessionPath), { recursive: true });
+  fs.writeFileSync(sessionPath, `${JSON.stringify(record, null, 2)}\n`, 'utf8');
+
+  const [session] = sessionSchema.readActiveSessions(tempRoot);
+  assert.equal(session.activityKind, 'working');
+  assert.equal(session.changeCount, 2);
+  assert.equal(session.activityCountLabel, '2 files');
+  assert.deepEqual(session.changedPaths, ['new-file.txt', 'tracked.txt']);
+  assert.equal(session.activitySummary, 'new-file.txt, tracked.txt');
+});
+
 test('install-vscode-active-agents-extension installs the current extension version and prunes older copies', () => {
   const tempExtensionsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'guardex-vscode-ext-'));
   const staleDir = path.join(tempExtensionsDir, 'recodeee.gitguardex-active-agents-0.0.0');
@@ -288,11 +336,56 @@ test('active-agents extension updates the SCM badge for live sessions', async ()
   const provider = registrations.providers[0].provider;
   const [sessionItem] = await provider.getChildren();
   assert.equal(sessionItem.label, 'live-task');
+  assert.match(sessionItem.description, /^thinking · \d+[smhd]/);
   assert.deepEqual(registrations.treeViews[0].badge, {
     value: 1,
     tooltip: '1 active agent',
   });
   assert.equal(registrations.treeViews[0].message, undefined);
+
+  for (const subscription of context.subscriptions) {
+    subscription.dispose?.();
+  }
+});
+
+test('active-agents extension shows working rows when the sandbox has changes', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'guardex-vscode-working-view-'));
+  const worktreePath = path.join(tempRoot, 'sandbox');
+  initGitRepo(worktreePath);
+  fs.writeFileSync(path.join(worktreePath, 'tracked.txt'), 'base\n', 'utf8');
+  runGit(worktreePath, ['add', 'tracked.txt']);
+  runGit(worktreePath, ['commit', '-m', 'baseline']);
+  fs.writeFileSync(path.join(worktreePath, 'tracked.txt'), 'base\nchanged\n', 'utf8');
+  fs.writeFileSync(path.join(worktreePath, 'new-file.txt'), 'new\n', 'utf8');
+
+  const sessionPath = sessionSchema.sessionFilePathForBranch(tempRoot, 'agent/codex/live-task');
+  fs.mkdirSync(path.dirname(sessionPath), { recursive: true });
+  fs.writeFileSync(
+    sessionPath,
+    `${JSON.stringify(sessionSchema.buildSessionRecord({
+      repoRoot: tempRoot,
+      branch: 'agent/codex/live-task',
+      taskName: 'live-task',
+      agentName: 'codex',
+      worktreePath,
+      pid: process.pid,
+      cliName: 'codex',
+    }), null, 2)}\n`,
+    'utf8',
+  );
+
+  const { registrations, vscode } = createMockVscode(tempRoot);
+  vscode.workspace.findFiles = async () => [{ fsPath: sessionPath }];
+  const extension = loadExtensionWithMockVscode(vscode);
+  const context = { subscriptions: [] };
+
+  extension.activate(context);
+
+  const provider = registrations.providers[0].provider;
+  const [sessionItem] = await provider.getChildren();
+  assert.equal(sessionItem.label, 'sandbox');
+  assert.match(sessionItem.description, /^working · 2 files · /);
+  assert.match(sessionItem.tooltip, /Changed 2 files: new-file\.txt, tracked\.txt/);
 
   for (const subscription of context.subscriptions) {
     subscription.dispose?.();

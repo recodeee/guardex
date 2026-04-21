@@ -1,8 +1,11 @@
 const fs = require('node:fs');
 const path = require('node:path');
+const cp = require('node:child_process');
 
 const ACTIVE_SESSIONS_RELATIVE_DIR = path.join('.omx', 'state', 'active-sessions');
 const SESSION_SCHEMA_VERSION = 1;
+const LOCK_FILE_RELATIVE = path.join('.omx', 'state', 'agent-file-locks.json');
+const MAX_CHANGED_PATH_PREVIEW = 3;
 
 function toNonEmptyString(value, fallback = '') {
   const normalized = typeof value === 'string' ? value.trim() : String(value || '').trim();
@@ -29,6 +32,96 @@ function activeSessionsDirForRepo(repoRoot) {
 
 function sessionFilePathForBranch(repoRoot, branch) {
   return path.join(activeSessionsDirForRepo(repoRoot), sessionFileNameForBranch(branch));
+}
+
+function splitOutputLines(output) {
+  if (typeof output !== 'string') {
+    return null;
+  }
+
+  return output
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function runGitLines(worktreePath, args) {
+  try {
+    const output = cp.execFileSync('git', ['-C', worktreePath, ...args], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    return splitOutputLines(output);
+  } catch (_error) {
+    return null;
+  }
+}
+
+function formatFileCount(count) {
+  return `${count} file${count === 1 ? '' : 's'}`;
+}
+
+function previewChangedPaths(paths) {
+  if (!Array.isArray(paths) || paths.length === 0) {
+    return '';
+  }
+
+  if (paths.length <= MAX_CHANGED_PATH_PREVIEW) {
+    return paths.join(', ');
+  }
+
+  const preview = paths.slice(0, MAX_CHANGED_PATH_PREVIEW).join(', ');
+  return `${preview}, +${paths.length - MAX_CHANGED_PATH_PREVIEW} more`;
+}
+
+function collectWorktreeChangedPaths(worktreePath) {
+  const changedGroups = [
+    runGitLines(worktreePath, ['diff', '--name-only', '--', '.', `:(exclude)${LOCK_FILE_RELATIVE}`]),
+    runGitLines(worktreePath, ['diff', '--cached', '--name-only', '--', '.', `:(exclude)${LOCK_FILE_RELATIVE}`]),
+    runGitLines(worktreePath, ['ls-files', '--others', '--exclude-standard']),
+  ];
+
+  if (changedGroups.some((group) => group === null)) {
+    return null;
+  }
+
+  return [...new Set(changedGroups.flat())]
+    .filter((relativePath) => relativePath && relativePath !== LOCK_FILE_RELATIVE)
+    .sort((left, right) => left.localeCompare(right));
+}
+
+function deriveSessionActivity(session) {
+  const changedPaths = collectWorktreeChangedPaths(session.worktreePath);
+  if (!changedPaths) {
+    return {
+      activityKind: 'thinking',
+      activityLabel: 'thinking',
+      activityCountLabel: '',
+      activitySummary: 'Worktree activity unavailable.',
+      changeCount: 0,
+      changedPaths: [],
+    };
+  }
+
+  if (changedPaths.length === 0) {
+    return {
+      activityKind: 'thinking',
+      activityLabel: 'thinking',
+      activityCountLabel: '',
+      activitySummary: 'Worktree clean.',
+      changeCount: 0,
+      changedPaths: [],
+    };
+  }
+
+  return {
+    activityKind: 'working',
+    activityLabel: 'working',
+    activityCountLabel: formatFileCount(changedPaths.length),
+    activitySummary: previewChangedPaths(changedPaths),
+    changeCount: changedPaths.length,
+    changedPaths,
+  };
 }
 
 function buildSessionRecord(input) {
@@ -173,6 +266,7 @@ function readActiveSessions(repoRoot, options = {}) {
     }
 
     normalized.elapsedLabel = formatElapsedFrom(normalized.startedAt, now);
+    Object.assign(normalized, deriveSessionActivity(normalized));
     sessions.push(normalized);
   }
 
@@ -192,10 +286,14 @@ module.exports = {
   SESSION_SCHEMA_VERSION,
   activeSessionsDirForRepo,
   buildSessionRecord,
+  collectWorktreeChangedPaths,
   deriveSessionLabel,
+  deriveSessionActivity,
   formatElapsedFrom,
+  formatFileCount,
   isPidAlive,
   normalizeSessionRecord,
+  previewChangedPaths,
   readActiveSessions,
   sanitizeBranchForFile,
   sessionFileNameForBranch,

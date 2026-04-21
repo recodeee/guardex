@@ -239,7 +239,7 @@ To install the real companion into local VS Code from a Guardex-wired repo:
 node scripts/install-vscode-active-agents-extension.js
 ```
 
-It adds an `Active Agents` view to the Source Control container, reads `.omx/state/active-sessions/*.json`, and uses VS Code's native `loading~spin` codicon for the running-state affordance. Reload the VS Code window after install.
+It adds an `Active Agents` view to the Source Control container, reads `.omx/state/active-sessions/*.json`, derives `thinking` versus `working` from each live sandbox worktree, and uses VS Code's native `loading~spin` codicon for the running-state affordance. Reload the VS Code window after install.
 
 ---
 
