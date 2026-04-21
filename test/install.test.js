@@ -1339,7 +1339,7 @@ exit 1
   assert.doesNotMatch(ghCalls, /pr merge .* --auto/);
   const combinedOutput = `${result.stdout}\n${result.stderr}`;
   assert.match(combinedOutput, /PR closed without merge; cannot continue auto-finish/);
-  assert.match(combinedOutput, /\[guardex\] Auto-finish flow failed for sandbox branch/);
+  assert.match(combinedOutput, /\[gitguardex\] Auto-finish flow failed for sandbox branch/);
   assert.doesNotMatch(combinedOutput, /Auto-finish flow completed for sandbox branch/);
 });
 

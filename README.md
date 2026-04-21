@@ -10,6 +10,10 @@
 [![CodeQL](https://img.shields.io/github/actions/workflow/status/recodeee/gitguardex/codeql.yml?branch=main&label=CodeQL)](https://github.com/recodeee/gitguardex/actions/workflows/codeql.yml)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/recodeee/gitguardex/badge)](https://securityscorecards.dev/viewer/?uri=github.com/recodeee/gitguardex)
 
+[about_description.txt](./about_description.txt)
+
+Guardian T-Rex for your multi-agent repo. Isolated worktrees, file locks, and PR-only merges stop parallel Codex & Claude agents from overwriting each other's work. Auto-wires Oh My Codex, Oh My Claude, OpenSpec, and Caveman.
+
 **GitGuardex is a safety layer for parallel agent work in git repos.** If you're running more than one Codex or Claude agent on the same codebase, this is what keeps them from deleting each other's work.
 
 > [!WARNING]
@@ -27,6 +31,8 @@
 I was running ~30 Codex agents in parallel and hit a wall: they kept working on the same files at the same time — especially tests — and started overwriting or deleting each other's changes. More agents meant *less* forward progress, not more. Classic de-progressive loop.
 
 ### Solution
+
+![Agent branch/worktree start protocol](https://raw.githubusercontent.com/recodeee/gitguardex/main/docs/images/workflow-branch-start.svg)
 
 GitGuardex exists to stop that loop. Every agent gets its own worktree, claims the files it's touching, and can't clobber files another agent has claimed. Your local branch stays clean; agents stay in their lanes.
 
