@@ -1,0 +1,7 @@
+- [x] 1.1 Define the Claude companion rename/dependency-warning scope for Guardex setup/status.
+- [x] 1.2 Add normative spec coverage for the inactive dependency warning and skipped-install warning paths.
+- [x] 2.1 Update `bin/multiagent-safety.js` to expose `oh-my-claudecode` as the human-facing companion label while keeping the npm package mapping.
+- [x] 2.2 Warn with the upstream `oh-my-claudecode` repo URL when that dependency is inactive or declined during setup.
+- [x] 3.1 Run targeted verification for `test/install.test.js`.
+- [x] 3.2 Run `openspec validate agent-codex-prompt-install-oh-my-claudecode-dependen-2026-04-21-03-49 --type change --strict`.
+- [ ] 4.1 Finish the guarded branch via PR merge and cleanup.

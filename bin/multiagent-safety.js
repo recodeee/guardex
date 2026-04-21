@@ -13,15 +13,26 @@ const SHORT_TOOL_NAME = 'gx';
 const LEGACY_NAMES = ['guardex', 'multiagent-safety'];
 const OPENSPEC_PACKAGE = '@fission-ai/openspec';
 const OMC_PACKAGE = 'oh-my-claude-sisyphus';
+const OMC_REPO_URL = 'https://github.com/Yeachan-Heo/oh-my-claudecode';
 const CAVEMEM_PACKAGE = 'cavemem';
 const NPX_BIN = process.env.GUARDEX_NPX_BIN || 'npx';
 const GUARDEX_HOME_DIR = path.resolve(process.env.GUARDEX_HOME_DIR || os.homedir());
+const GLOBAL_TOOLCHAIN_SERVICES = [
+  { name: 'oh-my-codex', packageName: 'oh-my-codex' },
+  {
+    name: 'oh-my-claudecode',
+    packageName: OMC_PACKAGE,
+    dependencyUrl: OMC_REPO_URL,
+  },
+  { name: OPENSPEC_PACKAGE, packageName: OPENSPEC_PACKAGE },
+  { name: CAVEMEM_PACKAGE, packageName: CAVEMEM_PACKAGE },
+  {
+    name: '@imdeadpool/codex-account-switcher',
+    packageName: '@imdeadpool/codex-account-switcher',
+  },
+];
 const GLOBAL_TOOLCHAIN_PACKAGES = [
-  'oh-my-codex',
-  OMC_PACKAGE,
-  OPENSPEC_PACKAGE,
-  CAVEMEM_PACKAGE,
-  '@imdeadpool/codex-account-switcher',
+  ...GLOBAL_TOOLCHAIN_SERVICES.map((service) => service.packageName),
 ];
 const OPTIONAL_LOCAL_COMPANION_TOOLS = [
   {
@@ -3629,6 +3640,36 @@ function resolveGlobalInstallApproval(options) {
   return { approved: true, source: 'prompt' };
 }
 
+function getGlobalToolchainService(packageName) {
+  const service = GLOBAL_TOOLCHAIN_SERVICES.find(
+    (candidate) => candidate.packageName === packageName,
+  );
+  return service || { name: packageName, packageName };
+}
+
+function formatGlobalToolchainServiceName(packageName) {
+  return getGlobalToolchainService(packageName).name;
+}
+
+function describeMissingGlobalDependencyWarnings(packageNames) {
+  return packageNames
+    .map((packageName) => getGlobalToolchainService(packageName))
+    .filter((service) => service.dependencyUrl)
+    .map(
+      (service) =>
+        `Guardex needs ${service.name} as a dependency: ${service.dependencyUrl}`,
+    );
+}
+
+function buildMissingCompanionInstallPrompt(missingPackages, missingLocalTools) {
+  const dependencyWarnings = describeMissingGlobalDependencyWarnings(missingPackages);
+  const installCommands = describeCompanionInstallCommands(missingPackages, missingLocalTools);
+  const dependencyPrefix = dependencyWarnings.length > 0
+    ? `${dependencyWarnings.join(' ')} `
+    : '';
+  return `${dependencyPrefix}Install missing companion tools now? (${installCommands.join(' && ')})`;
+}
+
 function detectGlobalToolchainPackages() {
   const result = run(NPM_BIN, ['list', '-g', '--depth=0', '--json']);
   if (result.status !== 0) {
@@ -3721,17 +3762,15 @@ function describeCompanionInstallCommands(missingPackages, missingLocalTools) {
   return commands;
 }
 
-function askGlobalInstallForMissing(options, missingPackages) {
+function askGlobalInstallForMissing(options, missingPackages, missingLocalTools) {
   const approval = resolveGlobalInstallApproval(options);
   if (!approval.approved) {
     return approval;
   }
 
-  const missingLocalTools = detectOptionalLocalCompanionTools().filter((tool) => tool.status !== 'active');
-  const installCommands = describeCompanionInstallCommands(missingPackages, missingLocalTools);
   if (approval.source === 'prompt') {
     const approved = promptYesNoStrict(
-      `Install missing companion tools now? (${installCommands.join(' && ')})`,
+      buildMissingCompanionInstallPrompt(missingPackages, missingLocalTools),
     );
     return { approved, source: 'prompt' };
   }
@@ -3750,7 +3789,10 @@ function installGlobalToolchain(options) {
     console.log(`[${TOOL_NAME}] ⚠️ Could not detect global packages: ${detection.error}`);
   } else {
     if (detection.installed.length > 0) {
-      console.log(`[${TOOL_NAME}] Already installed globally: ${detection.installed.join(', ')}`);
+      console.log(
+        `[${TOOL_NAME}] Already installed globally: ` +
+        `${detection.installed.map((pkg) => formatGlobalToolchainServiceName(pkg)).join(', ')}`,
+      );
     }
     const installedLocalTools = localCompanionTools
       .filter((tool) => tool.status === 'active')
@@ -3765,9 +3807,14 @@ function installGlobalToolchain(options) {
 
   const missingPackages = detection.ok ? detection.missing : [...GLOBAL_TOOLCHAIN_PACKAGES];
   const missingLocalTools = localCompanionTools.filter((tool) => tool.status !== 'active');
-  const approval = askGlobalInstallForMissing(options, missingPackages);
+  const approval = askGlobalInstallForMissing(options, missingPackages, missingLocalTools);
   if (!approval.approved) {
-    return { status: 'skipped', reason: approval.source };
+    return {
+      status: 'skipped',
+      reason: approval.source,
+      missingPackages,
+      missingLocalTools,
+    };
   }
 
   const installed = [];
@@ -4142,11 +4189,21 @@ function status(rawArgs) {
 
   const toolchain = detectGlobalToolchainPackages();
   const npmServices = GLOBAL_TOOLCHAIN_PACKAGES.map((pkg) => {
+    const service = getGlobalToolchainService(pkg);
     if (!toolchain.ok) {
-      return { name: pkg, status: 'unknown' };
+      return {
+        name: service.name,
+        displayName: service.name,
+        packageName: pkg,
+        dependencyUrl: service.dependencyUrl || null,
+        status: 'unknown',
+      };
     }
     return {
-      name: pkg,
+      name: service.name,
+      displayName: service.name,
+      packageName: pkg,
+      dependencyUrl: service.dependencyUrl || null,
       status: toolchain.installed.includes(pkg) ? 'active' : 'inactive',
     };
   });
@@ -4224,6 +4281,13 @@ function status(rawArgs) {
     console.log(
       `[${TOOL_NAME}] Optional companion tools inactive: ${inactiveOptionalCompanions.join(', ')}`,
     );
+    for (const warning of describeMissingGlobalDependencyWarnings(
+      npmServices
+        .filter((service) => service.status === 'inactive')
+        .map((service) => service.packageName),
+    )) {
+      console.log(`[${TOOL_NAME}] ${warning}`);
+    }
     console.log(
       `[${TOOL_NAME}] Run '${SHORT_TOOL_NAME} setup' to install missing companions with an explicit Y/N prompt.`,
     );
@@ -4881,6 +4945,13 @@ function setup(rawArgs) {
       `[${TOOL_NAME}] Skipping companion installs (non-interactive mode). ` +
       `Use --yes-global-install to force or run interactively for Y/N prompt.`,
     );
+  } else if (globalInstallStatus.status === 'skipped') {
+    console.log(`[${TOOL_NAME}] ⚠️ Companion installs skipped by user choice.`);
+    for (const warning of describeMissingGlobalDependencyWarnings(
+      globalInstallStatus.missingPackages || [],
+    )) {
+      console.log(`[${TOOL_NAME}] ⚠️ ${warning}`);
+    }
   }
   const requiredSystemTools = detectRequiredSystemTools();
   const missingSystemTools = requiredSystemTools.filter((tool) => tool.status !== 'active');
