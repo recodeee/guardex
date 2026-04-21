@@ -16,6 +16,8 @@
 
 ## 4. Completion
 
-- [ ] 4.1 Finish the agent branch via PR merge + cleanup (`gx finish --via-pr --wait-for-merge --cleanup` or `bash scripts/agent-branch-finish.sh --branch <agent-branch> --base <base-branch> --via-pr --wait-for-merge --cleanup`).
-- [ ] 4.2 Record PR URL + final `MERGED` state in the completion handoff.
-- [ ] 4.3 Confirm sandbox cleanup (`git worktree list`, `git branch -a`) or capture a `BLOCKED:` handoff if merge/cleanup is pending.
+- [x] 4.1 Finish the agent branch via PR merge + cleanup (`gx finish --via-pr --wait-for-merge --cleanup` or `bash scripts/agent-branch-finish.sh --branch <agent-branch> --base <base-branch> --via-pr --wait-for-merge --cleanup`).
+- [x] 4.2 Record PR URL + final `MERGED` state in the completion handoff.
+- [x] 4.3 Confirm sandbox cleanup (`git worktree list`, `git branch -a`) or capture a `BLOCKED:` handoff if merge/cleanup is pending.
+
+Completion note: PR #217 (`https://github.com/recodeee/gitguardex/pull/217`) reached `MERGED` on 2026-04-21T10:39:26Z. The finished worktree `agent__codex__setup-protected-main-sandbox-2026-04-21-12-02` was pruned, the merged source branch was removed locally, and the stale remote-tracking ref was cleared with `git fetch --prune origin`. Post-merge protected-main setup/install/fix verification was rerun successfully on `main`.
