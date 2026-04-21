@@ -31,6 +31,14 @@ test('release workflow publishes with provenance in CI', () => {
   assert.match(workflow, /npm publish --provenance --access public/);
 });
 
+test('release workflow only publishes from published releases or manual dispatch', () => {
+  const workflowPath = path.join(repoRoot, '.github', 'workflows', 'release.yml');
+  const workflow = fs.readFileSync(workflowPath, 'utf8');
+  assert.match(workflow, /workflow_dispatch:/);
+  assert.match(workflow, /release:\s*\n\s*types:\s*\[published\]/);
+  assert.doesNotMatch(workflow, /\npush:\s*\n/);
+});
+
 test('README release notes include current package version', () => {
   const pkg = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
   const readme = fs.readFileSync(readmePath, 'utf8');

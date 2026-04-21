@@ -451,6 +451,11 @@ npm pack --dry-run
 <details>
 <summary><strong>v7.x</strong></summary>
 
+### v7.0.11
+- Fixed the npm release workflow trigger so publishes run from `release.published` or explicit manual dispatch, instead of double-firing on both the tag push and the release event.
+- This keeps the GitHub `npm` environment from collecting duplicate cancelled deploy cards for the same version and leaves one canonical release deployment to monitor.
+- Bumped `@imdeadpool/guardex` from `7.0.10` → `7.0.11` so the next release can publish cleanly after `7.0.10` was already taken on npm.
+
 ### v7.0.10
 - Primary user-facing long name is now **GitGuardex**. CLI/help presents `gitguardex` as the long-form command; `gx` stays the preferred short alias; `guardex` remains as legacy compatibility.
 - Installed Codex/Claude startup files now use `gitguardex` paths: `.codex/skills/gitguardex/SKILL.md` and `.claude/commands/gitguardex.md`.
