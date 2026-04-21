@@ -2258,13 +2258,46 @@ test('status --json returns cli, services, and repo summary', () => {
   assert.equal(parsed.cli.name, '@imdeadpool/guardex');
   assert.equal(typeof parsed.cli.version, 'string');
   assert.equal(Array.isArray(parsed.services), true);
-  assert.ok(parsed.services.some((service) => service.name === 'oh-my-claude-sisyphus'));
+  const claudeService = parsed.services.find((service) => service.name === 'oh-my-claudecode');
+  assert.ok(claudeService, 'oh-my-claudecode service should be included');
+  assert.equal(claudeService.packageName, 'oh-my-claude-sisyphus');
+  assert.equal(
+    claudeService.dependencyUrl,
+    'https://github.com/Yeachan-Heo/oh-my-claudecode',
+  );
   assert.ok(parsed.services.some((service) => service.name === 'cavemem'));
   assert.ok(parsed.services.some((service) => service.name === 'cavekit'));
   assert.ok(parsed.services.some((service) => service.name === 'caveman'));
   assert.equal(parsed.repo.inGitRepo, true);
   assert.equal(typeof parsed.repo.serviceStatus, 'string');
   assert.equal(parsed.repo.scan.repoRoot, repoDir);
+});
+
+test('status warns when oh-my-claudecode dependency is inactive', () => {
+  const targetDir = fs.mkdtempSync(path.join(os.tmpdir(), 'guardex-status-target-'));
+  const fakeHome = createGuardexCompanionHome({ cavekit: true, caveman: true });
+  const fakeNpm = createFakeNpmScript(`
+if [[ "$1" == "list" ]]; then
+  cat <<'JSON'
+{"dependencies":{"oh-my-codex":{"version":"1.0.0"},"@fission-ai/openspec":{"version":"1.0.0"},"cavemem":{"version":"1.0.0"},"@imdeadpool/codex-account-switcher":{"version":"1.0.0"}}}
+JSON
+  exit 0
+fi
+echo "unexpected npm args: $*" >&2
+exit 1
+`);
+
+  const result = runNodeWithEnv(['status', '--target', targetDir], targetDir, {
+    GUARDEX_NPM_BIN: fakeNpm,
+    GUARDEX_HOME_DIR: fakeHome,
+  });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /oh-my-claudecode: inactive/);
+  assert.match(
+    result.stdout,
+    /Guardex needs oh-my-claudecode as a dependency: https:\/\/github\.com\/Yeachan-Heo\/oh-my-claudecode/,
+  );
 });
 
 test('status detects local cavekit and caveman companion installs', () => {
@@ -4008,6 +4041,39 @@ exit 1
   assert.equal(fs.existsSync(marker), true, 'global install should run for missing package');
   const args = fs.readFileSync(marker, 'utf8').trim();
   assert.equal(args, 'i -g oh-my-claude-sisyphus @fission-ai/openspec cavemem @imdeadpool/codex-account-switcher');
+});
+
+test('setup warns when user declines oh-my-claudecode dependency install', () => {
+  const repoDir = initRepo();
+  const fakeHome = createGuardexCompanionHome({ cavekit: true, caveman: true });
+  const marker = path.join(repoDir, '.global-install-called');
+  const fakeNpm = createFakeNpmScript(`
+if [[ "$1" == "list" ]]; then
+  cat <<'JSON'
+{"dependencies":{"oh-my-codex":{"version":"1.0.0"},"@fission-ai/openspec":{"version":"1.0.0"},"cavemem":{"version":"1.0.0"},"@imdeadpool/codex-account-switcher":{"version":"1.0.0"}}}
+JSON
+  exit 0
+fi
+if [[ "$1" == "i" && "$2" == "-g" ]]; then
+  echo "$@" > "${marker}"
+  exit 0
+fi
+echo "unexpected npm args: $*" >&2
+exit 1
+`);
+
+  const result = runNodeWithEnv(['setup', '--target', repoDir, '--no-global-install'], repoDir, {
+    GUARDEX_NPM_BIN: fakeNpm,
+    GUARDEX_HOME_DIR: fakeHome,
+  });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(fs.existsSync(marker), false, 'global install should not run');
+  assert.match(result.stdout, /Companion installs skipped by user choice/);
+  assert.match(
+    result.stdout,
+    /Guardex needs oh-my-claudecode as a dependency: https:\/\/github\.com\/Yeachan-Heo\/oh-my-claudecode/,
+  );
 });
 
 test('setup installs missing local companion tools with explicit approval', () => {

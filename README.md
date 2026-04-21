@@ -507,6 +507,11 @@ npm pack --dry-run
 <details>
 <summary><strong>v7.x</strong></summary>
 
+### v7.0.13
+- `gx status` and `gx setup` now present the Claude companion as `oh-my-claudecode` while still installing the published npm package `oh-my-claude-sisyphus`.
+- When that dependency is inactive or the user declines the optional install, Guardex now prints the upstream repo URL so the missing dependency is explicit instead of hidden behind the npm package name.
+- Bumped `@imdeadpool/guardex` from `7.0.12` → `7.0.13` after npm rejected a republish over the already-published `7.0.12`.
+
 ### v7.0.12
 - Fixed the self-update handoff after `gx` installs a newer global package. When the on-disk install advances, GitGuardex now restarts into the installed CLI instead of continuing in the old process and printing the stale in-memory version.
 - This removes the confusing `Updated to latest published version` followed by `CLI: ...7.0.10` mismatch that happened when `7.0.11` finished installing during the same `gx` invocation.
