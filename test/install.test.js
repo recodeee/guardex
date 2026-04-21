@@ -433,6 +433,31 @@ test('setup provisions workflow files and repo config', () => {
   assert.equal(secondRun.status, 0, secondRun.stderr || secondRun.stdout);
 });
 
+test('setup and doctor explain .codex file conflicts and still write managed gitignore first', () => {
+  const repoDir = initRepo();
+  fs.writeFileSync(path.join(repoDir, '.codex'), '', 'utf8');
+
+  let result = runNode(['setup', '--target', repoDir, '--no-global-install'], repoDir);
+  assert.notEqual(result.status, 0, 'setup should fail when .codex is a file');
+  let combined = `${result.stdout}\n${result.stderr}`;
+  assert.match(combined, /Path conflict: \.codex exists as a file/);
+  assert.match(combined, /\.codex\/skills\/gitguardex\/SKILL\.md needs it to be a directory/);
+
+  let gitignoreContent = fs.readFileSync(path.join(repoDir, '.gitignore'), 'utf8');
+  assert.match(gitignoreContent, /# multiagent-safety:START/);
+  assert.match(gitignoreContent, /scripts\/agent-branch-start\.sh/);
+  assert.match(gitignoreContent, /scripts\/agent-file-locks\.py/);
+  assert.match(gitignoreContent, /\.codex\/skills\/gitguardex\/SKILL\.md/);
+
+  result = runNode(['doctor', '--target', repoDir], repoDir);
+  assert.notEqual(result.status, 0, 'doctor should fail when .codex is a file');
+  combined = `${result.stdout}\n${result.stderr}`;
+  assert.match(combined, /Path conflict: \.codex exists as a file/);
+
+  gitignoreContent = fs.readFileSync(path.join(repoDir, '.gitignore'), 'utf8');
+  assert.match(gitignoreContent, /scripts\/agent-file-locks\.py/);
+});
+
 test('setup and doctor skip repo bootstrap when repo .env disables Guardex', () => {
   const repoDir = initRepo();
   fs.writeFileSync(path.join(repoDir, '.env'), 'GUARDEX_ON=0\n', 'utf8');

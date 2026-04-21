@@ -611,9 +611,27 @@ function toDestinationPath(relativeTemplatePath) {
   throw new Error(`Unsupported template path: ${relativeTemplatePath}`);
 }
 
-function ensureParentDir(filePath, dryRun) {
+function ensureParentDir(repoRoot, filePath, dryRun) {
   if (dryRun) return;
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+
+  const parentDir = path.dirname(filePath);
+  const relativeParentDir = path.relative(repoRoot, parentDir);
+  const segments = relativeParentDir.split(path.sep).filter(Boolean);
+  let currentPath = repoRoot;
+
+  for (const segment of segments) {
+    currentPath = path.join(currentPath, segment);
+    if (fs.existsSync(currentPath) && !fs.statSync(currentPath).isDirectory()) {
+      const blockingPath = path.relative(repoRoot, currentPath) || path.basename(currentPath);
+      const targetPath = path.relative(repoRoot, filePath) || path.basename(filePath);
+      throw new Error(
+        `Path conflict: ${blockingPath} exists as a file, but ${targetPath} needs it to be a directory. ` +
+        `Remove or rename ${blockingPath} and rerun '${SHORT_TOOL_NAME} setup'.`,
+      );
+    }
+  }
+
+  fs.mkdirSync(parentDir, { recursive: true });
 }
 
 function ensureExecutable(destinationPath, relativePath, dryRun) {
@@ -648,7 +666,7 @@ function copyTemplateFile(repoRoot, relativeTemplatePath, force, dryRun) {
     }
   }
 
-  ensureParentDir(destinationPath, dryRun);
+  ensureParentDir(repoRoot, destinationPath, dryRun);
   if (!dryRun) {
     fs.writeFileSync(destinationPath, sourceContent, 'utf8');
     ensureExecutable(destinationPath, destinationRelativePath, dryRun);
@@ -686,7 +704,7 @@ function ensureTemplateFilePresent(repoRoot, relativeTemplatePath, dryRun) {
     return { status: 'skipped-conflict', file: destinationRelativePath };
   }
 
-  ensureParentDir(destinationPath, dryRun);
+  ensureParentDir(repoRoot, destinationPath, dryRun);
   if (!dryRun) {
     fs.writeFileSync(destinationPath, sourceContent, 'utf8');
     ensureExecutable(destinationPath, destinationRelativePath, dryRun);
@@ -3973,6 +3991,10 @@ function runInstallInternal(options) {
   }
   const operations = [];
 
+  if (!options.skipGitignore) {
+    operations.push(ensureManagedGitignore(repoRoot, Boolean(options.dryRun)));
+  }
+
   operations.push(...ensureOmxScaffold(repoRoot, Boolean(options.dryRun)));
 
   for (const templateFile of TEMPLATE_FILES) {
@@ -3980,9 +4002,6 @@ function runInstallInternal(options) {
   }
 
   operations.push(ensureLockRegistry(repoRoot, Boolean(options.dryRun)));
-  if (!options.skipGitignore) {
-    operations.push(ensureManagedGitignore(repoRoot, Boolean(options.dryRun)));
-  }
 
   if (!options.skipPackageJson) {
     operations.push(ensurePackageScripts(repoRoot, Boolean(options.dryRun), { force: Boolean(options.force) }));
@@ -4017,6 +4036,10 @@ function runFixInternal(options) {
   }
   const operations = [];
 
+  if (!options.skipGitignore) {
+    operations.push(ensureManagedGitignore(repoRoot, Boolean(options.dryRun)));
+  }
+
   operations.push(...ensureOmxScaffold(repoRoot, Boolean(options.dryRun)));
 
   for (const templateFile of TEMPLATE_FILES) {
@@ -4024,9 +4047,6 @@ function runFixInternal(options) {
   }
 
   operations.push(ensureLockRegistry(repoRoot, Boolean(options.dryRun)));
-  if (!options.skipGitignore) {
-    operations.push(ensureManagedGitignore(repoRoot, Boolean(options.dryRun)));
-  }
 
   const lockState = lockStateOrError(repoRoot);
   if (!lockState.ok) {
