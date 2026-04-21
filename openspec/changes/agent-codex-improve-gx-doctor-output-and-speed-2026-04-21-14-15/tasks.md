@@ -19,6 +19,13 @@ Verification note: `node --check bin/multiagent-safety.js` passed. `node --test 
 
 ## 4. Completion
 
-- [ ] 4.1 Finish the agent branch via PR merge + cleanup (`gx finish --via-pr --wait-for-merge --cleanup` or `bash scripts/agent-branch-finish.sh --branch <agent-branch> --base <base-branch> --via-pr --wait-for-merge --cleanup`).
-- [ ] 4.2 Record PR URL + final `MERGED` state in the completion handoff.
-- [ ] 4.3 Confirm sandbox cleanup (`git worktree list`, `git branch -a`) or capture a `BLOCKED:` handoff if merge/cleanup is pending.
+- [x] 4.1 Finish the agent branch via PR merge + cleanup (`gx finish --via-pr --wait-for-merge --cleanup` or `bash scripts/agent-branch-finish.sh --branch <agent-branch> --base <base-branch> --via-pr --wait-for-merge --cleanup`).
+- [x] 4.2 Record PR URL + final `MERGED` state in the completion handoff.
+- [x] 4.3 Confirm sandbox cleanup (`git worktree list`, `git branch -a`) or capture a `BLOCKED:` handoff if merge/cleanup is pending.
+
+Completion evidence:
+- PR: `#230` <https://github.com/recodeee/gitguardex/pull/230>
+- Final state: `MERGED` into `main` at `2026-04-21T12:34:20Z`
+- Merge/cleanup path: `bash scripts/agent-branch-finish.sh --branch "agent/codex/improve-gx-doctor-output-and-speed-2026-04-21-14-15" --base main --via-pr --wait-for-merge --cleanup`
+- Cleanup confirmation: sandbox worktree `/home/deadpool/Documents/recodee/gitguardex/.omx/agent-worktrees/agent__codex__improve-gx-doctor-output-and-speed-2026-04-21-14-15` is gone; `git branch -a | rg "improve-gx-doctor-output-and-speed|main$|origin/main"` shows only `main` and `origin/main`
+- Follow-up note: prune preserved one unrelated dirty merged worktree (`agent/codex/fix-codex-agent-autofinish-and-nested-gi-2026-04-21-13-28`) while cleaning the doctor-improvement branch, which is expected under the current cleanup policy
