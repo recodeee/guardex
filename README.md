@@ -28,8 +28,6 @@ I was running ~30 Codex agents in parallel and hit a wall: they kept working on 
 
 ### Solution
 
-![Agent branch/worktree start protocol](https://raw.githubusercontent.com/recodeee/gitguardex/main/docs/images/workflow-branch-start.svg)
-
 GitGuardex exists to stop that loop. Every agent gets its own worktree, claims the files it's touching, and can't clobber files another agent has claimed. Your local branch stays clean; agents stay in their lanes.
 
 ## GitHub About description
