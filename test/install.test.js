@@ -326,6 +326,14 @@ function extractOpenSpecChangeSlug(output) {
   return match[1].trim();
 }
 
+function expectedMasterplanPlanSlug(branchName, fallback) {
+  const match = String(branchName || '').match(/^agent\/([^/]+)\/(.+)$/);
+  if (!match) {
+    return sanitizeSlug(branchName, fallback);
+  }
+  return sanitizeSlug(`agent-${match[1]}-masterplan-${match[2]}`, fallback);
+}
+
 function extractHookCommands(settings) {
   const hooks = settings && typeof settings === 'object' ? settings.hooks : null;
   if (!hooks || typeof hooks !== 'object') {
@@ -1753,7 +1761,7 @@ test('setup agent-branch-start supports optional OpenSpec auto-bootstrap toggles
   const defaultWorktree = extractCreatedWorktree(result.stdout);
   const defaultPlanSlug = extractOpenSpecPlanSlug(result.stdout);
   const defaultChangeSlug = extractOpenSpecChangeSlug(result.stdout);
-  assert.equal(defaultPlanSlug, sanitizeSlug(defaultBranch, 'openspec-default'));
+  assert.equal(defaultPlanSlug, expectedMasterplanPlanSlug(defaultBranch, 'openspec-default'));
   assert.equal(defaultChangeSlug, sanitizeSlug(defaultBranch, 'openspec-default'));
   assert.equal(
     fs.existsSync(path.join(defaultWorktree, 'openspec', 'plan', defaultPlanSlug, 'summary.md')),
@@ -3120,7 +3128,7 @@ test('codex-agent launches codex inside a fresh sandbox worktree and keeps branc
   const launchedCwd = fs.readFileSync(cwdMarker, 'utf8').trim();
   assert.match(
     launchedCwd,
-    new RegExp(`${escapeRegexLiteral(repoDir)}/\\.omx/agent-worktrees/agent__planner__`),
+    new RegExp(`${escapeRegexLiteral(repoDir)}/\\.omx/agent-worktrees/agent__planner__masterplan__`),
   );
 
   const launchedArgs = fs.readFileSync(argsMarker, 'utf8').trim();
@@ -3130,10 +3138,10 @@ test('codex-agent launches codex inside a fresh sandbox worktree and keeps branc
   assert.match(launch.stdout, /\[codex-agent\] OpenSpec change workspace:/);
   assert.match(launch.stdout, /\[codex-agent\] OpenSpec plan workspace:/);
   const launchedBranch = extractCreatedBranch(launch.stdout);
+  const openspecPlanSlug = extractOpenSpecPlanSlug(launch.stdout);
+  const openspecChangeSlug = extractOpenSpecChangeSlug(launch.stdout);
   const branchResult = runCmd('git', ['show-ref', '--verify', '--quiet', `refs/heads/${launchedBranch}`], repoDir);
   assert.equal(branchResult.status, 0, 'agent branch should remain after default codex-agent run');
-  const openspecPlanSlug = sanitizeSlug(launchedBranch, 'launch-task');
-  const openspecChangeSlug = sanitizeSlug(launchedBranch, 'launch-task');
   assert.equal(
     fs.existsSync(path.join(launchedCwd, 'openspec', 'plan', openspecPlanSlug, 'summary.md')),
     true,
@@ -3215,13 +3223,13 @@ test('codex-agent restores local branch and falls back to safe worktree start wh
   const launchedCwd = fs.readFileSync(cwdMarker, 'utf8').trim();
   assert.match(
     launchedCwd,
-    new RegExp(`${escapeRegexLiteral(repoDir)}/\\.omx/agent-worktrees/agent__planner__`),
+    new RegExp(`${escapeRegexLiteral(repoDir)}/\\.omx/agent-worktrees/agent__planner__masterplan__`),
   );
   assert.notEqual(launchedCwd, repoDir);
   assert.match(combinedOutput, /\[codex-agent\] OpenSpec change workspace:/);
   assert.match(combinedOutput, /\[codex-agent\] OpenSpec plan workspace:/);
   const launchedBranch = extractCreatedBranch(combinedOutput);
-  const openspecPlanSlug = sanitizeSlug(launchedBranch, 'fallback-task');
+  const openspecPlanSlug = expectedMasterplanPlanSlug(launchedBranch, 'fallback-task');
   const openspecChangeSlug = sanitizeSlug(launchedBranch, 'fallback-task');
   assert.equal(
     fs.existsSync(path.join(launchedCwd, 'openspec', 'plan', openspecPlanSlug, 'summary.md')),
@@ -4041,11 +4049,17 @@ test('OpenSpec plan workspace scaffold creates expected role/task structure', ()
     'summary.md',
     'checkpoints.md',
     'planner/plan.md',
+    'planner/prompt.md',
     'planner/tasks.md',
+    'architect/prompt.md',
     'architect/tasks.md',
+    'critic/prompt.md',
     'critic/tasks.md',
+    'executor/prompt.md',
     'executor/tasks.md',
+    'writer/prompt.md',
     'writer/tasks.md',
+    'verifier/prompt.md',
     'verifier/tasks.md',
   ];
   for (const rel of expected) {
@@ -4053,10 +4067,18 @@ test('OpenSpec plan workspace scaffold creates expected role/task structure', ()
   }
 
   const plannerTasks = fs.readFileSync(path.join(planDir, 'planner', 'tasks.md'), 'utf8');
+  assert.match(plannerTasks, /## Ownership/);
   assert.match(plannerTasks, /## 1\. Spec/);
   assert.match(plannerTasks, /## 2\. Tests/);
   assert.match(plannerTasks, /## 3\. Implementation/);
   assert.match(plannerTasks, /## 4\. Checkpoints/);
+  assert.match(plannerTasks, /## 5\. Collaboration/);
+  assert.match(plannerTasks, /## 6\. Completion/);
+  assert.match(plannerTasks, /Claim this role's files in the shared owner branch\/worktree before editing/);
+
+  const plannerPrompt = fs.readFileSync(path.join(planDir, 'planner', 'prompt.md'), 'utf8');
+  assert.match(plannerPrompt, /claim --branch <owner-branch>/);
+  assert.match(plannerPrompt, /change tasks 4\.1-4\.3/);
 });
 
 test('OpenSpec change workspace scaffold creates proposal/tasks/spec defaults', () => {

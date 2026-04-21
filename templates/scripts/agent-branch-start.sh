@@ -11,6 +11,7 @@ OPENSPEC_AUTO_INIT_RAW="${GUARDEX_OPENSPEC_AUTO_INIT:-false}"
 OPENSPEC_PLAN_SLUG_OVERRIDE="${GUARDEX_OPENSPEC_PLAN_SLUG:-}"
 OPENSPEC_CHANGE_SLUG_OVERRIDE="${GUARDEX_OPENSPEC_CHANGE_SLUG:-}"
 OPENSPEC_CAPABILITY_SLUG_OVERRIDE="${GUARDEX_OPENSPEC_CAPABILITY_SLUG:-}"
+OPENSPEC_MASTERPLAN_LABEL_RAW="${GUARDEX_OPENSPEC_MASTERPLAN_LABEL-masterplan}"
 PRINT_NAME_ONLY=0
 POSITIONAL_ARGS=()
 
@@ -226,11 +227,33 @@ normalize_bool() {
 
 OPENSPEC_AUTO_INIT="$(normalize_bool "$OPENSPEC_AUTO_INIT_RAW" "1")"
 
+resolve_openspec_masterplan_label() {
+  local raw="${OPENSPEC_MASTERPLAN_LABEL_RAW:-}"
+  local label
+
+  if [[ "$OPENSPEC_AUTO_INIT" -ne 1 ]] || [[ -z "$raw" ]]; then
+    printf ''
+    return 0
+  fi
+
+  label="$(printf '%s' "$raw" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//; s/-{2,}/-/g')"
+  printf '%s' "$label"
+}
+
 resolve_openspec_plan_slug() {
   local branch_name="$1"
-  local task_slug="$2"
+  local agent_slug="$2"
+  local task_slug="$3"
+  local masterplan_label=""
+  local branch_leaf=""
   if [[ -n "$OPENSPEC_PLAN_SLUG_OVERRIDE" ]]; then
     sanitize_slug "$OPENSPEC_PLAN_SLUG_OVERRIDE" "$task_slug"
+    return 0
+  fi
+  masterplan_label="$(resolve_openspec_masterplan_label)"
+  if [[ -n "$masterplan_label" ]] && [[ "$branch_name" == "agent/${agent_slug}/"* ]]; then
+    branch_leaf="${branch_name#agent/${agent_slug}/}"
+    sanitize_slug "agent-${agent_slug}-${masterplan_label}-${branch_leaf}" "$task_slug"
     return 0
   fi
   sanitize_slug "${branch_name//\//-}" "$task_slug"
@@ -253,6 +276,22 @@ resolve_openspec_capability_slug() {
     return 0
   fi
   sanitize_slug "$task_slug" "general-behavior"
+}
+
+resolve_worktree_leaf() {
+  local branch_name="$1"
+  local agent_slug="$2"
+  local masterplan_label=""
+  local branch_leaf=""
+
+  masterplan_label="$(resolve_openspec_masterplan_label)"
+  if [[ -n "$masterplan_label" ]] && [[ "$branch_name" == "agent/${agent_slug}/"* ]]; then
+    branch_leaf="${branch_name#agent/${agent_slug}/}"
+    printf 'agent__%s__%s__%s' "$agent_slug" "$masterplan_label" "$branch_leaf"
+    return 0
+  fi
+
+  printf '%s' "${branch_name//\//__}"
 }
 
 has_local_changes() {
@@ -497,8 +536,9 @@ done
 
 worktree_root="${repo_root}/${WORKTREE_ROOT_REL}"
 mkdir -p "$worktree_root"
-worktree_path="${worktree_root}/${branch_name//\//__}"
-openspec_plan_slug="$(resolve_openspec_plan_slug "$branch_name" "$task_slug")"
+worktree_leaf="$(resolve_worktree_leaf "$branch_name" "$agent_slug")"
+worktree_path="${worktree_root}/${worktree_leaf}"
+openspec_plan_slug="$(resolve_openspec_plan_slug "$branch_name" "$agent_slug" "$task_slug")"
 openspec_change_slug="$(resolve_openspec_change_slug "$branch_name" "$task_slug")"
 openspec_capability_slug="$(resolve_openspec_capability_slug "$task_slug")"
 

@@ -54,6 +54,10 @@ write_if_missing "$PLAN_DIR/README.md" "# Plan Workspace: ${PLAN_SLUG}
 
 Durable pre-implementation planning workspace.
 
+Each role folder includes a copyable \`prompt.md\` for joined Codex helpers.
+Helpers reuse the owner branch/worktree, claim the role files they touch, and
+leave PR merge + sandbox cleanup to the owner change lane.
+
 Use this command to update checkpoints:
 
 \`\`\`bash
@@ -91,7 +95,36 @@ for role in "${ROLES[@]}"; do
 Role workspace for \`${role}\`.
 "
 
+  write_if_missing "$ROLE_DIR/prompt.md" "# ${role} prompt
+
+You are the \`${role}\` lane for shared plan \`${PLAN_SLUG}\`.
+
+## Scope
+
+- Work inside \`openspec/plan/${PLAN_SLUG}/${role}/\` plus directly-related shared plan files you explicitly claim.
+- Reuse the owner's branch/worktree instead of creating a separate sandbox unless the owner says otherwise.
+
+## Ownership
+
+- Before editing, claim this role's files in the shared owner lane:
+  \`python3 scripts/agent-file-locks.py claim --branch <owner-branch> openspec/plan/${PLAN_SLUG}/${role}/README.md openspec/plan/${PLAN_SLUG}/${role}/prompt.md openspec/plan/${PLAN_SLUG}/${role}/tasks.md openspec/plan/${PLAN_SLUG}/checkpoints.md\`
+- Record branch, worktree, and scope in \`tasks.md\`.
+- Do not change another role's files without reassignment.
+
+## Deliverables
+
+- Complete the role checklist in \`tasks.md\`.
+- Leave a handoff with files changed, verification, and risks.
+- The owner alone runs the change completion flow and sandbox cleanup after change tasks 4.1-4.3 are done.
+"
+
   write_if_missing "$ROLE_DIR/tasks.md" "# ${role} tasks
+
+## Ownership
+
+- [ ] Claim this role's files in the shared owner branch/worktree before editing.
+- [ ] Record branch, worktree, and scope for this role.
+- [ ] Copy or hand off \`prompt.md\` when another agent joins this role.
 
 ## 1. Spec
 
@@ -111,6 +144,15 @@ Role workspace for \`${role}\`.
 ## 4. Checkpoints
 
 - [ ] Publish checkpoint update for this role
+
+## 5. Collaboration
+
+- [ ] Leave a role handoff with files changed, verification, and risks.
+- [ ] Owner records \`accept\`, \`revise\`, or \`reject\` for joined output, or marks \`N/A\` if no helper joined.
+
+## 6. Completion
+
+- [ ] Keep sandbox cleanup blocked until change tasks 4.1-4.3 are complete.
 "
 done
 

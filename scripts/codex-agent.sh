@@ -14,6 +14,7 @@ OPENSPEC_AUTO_INIT_RAW="${GUARDEX_OPENSPEC_AUTO_INIT:-true}"
 OPENSPEC_PLAN_SLUG_OVERRIDE="${GUARDEX_OPENSPEC_PLAN_SLUG:-}"
 OPENSPEC_CHANGE_SLUG_OVERRIDE="${GUARDEX_OPENSPEC_CHANGE_SLUG:-}"
 OPENSPEC_CAPABILITY_SLUG_OVERRIDE="${GUARDEX_OPENSPEC_CAPABILITY_SLUG:-}"
+OPENSPEC_MASTERPLAN_LABEL_RAW="${GUARDEX_OPENSPEC_MASTERPLAN_LABEL-masterplan}"
 
 normalize_bool() {
   local raw="${1:-}"
@@ -33,6 +34,19 @@ AUTO_REVIEW_ON_CONFLICT="$(normalize_bool "$AUTO_REVIEW_ON_CONFLICT_RAW" "1")"
 AUTO_CLEANUP="$(normalize_bool "$AUTO_CLEANUP_RAW" "1")"
 AUTO_WAIT_FOR_MERGE="$(normalize_bool "$AUTO_WAIT_FOR_MERGE_RAW" "1")"
 OPENSPEC_AUTO_INIT="$(normalize_bool "$OPENSPEC_AUTO_INIT_RAW" "1")"
+
+resolve_openspec_masterplan_label() {
+  local raw="${OPENSPEC_MASTERPLAN_LABEL_RAW:-}"
+  local label
+
+  if [[ "$OPENSPEC_AUTO_INIT" -ne 1 ]] || [[ -z "$raw" ]]; then
+    printf ''
+    return 0
+  fi
+
+  label="$(printf '%s' "$raw" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//; s/-{2,}/-/g')"
+  printf '%s' "$label"
+}
 
 if [[ -n "$BASE_BRANCH" ]]; then
   BASE_BRANCH_EXPLICIT=1
@@ -161,9 +175,19 @@ sanitize_slug() {
 resolve_openspec_plan_slug() {
   local branch_name="$1"
   local task_slug
+  local masterplan_label=""
+  local branch_role=""
+  local branch_leaf=""
   task_slug="$(sanitize_slug "$TASK_NAME" "task")"
   if [[ -n "$OPENSPEC_PLAN_SLUG_OVERRIDE" ]]; then
     sanitize_slug "$OPENSPEC_PLAN_SLUG_OVERRIDE" "$task_slug"
+    return 0
+  fi
+  masterplan_label="$(resolve_openspec_masterplan_label)"
+  if [[ -n "$masterplan_label" ]] && [[ "$branch_name" =~ ^agent/([^/]+)/(.+)$ ]]; then
+    branch_role="${BASH_REMATCH[1]}"
+    branch_leaf="${BASH_REMATCH[2]}"
+    sanitize_slug "agent-${branch_role}-${masterplan_label}-${branch_leaf}" "$task_slug"
     return 0
   fi
   sanitize_slug "${branch_name//\//-}" "$task_slug"
@@ -188,6 +212,23 @@ resolve_openspec_capability_slug() {
     return 0
   fi
   sanitize_slug "$task_slug" "general-behavior"
+}
+
+resolve_worktree_leaf() {
+  local branch_name="$1"
+  local masterplan_label=""
+  local branch_role=""
+  local branch_leaf=""
+
+  masterplan_label="$(resolve_openspec_masterplan_label)"
+  if [[ -n "$masterplan_label" ]] && [[ "$branch_name" =~ ^agent/([^/]+)/(.+)$ ]]; then
+    branch_role="${BASH_REMATCH[1]}"
+    branch_leaf="${BASH_REMATCH[2]}"
+    printf 'agent__%s__%s__%s' "$branch_role" "$masterplan_label" "$branch_leaf"
+    return 0
+  fi
+
+  printf '%s' "${branch_name//\//__}"
 }
 
 hydrate_local_helper_in_worktree() {
@@ -314,7 +355,7 @@ start_sandbox_fallback() {
 
   worktree_root="${repo_root}/.omx/agent-worktrees"
   mkdir -p "$worktree_root"
-  worktree_path="${worktree_root}/${branch_name//\//__}"
+  worktree_path="${worktree_root}/$(resolve_worktree_leaf "$branch_name")"
   if [[ -e "$worktree_path" ]]; then
     echo "[codex-agent] Fallback worktree path already exists: $worktree_path" >&2
     return 1
@@ -346,7 +387,11 @@ initial_repo_branch="$(git -C "$repo_root" rev-parse --abbrev-ref HEAD 2>/dev/nu
 start_output=""
 start_status=0
 set +e
-start_output="$(GUARDEX_OPENSPEC_AUTO_INIT=0 bash "${repo_root}/scripts/agent-branch-start.sh" "${start_args[@]}" 2>&1)"
+start_output="$(
+  GUARDEX_OPENSPEC_AUTO_INIT="$OPENSPEC_AUTO_INIT" \
+  GUARDEX_OPENSPEC_MASTERPLAN_LABEL="$OPENSPEC_MASTERPLAN_LABEL_RAW" \
+  bash "${repo_root}/scripts/agent-branch-start.sh" "${start_args[@]}" 2>&1
+)"
 start_status=$?
 set -e
 

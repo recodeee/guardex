@@ -94,7 +94,9 @@ test('frontend mirror workflow skips cleanly when the mirror PAT is missing', ()
 
 test('critical runtime helper scripts stay in sync with templates', () => {
   const pairs = [
+    ['templates/scripts/agent-branch-start.sh', 'scripts/agent-branch-start.sh'],
     ['templates/scripts/codex-agent.sh', 'scripts/codex-agent.sh'],
+    ['templates/scripts/openspec/init-plan-workspace.sh', 'scripts/openspec/init-plan-workspace.sh'],
     ['templates/scripts/openspec/init-change-workspace.sh', 'scripts/openspec/init-change-workspace.sh'],
   ];
 

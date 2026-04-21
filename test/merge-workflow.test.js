@@ -201,7 +201,7 @@ test('merge command creates an integration lane, reports overlaps, and merges cl
   assert.equal(ancestry.status, 0, ancestry.stderr || ancestry.stdout);
 
   assert.match(output, /OpenSpec change workspace: .+openspec\/changes\/agent-codex-merge-shared-smoke-/);
-  assert.match(output, /OpenSpec plan workspace: .+openspec\/plan\/agent-codex-merge-shared-smoke-/);
+  assert.match(output, /OpenSpec plan workspace: .+openspec\/plan\/agent-codex-masterplan-merge-shared-smoke-/);
 });
 
 test('merge command reuses an owner lane and stops with resumable guidance on conflict', () => {
