@@ -22,7 +22,7 @@ GitGuardex exists to stop that loop. Every agent gets its own worktree, claims t
 
 ![Multi-agent dashboard example](https://raw.githubusercontent.com/recodeee/gitguardex/main/docs/images/dashboard-multi-agent.png)
 
-https://recodee.com comming soon live
+Coming soon: [recodee.com](https://recodee.com) — live account health, usage, routing, and capacity in one place.
 
 ```mermaid
 flowchart LR
