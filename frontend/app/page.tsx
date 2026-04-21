@@ -126,7 +126,7 @@ interface ModeGuide {
 }
 
 const MODE_ORDER: ModeKey[] = ['execute', 'plan', 'merge', 'installation']
-const INSTALL_COMMAND = 'npm i -g @imdeadpool/gitguardex'
+const INSTALL_COMMAND = 'npm i -g @imdeadpool/guardex'
 const PRODUCT_LABEL = 'Recodee'
 const EDITOR_LABEL = 'recodee — VS Code'
 
@@ -1697,7 +1697,7 @@ const INSTALL_STEPS: TutorialStep[] = [
         sub: '· global install',
         elapsed: '3.8s',
         rows: [
-          { kind: 'shell', label: 'bash:', value: 'npm i -g @imdeadpool/gitguardex' },
+          { kind: 'shell', label: 'bash:', value: 'npm i -g @imdeadpool/guardex' },
         ],
       },
     ],
@@ -1712,7 +1712,7 @@ const INSTALL_STEPS: TutorialStep[] = [
     ],
     worktrees: [],
     codeLines: [
-      { parts: [c('$ npm i -g @imdeadpool/gitguardex', 'c')] },
+      { parts: [c('$ npm i -g @imdeadpool/guardex', 'c')] },
       { parts: [c('added 1 package in 3.8s')] },
       { parts: [c('')] },
       { parts: [c('$ gx --version')] },

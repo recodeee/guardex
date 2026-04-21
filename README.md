@@ -1,9 +1,9 @@
 # GitGuardex — Guardian T-Rex for your repo
 
-[![npm version](https://img.shields.io/npm/v/%40imdeadpool%2Fgitguardex?label=npm&color=cb3837&logo=npm)](https://www.npmjs.com/package/@imdeadpool/gitguardex)
-[![npm downloads](https://img.shields.io/npm/dm/%40imdeadpool%2Fgitguardex?label=downloads&color=0b76c5)](https://www.npmjs.com/package/@imdeadpool/gitguardex)
+[![npm version](https://img.shields.io/npm/v/%40imdeadpool%2Fguardex?label=npm&color=cb3837&logo=npm)](https://www.npmjs.com/package/@imdeadpool/guardex)
+[![npm downloads](https://img.shields.io/npm/dm/%40imdeadpool%2Fguardex?label=downloads&color=0b76c5)](https://www.npmjs.com/package/@imdeadpool/guardex)
 [![GitHub stars](https://img.shields.io/github/stars/recodeee/gitguardex?label=stars&color=d4ac0d)](https://github.com/recodeee/gitguardex/stargazers)
-[![License](https://img.shields.io/npm/l/%40imdeadpool%2Fgitguardex?label=License&color=97ca00)](./LICENSE)
+[![License](https://img.shields.io/npm/l/%40imdeadpool%2Fguardex?label=License&color=97ca00)](./LICENSE)
 
 [![CI](https://img.shields.io/github/actions/workflow/status/recodeee/gitguardex/ci.yml?branch=main&label=CI)](https://github.com/recodeee/gitguardex/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/actions/workflow/status/recodeee/gitguardex/release.yml?label=Release)](https://github.com/recodeee/gitguardex/actions/workflows/release.yml)
@@ -44,7 +44,7 @@ GitGuardex exists to stop that loop. Every agent gets its own worktree, claims t
 <h3 align="center">Install in one line</h3>
 
 ```bash
-npm i -g @imdeadpool/gitguardex
+npm i -g @imdeadpool/guardex
 ```
 
 <p align="center">
@@ -55,8 +55,8 @@ npm i -g @imdeadpool/gitguardex
 </p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/@imdeadpool/gitguardex"><img alt="npm" src="https://img.shields.io/npm/v/%40imdeadpool%2Fgitguardex?label=latest&style=flat-square&color=cb3837&logo=npm&logoColor=white"></a>
-  <a href="https://www.npmjs.com/package/@imdeadpool/gitguardex"><img alt="downloads" src="https://img.shields.io/npm/dm/%40imdeadpool%2Fgitguardex?label=downloads&style=flat-square&color=0b76c5"></a>
+  <a href="https://www.npmjs.com/package/@imdeadpool/guardex"><img alt="npm" src="https://img.shields.io/npm/v/%40imdeadpool%2Fguardex?label=latest&style=flat-square&color=cb3837&logo=npm&logoColor=white"></a>
+  <a href="https://www.npmjs.com/package/@imdeadpool/guardex"><img alt="downloads" src="https://img.shields.io/npm/dm/%40imdeadpool%2Fguardex?label=downloads&style=flat-square&color=0b76c5"></a>
   <a href="https://github.com/recodeee/gitguardex/stargazers"><img alt="stars" src="https://img.shields.io/github/stars/recodeee/gitguardex?style=flat-square&color=d4ac0d"></a>
 </p>
 
@@ -83,12 +83,12 @@ Coming soon: [recodee.com](https://recodee.com) — live account health, usage, 
 ## Quick start
 
 ```sh
-npm i -g @imdeadpool/gitguardex
+npm i -g @imdeadpool/guardex
 cd /path/to/your/repo
 gx setup
 ```
 
-That's it. New installs should use `@imdeadpool/gitguardex` so the published package matches the GitGuardex name. Setup installs hooks, scripts, templates, and scaffolds OpenSpec/caveman/OMX wiring. Aliases: `gx` (preferred), `gitguardex` (full), `guardex` (legacy compatibility).
+That's it. Install and update via `@imdeadpool/guardex`. Setup installs hooks, scripts, templates, and scaffolds OpenSpec/caveman/OMX wiring. Aliases: `gx` (preferred), `gitguardex` (full), `guardex` (legacy compatibility).
 
 ---
 
@@ -640,6 +640,11 @@ npm pack --dry-run
 
 <details>
 <summary><strong>v7.x</strong></summary>
+
+### v7.0.17
+- Restored the published npm package name to `@imdeadpool/guardex` after the `@imdeadpool/gitguardex` rename only changed the package identity locally and could not rename the existing npm registry entry.
+- README/install/tutorial/self-update surfaces now point back at `@imdeadpool/guardex` while keeping GitGuardex as the product/repo brand and `gitguardex` as the long-form command.
+- Bumped the release from `7.0.16` → `7.0.17` because `@imdeadpool/guardex@7.0.16` is already published on npm.
 
 ### v7.0.16
 - GitGuardex now publishes under the matching npm package name `@imdeadpool/gitguardex`, and install/help/docs surfaces point at the renamed package instead of the older `@imdeadpool/guardex` scope.

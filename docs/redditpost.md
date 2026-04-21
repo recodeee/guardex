@@ -4,7 +4,7 @@ Source baseline: [`README.md`](../README.md)
 
 Project links:
 - GitHub: https://github.com/recodeecom/multiagent-safety
-- npm: https://www.npmjs.com/package/@imdeadpool/gitguardex
+- npm: https://www.npmjs.com/package/@imdeadpool/guardex
 
 ## Recommended Title Options
 
@@ -29,7 +29,7 @@ What it does:
 Quick start:
 
 ```bash
-npm i -g @imdeadpool/gitguardex
+npm i -g @imdeadpool/guardex
 gx setup
 ```
 
@@ -45,7 +45,7 @@ bash scripts/agent-branch-finish.sh --branch "$(git rev-parse --abbrev-ref HEAD)
 If you run Codex/Claude-style parallel workflows, I would value feedback on edge cases your team hits in production.
 
 GitHub: https://github.com/recodeecom/multiagent-safety  
-npm: https://www.npmjs.com/package/@imdeadpool/gitguardex
+npm: https://www.npmjs.com/package/@imdeadpool/guardex
 
 ## Copy-Ready Reddit Post (short)
 
@@ -54,12 +54,12 @@ I open-sourced **GitGuardex** for safer multi-agent Git workflows.
 It adds branch/worktree guardrails, protected-branch enforcement, file-lock ownership, and repair scripts (`gx setup` / `gx doctor`) so parallel agent execution is safer by default.
 
 ```bash
-npm i -g @imdeadpool/gitguardex
+npm i -g @imdeadpool/guardex
 gx setup
 ```
 
 GitHub: https://github.com/recodeecom/multiagent-safety  
-npm: https://www.npmjs.com/package/@imdeadpool/gitguardex
+npm: https://www.npmjs.com/package/@imdeadpool/guardex
 
 ## Images to include in the Reddit post
 

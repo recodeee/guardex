@@ -16,7 +16,7 @@
 
   <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="20" fill="#e2e8f0">
     <text x="44" y="95">deadpool@recodee:~/Documents/testguardex$ gx</text>
-    <text x="44" y="132" fill="#93c5fd">[gitguardex] CLI: @imdeadpool/gitguardex/5.0.0 linux-x64 node-v22.22.0</text>
+    <text x="44" y="132" fill="#93c5fd">[gitguardex] CLI: @imdeadpool/guardex/5.0.0 linux-x64 node-v22.22.0</text>
     <text x="44" y="169" fill="#93c5fd">[gitguardex] Global services:</text>
     <text x="70" y="206" fill="#93c5fd">- ● oh-my-codex: active</text>
     <text x="70" y="243" fill="#93c5fd">- ● @fission-ai/openspec: active</text>
@@ -29,7 +29,7 @@
     <text x="44" y="485" fill="#fda4af">fatal: not a git repository (or any of the parent directories): .git</text>
 
     <text x="44" y="542">deadpool@recodee:~/Documents/testguardex$ gx</text>
-    <text x="44" y="579" fill="#93c5fd">[gitguardex] CLI: @imdeadpool/gitguardex/5.0.0 linux-x64 node-v22.22.0</text>
+    <text x="44" y="579" fill="#93c5fd">[gitguardex] CLI: @imdeadpool/guardex/5.0.0 linux-x64 node-v22.22.0</text>
     <text x="44" y="616" fill="#93c5fd">[gitguardex] Global services:</text>
     <text x="70" y="653" fill="#93c5fd">- ● oh-my-codex: active</text>
     <text x="70" y="690" fill="#93c5fd">- ● @fission-ai/openspec: active</text>

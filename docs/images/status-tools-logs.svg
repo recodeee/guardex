@@ -15,7 +15,7 @@
   <text x="126" y="57" fill="#9CA3AF" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="20">gx status</text>
 
   <g font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace" font-size="22" fill="#E5E7EB">
-    <text x="48" y="106">[gitguardex] CLI: @imdeadpool/gitguardex/5.0.2 linux-x64 node-v22.22.0</text>
+    <text x="48" y="106">[gitguardex] CLI: @imdeadpool/guardex/5.0.2 linux-x64 node-v22.22.0</text>
     <text x="48" y="140">[gitguardex] Global services:</text>
     <text x="72" y="174">- ● oh-my-codex: active</text>
     <text x="72" y="208">- ● @fission-ai/openspec: active</text>
