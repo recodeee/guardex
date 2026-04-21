@@ -20,7 +20,7 @@ I was running ~30 Codex agents in parallel and hit a wall: they kept working on 
 
 GitGuardex exists to stop that loop. Every agent gets its own worktree, claims the files it's touching, and can't clobber files another agent has claimed. Your local branch stays clean; agents stay in their lanes.
 
-![Multi-agent dashboard example](https://raw.githubusercontent.com/recodeee/gitguardex/main/docs/images/dashboard-multi-agent.png)
+![Guarded VS Code Source Control example](https://raw.githubusercontent.com/recodeee/gitguardex/main/docs/images/workflow-source-control-grouped.png)
 
 Coming soon: [recodee.com](https://recodee.com) — live account health, usage, routing, and capacity in one place.
 
