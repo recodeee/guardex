@@ -1000,6 +1000,14 @@ function parseCommonArgs(rawArgs, defaults) {
       options.allowProtectedBaseWrite = true;
       continue;
     }
+    if (Object.prototype.hasOwnProperty.call(options, 'waitForMerge') && arg === '--wait-for-merge') {
+      options.waitForMerge = true;
+      continue;
+    }
+    if (Object.prototype.hasOwnProperty.call(options, 'waitForMerge') && arg === '--no-wait-for-merge') {
+      options.waitForMerge = false;
+      continue;
+    }
 
     throw new Error(`Unknown option: ${arg}`);
   }
@@ -1090,6 +1098,7 @@ function parseDoctorArgs(rawArgs) {
     dryRun: false,
     json: false,
     allowProtectedBaseWrite: false,
+    waitForMerge: true,
   });
 }
 
@@ -1224,6 +1233,7 @@ function buildSandboxDoctorArgs(options, sandboxTarget) {
   if (options.skipPackageJson) args.push('--skip-package-json');
   if (options.skipGitignore) args.push('--no-gitignore');
   if (!options.dropStaleLocks) args.push('--keep-stale-locks');
+  args.push(options.waitForMerge ? '--wait-for-merge' : '--no-wait-for-merge');
   if (options.json) args.push('--json');
   return args;
 }
@@ -1535,7 +1545,7 @@ function doctorFinishFlowIsPending(output) {
   );
 }
 
-function finishDoctorSandboxBranch(blocked, metadata) {
+function finishDoctorSandboxBranch(blocked, metadata, options = {}) {
   const finishScript = path.join(metadata.worktreePath, 'scripts', 'agent-branch-finish.sh');
   if (!fs.existsSync(finishScript)) {
     return {
@@ -1577,10 +1587,11 @@ function finishDoctorSandboxBranch(blocked, metadata) {
   const waitTimeoutSeconds =
     Number.isFinite(rawWaitTimeoutSeconds) && rawWaitTimeoutSeconds >= 30 ? rawWaitTimeoutSeconds : 1800;
   const finishTimeoutMs = Math.max(180_000, (waitTimeoutSeconds + 60) * 1000);
+  const waitForMergeArg = options.waitForMerge === false ? '--no-wait-for-merge' : '--wait-for-merge';
 
   const finishResult = run(
     'bash',
-    [finishScript, '--branch', metadata.branch, '--base', blocked.branch, '--via-pr', '--wait-for-merge'],
+    [finishScript, '--branch', metadata.branch, '--base', blocked.branch, '--via-pr', waitForMergeArg],
     { cwd: metadata.worktreePath, timeout: finishTimeoutMs },
   );
   if (isSpawnFailure(finishResult)) {
@@ -1710,7 +1721,7 @@ function runDoctorInSandbox(options, blocked) {
     if (!options.dryRun) {
       autoCommitResult = autoCommitDoctorSandboxChanges(metadata);
       if (autoCommitResult.status === 'committed') {
-        finishResult = finishDoctorSandboxBranch(blocked, metadata);
+        finishResult = finishDoctorSandboxBranch(blocked, metadata, options);
       } else if (autoCommitResult.status === 'no-changes') {
         finishResult = {
           status: 'skipped',
@@ -4543,6 +4554,8 @@ function doctor(rawArgs) {
           ...(options.skipPackageJson ? ['--skip-package-json'] : []),
           ...(options.skipGitignore ? ['--no-gitignore'] : []),
           ...(options.dryRun ? ['--dry-run'] : []),
+          // Recursive child doctor runs should report pending PR state immediately instead of blocking the parent loop.
+          '--no-wait-for-merge',
           ...(options.json ? ['--json'] : []),
           ...(options.allowProtectedBaseWrite ? ['--allow-protected-base-write'] : []),
         ],

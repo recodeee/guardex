@@ -3963,6 +3963,97 @@ test('doctor recurses into nested frontend repos and repairs protected-main drif
   assert.equal(frontendScanAfter.status, 0, frontendScanAfter.stderr || frontendScanAfter.stdout);
 });
 
+test('recursive doctor forwards no-wait-for-merge to protected nested sandbox repairs', () => {
+  const repoDir = initRepo();
+  const frontendDir = path.join(repoDir, 'frontend');
+  const frontendGitignorePath = path.join(frontendDir, '.gitignore');
+  fs.mkdirSync(frontendDir, { recursive: true });
+
+  let result = runCmd('git', ['init', '-b', 'main'], frontendDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  fs.writeFileSync(path.join(frontendDir, 'package.json'), '{}\n', 'utf8');
+  seedCommit(frontendDir);
+  attachOriginRemoteForBranch(frontendDir, 'main');
+
+  result = runNode(['setup', '--target', repoDir, '--no-global-install'], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+
+  const initialFrontendGitignore = fs.readFileSync(frontendGitignorePath, 'utf8');
+
+  result = runCmd('git', ['add', '.'], frontendDir, {
+    ALLOW_COMMIT_ON_PROTECTED_BRANCH: '1',
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  result = runCmd('git', ['commit', '-m', 'publish nested guardex baseline'], frontendDir, {
+    ALLOW_COMMIT_ON_PROTECTED_BRANCH: '1',
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  result = runCmd('git', ['push', 'origin', 'main'], frontendDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+
+  fs.rmSync(path.join(frontendDir, 'AGENTS.md'));
+  fs.rmSync(path.join(frontendDir, 'scripts', 'agent-branch-start.sh'));
+  fs.rmSync(path.join(frontendDir, '.githooks', 'pre-commit'));
+  fs.writeFileSync(
+    frontendGitignorePath,
+    initialFrontendGitignore
+      .replace(/^scripts\/\*\n/m, '')
+      .replace(/^\.githooks\n/m, ''),
+    'utf8',
+  );
+  fs.writeFileSync(path.join(frontendDir, '.omx', 'state', 'agent-file-locks.json'), '{broken json', 'utf8');
+
+  result = runCmd('git', ['add', '-A'], frontendDir, {
+    ALLOW_COMMIT_ON_PROTECTED_BRANCH: '1',
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  result = runCmd('git', ['commit', '-m', 'simulate nested protected drift'], frontendDir, {
+    ALLOW_COMMIT_ON_PROTECTED_BRANCH: '1',
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  result = runCmd('git', ['push', 'origin', 'main'], frontendDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+
+  const { fakePath: fakeGhPath } = createFakeGhScript(`
+if [[ "$1" == "auth" && "$2" == "status" ]]; then
+  exit 0
+fi
+if [[ "$1" == "pr" && "$2" == "create" ]]; then
+  exit 0
+fi
+if [[ "$1" == "pr" && "$2" == "view" ]]; then
+  if [[ " $* " == *" --json url "* ]]; then
+    echo "https://example.test/pr/nested-doctor-pending"
+    exit 0
+  fi
+  if [[ " $* " == *" --json state,mergedAt,url "* ]]; then
+    printf "OPEN\\x1f\\x1fhttps://example.test/pr/nested-doctor-pending\\n"
+    exit 0
+  fi
+fi
+if [[ "$1" == "pr" && "$2" == "merge" ]]; then
+  echo "simulated pending merge" >&2
+  exit 1
+fi
+echo "unexpected gh args: $*" >&2
+exit 1
+`);
+
+  const startedAt = Date.now();
+  result = runNodeWithEnv(['doctor', '--target', repoDir], repoDir, {
+    GUARDEX_GH_BIN: fakeGhPath,
+  });
+  const durationMs = Date.now() - startedAt;
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  assert.match(result.stdout, new RegExp(`Doctor target: ${escapeRegexLiteral(frontendDir)}`));
+  assert.match(result.stdout, /Auto-finish pending for sandbox branch/);
+  assert.match(result.stdout, /PR: https:\/\/example\.test\/pr\/nested-doctor-pending/);
+  assert.ok(
+    durationMs < 15_000,
+    `recursive doctor should surface nested pending PRs quickly; took ${durationMs}ms`,
+  );
+});
+
 test('report scorecard creates baseline + remediation reports', () => {
   const repoDir = initRepo();
   const fakeScorecard = createFakeScorecardScript(`
