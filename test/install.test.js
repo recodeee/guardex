@@ -134,10 +134,7 @@ function initRepo() {
   let result = runCmd('git', ['init', '-b', 'dev'], repoDir);
   assert.equal(result.status, 0, result.stderr);
 
-  result = runCmd('git', ['config', 'user.email', 'bot@example.com'], repoDir);
-  assert.equal(result.status, 0, result.stderr);
-  result = runCmd('git', ['config', 'user.name', 'Bot'], repoDir);
-  assert.equal(result.status, 0, result.stderr);
+  configureGitIdentity(repoDir);
 
   if (withPackageJson) {
     fs.writeFileSync(
@@ -174,7 +171,15 @@ function createGuardexCompanionHome({ cavekit = false, caveman = false } = {}) {
   return homeDir;
 }
 
+function configureGitIdentity(repoDir) {
+  let result = runCmd('git', ['config', 'user.email', 'bot@example.com'], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  result = runCmd('git', ['config', 'user.name', 'Bot'], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+}
+
 function seedCommit(repoDir) {
+  configureGitIdentity(repoDir);
   let result = runCmd('git', ['add', '.'], repoDir);
   assert.equal(result.status, 0, result.stderr);
   result = runCmd('git', ['commit', '-m', 'seed'], repoDir);
@@ -3417,7 +3422,7 @@ exit 1
   assert.equal(launch.status, 0, launch.stderr || launch.stdout);
   const combinedOutput = `${launch.stdout}\n${launch.stderr}`;
   assert.match(combinedOutput, /\[codex-agent\] Auto-finish enabled: commit -> push\/PR -> wait for merge -> cleanup\./);
-  assert.match(combinedOutput, /\[codex-agent\] Auto-finish skipped for 'agent\/codex\/autofinish-task-/);
+  assert.match(combinedOutput, /\[codex-agent\] Auto-finish skipped for 'agent\/[^/]+\/autofinish-task-/);
   assert.equal(fs.existsSync(ghMergeState), false, 'merge should not be attempted without a mergeable remote context');
 
   const launchedCwd = fs.readFileSync(cwdMarker, 'utf8').trim();

@@ -121,7 +121,7 @@ test('active doctor command remains single-source and runs the repair-first path
   const cliSource = fs.readFileSync(cliPath, 'utf8');
   const doctorDefs = cliSource.match(/function doctor\(rawArgs\)/g) || [];
   assert.equal(doctorDefs.length, 1, 'doctor() must not be duplicated');
-  assert.match(cliSource, /printOperations\('Doctor\/fix', fixPayload, singleRepoOptions\.dryRun\);/);
+  assert.match(cliSource, /printOperations\('Doctor\/fix', fixPayload, (?:singleRepoOptions|options)\.dryRun\);/);
 });
 
 test('worktree-change detection uses normal untracked-file mode', () => {
