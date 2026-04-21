@@ -1204,6 +1204,40 @@ function assertProtectedMainWriteAllowed(options, commandName) {
   );
 }
 
+function runSetupBootstrapInternal(options) {
+  const installPayload = runInstallInternal(options);
+  installPayload.operations.push(
+    ensureSetupProtectedBranches(installPayload.repoRoot, Boolean(options.dryRun)),
+  );
+
+  let parentWorkspace = null;
+  if (options.parentWorkspaceView) {
+    installPayload.operations.push(
+      ensureParentWorkspaceView(installPayload.repoRoot, Boolean(options.dryRun)),
+    );
+    if (!options.dryRun) {
+      parentWorkspace = buildParentWorkspaceView(installPayload.repoRoot);
+    }
+  }
+
+  const fixPayload = runFixInternal({
+    target: installPayload.repoRoot,
+    dryRun: options.dryRun,
+    force: options.force,
+    dropStaleLocks: true,
+    skipAgents: options.skipAgents,
+    skipPackageJson: options.skipPackageJson,
+    skipGitignore: options.skipGitignore,
+    allowProtectedBaseWrite: options.allowProtectedBaseWrite,
+  });
+
+  return {
+    installPayload,
+    fixPayload,
+    parentWorkspace,
+  };
+}
+
 function extractAgentBranchStartMetadata(output) {
   const branchMatch = String(output || '').match(/^\[agent-branch-start\] Created branch: (.+)$/m);
   const worktreeMatch = String(output || '').match(/^\[agent-branch-start\] Worktree: (.+)$/m);
@@ -1217,12 +1251,22 @@ function resolveSandboxTarget(repoRoot, worktreePath, targetPath) {
   const resolvedTarget = path.resolve(targetPath);
   const relativeTarget = path.relative(repoRoot, resolvedTarget);
   if (relativeTarget.startsWith('..') || path.isAbsolute(relativeTarget)) {
-    throw new Error(`doctor target must stay inside repo root when sandboxing: ${resolvedTarget}`);
+    throw new Error(`sandbox target must stay inside repo root: ${resolvedTarget}`);
   }
   if (!relativeTarget || relativeTarget === '.') {
     return worktreePath;
   }
   return path.join(worktreePath, relativeTarget);
+}
+
+function buildSandboxSetupArgs(options, sandboxTarget) {
+  const args = ['setup', '--target', sandboxTarget, '--no-global-install', '--no-recursive'];
+  if (options.force) args.push('--force');
+  if (options.skipAgents) args.push('--skip-agents');
+  if (options.skipPackageJson) args.push('--skip-package-json');
+  if (options.skipGitignore) args.push('--no-gitignore');
+  if (options.dryRun) args.push('--dry-run');
+  return args;
 }
 
 function buildSandboxDoctorArgs(options, sandboxTarget) {
@@ -1269,7 +1313,7 @@ function ensureRepoBranch(repoRoot, branch) {
   return { ok: true, changed: true };
 }
 
-function doctorSandboxBranchPrefix() {
+function protectedBaseSandboxBranchPrefix() {
   const now = new Date();
   const stamp = [
     now.getUTCFullYear(),
@@ -1283,7 +1327,7 @@ function doctorSandboxBranchPrefix() {
   return `agent/gx/${stamp}`;
 }
 
-function doctorSandboxWorktreePath(repoRoot, branchName) {
+function protectedBaseSandboxWorktreePath(repoRoot, branchName) {
   return path.join(repoRoot, '.omx', 'agent-worktrees', branchName.replace(/\//g, '__'));
 }
 
@@ -1291,7 +1335,7 @@ function gitRefExists(repoRoot, ref) {
   return run('git', ['-C', repoRoot, 'show-ref', '--verify', '--quiet', ref]).status === 0;
 }
 
-function resolveDoctorSandboxStartRef(repoRoot, baseBranch) {
+function resolveProtectedBaseSandboxStartRef(repoRoot, baseBranch) {
   run('git', ['-C', repoRoot, 'fetch', 'origin', baseBranch, '--quiet'], { timeout: 20_000 });
   if (gitRefExists(repoRoot, `refs/remotes/origin/${baseBranch}`)) {
     return `origin/${baseBranch}`;
@@ -1299,18 +1343,21 @@ function resolveDoctorSandboxStartRef(repoRoot, baseBranch) {
   if (gitRefExists(repoRoot, `refs/heads/${baseBranch}`)) {
     return baseBranch;
   }
-  throw new Error(`Unable to find base ref for sandbox doctor: ${baseBranch}`);
+  if (currentBranchName(repoRoot) === baseBranch) {
+    return null;
+  }
+  throw new Error(`Unable to find base ref for sandbox bootstrap: ${baseBranch}`);
 }
 
-function startDoctorSandboxFallback(blocked) {
-  const branchPrefix = doctorSandboxBranchPrefix();
+function startProtectedBaseSandboxFallback(blocked, sandboxSuffix) {
+  const branchPrefix = protectedBaseSandboxBranchPrefix();
   let selectedBranch = '';
   let selectedWorktreePath = '';
 
   for (let attempt = 0; attempt < 30; attempt += 1) {
-    const suffix = attempt === 0 ? 'gx-doctor' : `${attempt + 1}-gx-doctor`;
+    const suffix = attempt === 0 ? sandboxSuffix : `${attempt + 1}-${sandboxSuffix}`;
     const candidateBranch = `${branchPrefix}-${suffix}`;
-    const candidateWorktreePath = doctorSandboxWorktreePath(blocked.repoRoot, candidateBranch);
+    const candidateWorktreePath = protectedBaseSandboxWorktreePath(blocked.repoRoot, candidateBranch);
     if (gitRefExists(blocked.repoRoot, `refs/heads/${candidateBranch}`)) {
       continue;
     }
@@ -1323,20 +1370,36 @@ function startDoctorSandboxFallback(blocked) {
   }
 
   if (!selectedBranch || !selectedWorktreePath) {
-    throw new Error('Unable to allocate unique sandbox branch/worktree for doctor');
+    throw new Error('Unable to allocate unique sandbox branch/worktree');
   }
 
   fs.mkdirSync(path.dirname(selectedWorktreePath), { recursive: true });
-  const startRef = resolveDoctorSandboxStartRef(blocked.repoRoot, blocked.branch);
-  const addResult = run(
-    'git',
-    ['-C', blocked.repoRoot, 'worktree', 'add', '-b', selectedBranch, selectedWorktreePath, startRef],
-  );
+  const startRef = resolveProtectedBaseSandboxStartRef(blocked.repoRoot, blocked.branch);
+  const addArgs = startRef
+    ? ['-C', blocked.repoRoot, 'worktree', 'add', '-b', selectedBranch, selectedWorktreePath, startRef]
+    : ['-C', blocked.repoRoot, 'worktree', 'add', '--orphan', selectedWorktreePath];
+  const addResult = run('git', addArgs);
   if (isSpawnFailure(addResult)) {
     throw addResult.error;
   }
   if (addResult.status !== 0) {
-    throw new Error((addResult.stderr || addResult.stdout || 'failed to create doctor sandbox').trim());
+    throw new Error((addResult.stderr || addResult.stdout || 'failed to create sandbox').trim());
+  }
+
+  if (!startRef) {
+    const renameResult = run(
+      'git',
+      ['-C', selectedWorktreePath, 'branch', '-m', selectedBranch],
+      { timeout: 20_000 },
+    );
+    if (isSpawnFailure(renameResult)) {
+      throw renameResult.error;
+    }
+    if (renameResult.status !== 0) {
+      throw new Error(
+        (renameResult.stderr || renameResult.stdout || 'failed to name orphan sandbox branch').trim(),
+      );
+    }
   }
 
   return {
@@ -1351,16 +1414,16 @@ function startDoctorSandboxFallback(blocked) {
   };
 }
 
-function startDoctorSandbox(blocked) {
+function startProtectedBaseSandbox(blocked, { taskName, sandboxSuffix }) {
   const startScript = path.join(blocked.repoRoot, 'scripts', 'agent-branch-start.sh');
   if (!fs.existsSync(startScript)) {
-    return startDoctorSandboxFallback(blocked);
+    return startProtectedBaseSandboxFallback(blocked, sandboxSuffix);
   }
 
   const startResult = run('bash', [
     startScript,
     '--task',
-    `${SHORT_TOOL_NAME}-doctor`,
+    taskName,
     '--agent',
     SHORT_TOOL_NAME,
     '--base',
@@ -1370,7 +1433,7 @@ function startDoctorSandbox(blocked) {
     throw startResult.error;
   }
   if (startResult.status !== 0) {
-    return startDoctorSandboxFallback(blocked);
+    return startProtectedBaseSandboxFallback(blocked, sandboxSuffix);
   }
 
   const metadata = extractAgentBranchStartMetadata(startResult.stdout);
@@ -1385,11 +1448,11 @@ function startDoctorSandbox(blocked) {
     if (!restoreResult.ok) {
       const detail = [restoreResult.stderr, restoreResult.stdout].filter(Boolean).join('\n').trim();
       throw new Error(
-        `doctor sandbox startup switched protected base checkout and could not restore '${blocked.branch}'.` +
+        `sandbox startup switched protected base checkout and could not restore '${blocked.branch}'.` +
         (detail ? `\n${detail}` : ''),
       );
     }
-    return startDoctorSandboxFallback(blocked);
+    return startProtectedBaseSandboxFallback(blocked, sandboxSuffix);
   }
 
   return {
@@ -1397,6 +1460,59 @@ function startDoctorSandbox(blocked) {
     stdout: startResult.stdout || '',
     stderr: startResult.stderr || '',
   };
+}
+
+function cleanupProtectedBaseSandbox(repoRoot, metadata) {
+  const result = {
+    worktree: 'skipped',
+    branch: 'skipped',
+    note: 'missing sandbox metadata',
+  };
+
+  if (!metadata?.worktreePath || !metadata?.branch) {
+    return result;
+  }
+
+  if (fs.existsSync(metadata.worktreePath)) {
+    const removeResult = run(
+      'git',
+      ['-C', repoRoot, 'worktree', 'remove', '--force', metadata.worktreePath],
+      { timeout: 30_000 },
+    );
+    if (isSpawnFailure(removeResult)) {
+      throw removeResult.error;
+    }
+    if (removeResult.status !== 0) {
+      throw new Error(
+        (removeResult.stderr || removeResult.stdout || 'failed to remove sandbox worktree').trim(),
+      );
+    }
+    result.worktree = 'removed';
+  } else {
+    result.worktree = 'missing';
+  }
+
+  if (gitRefExists(repoRoot, `refs/heads/${metadata.branch}`)) {
+    const branchDeleteResult = run(
+      'git',
+      ['-C', repoRoot, 'branch', '-D', metadata.branch],
+      { timeout: 20_000 },
+    );
+    if (isSpawnFailure(branchDeleteResult)) {
+      throw branchDeleteResult.error;
+    }
+    if (branchDeleteResult.status !== 0) {
+      throw new Error(
+        (branchDeleteResult.stderr || branchDeleteResult.stdout || 'failed to delete sandbox branch').trim(),
+      );
+    }
+    result.branch = 'deleted';
+  } else {
+    result.branch = 'missing';
+  }
+
+  result.note = 'sandbox worktree pruned';
+  return result;
 }
 
 function parseGitPathList(output) {
@@ -1658,7 +1774,10 @@ function syncProtectedBaseDoctorRepairs(options, blocked) {
 }
 
 function runDoctorInSandbox(options, blocked) {
-  const startResult = startDoctorSandbox(blocked);
+  const startResult = startProtectedBaseSandbox(blocked, {
+    taskName: `${SHORT_TOOL_NAME}-doctor`,
+    sandboxSuffix: 'gx-doctor',
+  });
   const metadata = startResult.metadata;
 
   const sandboxTarget = resolveSandboxTarget(blocked.repoRoot, metadata.worktreePath, options.target);
@@ -1910,6 +2029,80 @@ function runDoctorInSandbox(options, blocked) {
     return;
   }
   process.exitCode = 1;
+}
+
+function runSetupInSandbox(options, blocked, repoLabel = '') {
+  const startResult = startProtectedBaseSandbox(blocked, {
+    taskName: `${SHORT_TOOL_NAME}-setup`,
+    sandboxSuffix: 'gx-setup',
+  });
+  const metadata = startResult.metadata;
+
+  if (startResult.stdout) process.stdout.write(startResult.stdout);
+  if (startResult.stderr) process.stderr.write(startResult.stderr);
+  console.log(
+    `[${TOOL_NAME}] setup blocked on protected branch '${blocked.branch}' in an initialized repo; ` +
+    'refreshing through a sandbox worktree and syncing managed bootstrap files back locally.',
+  );
+
+  const sandboxTarget = resolveSandboxTarget(blocked.repoRoot, metadata.worktreePath, options.target);
+  const nestedResult = run(
+    process.execPath,
+    [__filename, ...buildSandboxSetupArgs(options, sandboxTarget)],
+    { cwd: metadata.worktreePath },
+  );
+  if (isSpawnFailure(nestedResult)) {
+    throw nestedResult.error;
+  }
+  if (nestedResult.status !== 0) {
+    if (nestedResult.stdout) process.stdout.write(nestedResult.stdout);
+    if (nestedResult.stderr) process.stderr.write(nestedResult.stderr);
+    throw new Error(
+      `sandboxed setup failed for protected branch '${blocked.branch}'. ` +
+      `Inspect sandbox at ${metadata.worktreePath}`,
+    );
+  }
+
+  const syncOptions = {
+    ...options,
+    target: blocked.repoRoot,
+    recursive: false,
+    allowProtectedBaseWrite: true,
+  };
+  const { installPayload, fixPayload, parentWorkspace } = runSetupBootstrapInternal(syncOptions);
+  printOperations(`Setup/install${repoLabel}`, installPayload, syncOptions.dryRun);
+  printOperations(`Setup/fix${repoLabel}`, fixPayload, syncOptions.dryRun);
+  if (!syncOptions.dryRun && parentWorkspace) {
+    console.log(`[${TOOL_NAME}] Parent workspace view: ${parentWorkspace.workspacePath}`);
+  }
+
+  const scanResult = runScanInternal({ target: blocked.repoRoot, json: false });
+  const currentBaseBranch = currentBranchName(scanResult.repoRoot);
+  const autoFinishSummary = autoFinishReadyAgentBranches(scanResult.repoRoot, {
+    baseBranch: currentBaseBranch,
+    dryRun: syncOptions.dryRun,
+  });
+  printScanResult(scanResult, false);
+  if (autoFinishSummary.enabled) {
+    console.log(
+      `[${TOOL_NAME}] Auto-finish sweep (base=${currentBaseBranch}): attempted=${autoFinishSummary.attempted}, completed=${autoFinishSummary.completed}, skipped=${autoFinishSummary.skipped}, failed=${autoFinishSummary.failed}`,
+    );
+    for (const detail of autoFinishSummary.details) {
+      console.log(`[${TOOL_NAME}]   ${detail}`);
+    }
+  } else if (autoFinishSummary.details.length > 0) {
+    console.log(`[${TOOL_NAME}] ${autoFinishSummary.details[0]}`);
+  }
+
+  const cleanupResult = cleanupProtectedBaseSandbox(blocked.repoRoot, metadata);
+  console.log(
+    `[${TOOL_NAME}] Protected-base setup sandbox cleanup: ${cleanupResult.note} ` +
+    `(worktree=${cleanupResult.worktree}, branch=${cleanupResult.branch}).`,
+  );
+
+  return {
+    scanResult,
+  };
 }
 
 function parseTargetFlag(rawArgs, defaultTarget = process.cwd()) {
@@ -5184,31 +5377,24 @@ function setup(rawArgs) {
       console.log(`[${TOOL_NAME}] ── Setup target: ${repoPath} ──`);
     }
 
-    assertProtectedMainWriteAllowed(perRepoOptions, 'setup');
-    const installPayload = runInstallInternal(perRepoOptions);
-    installPayload.operations.push(ensureSetupProtectedBranches(installPayload.repoRoot, Boolean(perRepoOptions.dryRun)));
-    if (perRepoOptions.parentWorkspaceView) {
-      installPayload.operations.push(ensureParentWorkspaceView(installPayload.repoRoot, Boolean(perRepoOptions.dryRun)));
+    const blocked = protectedBaseWriteBlock(perRepoOptions);
+    if (blocked) {
+      const sandboxResult = runSetupInSandbox(perRepoOptions, blocked, repoLabel);
+      aggregateErrors += sandboxResult.scanResult.errors;
+      aggregateWarnings += sandboxResult.scanResult.warnings;
+      lastScanResult = sandboxResult.scanResult;
+      continue;
     }
-    printOperations(`Setup/install${repoLabel}`, installPayload, perRepoOptions.dryRun);
 
-    const fixPayload = runFixInternal({
-      target: repoPath,
-      dryRun: perRepoOptions.dryRun,
-      force: perRepoOptions.force,
-      dropStaleLocks: true,
-      skipAgents: perRepoOptions.skipAgents,
-      skipPackageJson: perRepoOptions.skipPackageJson,
-      skipGitignore: perRepoOptions.skipGitignore,
-    });
+    const { installPayload, fixPayload, parentWorkspace } = runSetupBootstrapInternal(perRepoOptions);
+    printOperations(`Setup/install${repoLabel}`, installPayload, perRepoOptions.dryRun);
     printOperations(`Setup/fix${repoLabel}`, fixPayload, perRepoOptions.dryRun);
 
     if (perRepoOptions.dryRun) {
       continue;
     }
 
-    if (perRepoOptions.parentWorkspaceView) {
-      const parentWorkspace = buildParentWorkspaceView(installPayload.repoRoot);
+    if (parentWorkspace) {
       console.log(`[${TOOL_NAME}] Parent workspace view: ${parentWorkspace.workspacePath}`);
     }
 

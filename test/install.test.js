@@ -817,16 +817,35 @@ test('review-bot-watch uses explicit codex-agent flags for argument parsing comp
   assert.match(script, /-- exec \"\$prompt\"/);
 });
 
-test('setup blocks in-place maintenance writes on protected main after initialization', () => {
+test('setup refreshes initialized protected main through a sandbox and prunes it', () => {
   const repoDir = initRepoOnBranch('main');
+  const gitignorePath = path.join(repoDir, '.gitignore');
 
   let result = runNode(['setup', '--target', repoDir, '--no-global-install'], repoDir);
   assert.equal(result.status, 0, result.stderr || result.stdout);
 
+  const initialGitignore = fs.readFileSync(gitignorePath, 'utf8');
+  fs.writeFileSync(gitignorePath, initialGitignore.replace(/^scripts\/\*\n/m, ''), 'utf8');
+
   result = runNode(['setup', '--target', repoDir, '--no-global-install'], repoDir);
-  assert.equal(result.status, 1, result.stderr || result.stdout);
-  assert.match(result.stderr, /setup blocked on protected branch 'main'/);
-  assert.match(result.stderr, /agent-branch-start\.sh/);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /setup blocked on protected branch 'main' in an initialized repo;/);
+  assert.match(result.stdout, /sandbox worktree/);
+
+  const sandboxBranch = extractCreatedBranch(result.stdout);
+  const sandboxWorktree = extractCreatedWorktree(result.stdout);
+  assert.equal(fs.existsSync(sandboxWorktree), false, 'setup sandbox worktree should be pruned');
+
+  const currentBranch = runCmd('git', ['symbolic-ref', '--short', 'HEAD'], repoDir);
+  assert.equal(currentBranch.status, 0, currentBranch.stderr || currentBranch.stdout);
+  assert.equal(currentBranch.stdout.trim(), 'main', 'visible checkout must stay on protected main');
+
+  const sandboxBranchCheck = runCmd('git', ['branch', '--list', sandboxBranch], repoDir);
+  assert.equal(sandboxBranchCheck.status, 0, sandboxBranchCheck.stderr || sandboxBranchCheck.stdout);
+  assert.equal(sandboxBranchCheck.stdout.trim(), '', 'setup sandbox branch should be pruned');
+
+  const refreshedGitignore = fs.readFileSync(gitignorePath, 'utf8');
+  assert.match(refreshedGitignore, /^scripts\/\*$/m);
 });
 
 test('setup allows explicit protected-main override for in-place maintenance', () => {
