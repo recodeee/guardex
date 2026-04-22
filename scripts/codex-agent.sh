@@ -6,6 +6,8 @@ AGENT_NAME="${GUARDEX_AGENT_NAME:-agent}"
 BASE_BRANCH="${GUARDEX_BASE_BRANCH:-}"
 BASE_BRANCH_EXPLICIT=0
 CODEX_BIN="${GUARDEX_CODEX_BIN:-codex}"
+NODE_BIN="${GUARDEX_NODE_BIN:-node}"
+CLI_ENTRY="${GUARDEX_CLI_ENTRY:-}"
 AUTO_FINISH_RAW="${GUARDEX_CODEX_AUTO_FINISH:-true}"
 AUTO_REVIEW_ON_CONFLICT_RAW="${GUARDEX_CODEX_AUTO_REVIEW_ON_CONFLICT:-true}"
 AUTO_CLEANUP_RAW="${GUARDEX_CODEX_AUTO_CLEANUP:-true}"
@@ -15,6 +17,23 @@ OPENSPEC_PLAN_SLUG_OVERRIDE="${GUARDEX_OPENSPEC_PLAN_SLUG:-}"
 OPENSPEC_CHANGE_SLUG_OVERRIDE="${GUARDEX_OPENSPEC_CHANGE_SLUG:-}"
 OPENSPEC_CAPABILITY_SLUG_OVERRIDE="${GUARDEX_OPENSPEC_CAPABILITY_SLUG:-}"
 OPENSPEC_MASTERPLAN_LABEL_RAW="${GUARDEX_OPENSPEC_MASTERPLAN_LABEL-masterplan}"
+
+run_guardex_cli() {
+  if [[ -n "$CLI_ENTRY" ]]; then
+    "$NODE_BIN" "$CLI_ENTRY" "$@"
+    return $?
+  fi
+  if command -v gx >/dev/null 2>&1; then
+    gx "$@"
+    return $?
+  fi
+  if command -v gitguardex >/dev/null 2>&1; then
+    gitguardex "$@"
+    return $?
+  fi
+  echo "[codex-agent] Guardex CLI entrypoint unavailable; rerun via gx." >&2
+  return 127
+}
 
 normalize_bool() {
   local raw="${1:-}"
@@ -143,6 +162,7 @@ if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   exit 1
 fi
 repo_root="$(git rev-parse --show-toplevel)"
+active_session_state_script="${repo_root}/scripts/agent-session-state.js"
 
 guardex_env_helper="${repo_root}/scripts/guardex-env.sh"
 if [[ -f "$guardex_env_helper" ]]; then
@@ -373,11 +393,6 @@ start_sandbox_fallback() {
   printf '[agent-branch-start] Worktree: %s\n' "$worktree_path"
 }
 
-if [[ ! -x "${repo_root}/scripts/agent-branch-start.sh" ]]; then
-  echo "[codex-agent] Missing scripts/agent-branch-start.sh. Run: gx setup" >&2
-  exit 1
-fi
-
 start_args=("$TASK_NAME" "$AGENT_NAME")
 if [[ "$BASE_BRANCH_EXPLICIT" -eq 1 ]]; then
   start_args+=("$BASE_BRANCH")
@@ -390,7 +405,7 @@ set +e
 start_output="$(
   GUARDEX_OPENSPEC_AUTO_INIT="$OPENSPEC_AUTO_INIT" \
   GUARDEX_OPENSPEC_MASTERPLAN_LABEL="$OPENSPEC_MASTERPLAN_LABEL_RAW" \
-  bash "${repo_root}/scripts/agent-branch-start.sh" "${start_args[@]}" 2>&1
+  run_guardex_cli branch start "${start_args[@]}" 2>&1
 )"
 start_status=$?
 set -e
@@ -446,6 +461,40 @@ has_origin_remote() {
   git -C "$repo_root" remote get-url origin >/dev/null 2>&1
 }
 
+run_active_session_state() {
+  local action="$1"
+  shift
+
+  if [[ ! -f "$active_session_state_script" ]]; then
+    return 0
+  fi
+  if ! command -v "$NODE_BIN" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  "$NODE_BIN" "$active_session_state_script" "$action" "$@" >/dev/null 2>&1 || true
+}
+
+record_active_session_state() {
+  local wt="$1"
+  local branch="$2"
+
+  run_active_session_state \
+    start \
+    --repo "$repo_root" \
+    --branch "$branch" \
+    --task "$TASK_NAME" \
+    --agent "$AGENT_NAME" \
+    --worktree "$wt" \
+    --pid "$$" \
+    --cli "$CODEX_BIN"
+}
+
+clear_active_session_state() {
+  local branch="$1"
+  run_active_session_state stop --repo "$repo_root" --branch "$branch"
+}
+
 origin_remote_supports_pr_finish() {
   local origin_url
   origin_url="$(git -C "$repo_root" remote get-url origin 2>/dev/null || true)"
@@ -493,7 +542,7 @@ print_takeover_prompt() {
     change_artifact="openspec/changes/${change_slug}/"
   fi
 
-  finish_cmd="bash scripts/agent-branch-finish.sh --branch \"${branch}\" --base ${base_branch} --via-pr --wait-for-merge --cleanup"
+  finish_cmd="gx branch finish --branch \"${branch}\" --base ${base_branch} --via-pr --wait-for-merge --cleanup"
 
   echo "[codex-agent] Takeover sandbox: ${wt}"
   echo "[codex-agent] Takeover prompt: Continue \`${change_slug}\` on branch \`${branch}\`. Work inside \`${wt}\`, review \`${change_artifact}\`, continue from the current state instead of creating a new sandbox, and when the work is done run \`${finish_cmd}\`."
@@ -549,24 +598,12 @@ ensure_openspec_plan_workspace() {
     return 0
   fi
 
-  hydrate_local_helper_in_worktree "$wt" "scripts/openspec/init-plan-workspace.sh"
-
-  local openspec_script="${wt}/scripts/openspec/init-plan-workspace.sh"
-  if [[ ! -f "$openspec_script" ]]; then
-    echo "[codex-agent] Missing OpenSpec init script in sandbox: ${openspec_script}" >&2
-    echo "[codex-agent] Run 'gx setup --target ${repo_root}' and retry." >&2
-    return 1
-  fi
-  if [[ ! -x "$openspec_script" ]]; then
-    chmod +x "$openspec_script" 2>/dev/null || true
-  fi
-
   local plan_slug
   plan_slug="$(resolve_openspec_plan_slug "$branch")"
   local init_output=""
   if ! init_output="$(
     cd "$wt"
-    bash "scripts/openspec/init-plan-workspace.sh" "$plan_slug" 2>&1
+    run_guardex_cli internal run-shell planInit "$plan_slug" 2>&1
   )"; then
     printf '%s\n' "$init_output" >&2
     echo "[codex-agent] OpenSpec workspace initialization failed for plan '${plan_slug}'." >&2
@@ -586,24 +623,12 @@ ensure_openspec_change_workspace() {
     return 0
   fi
 
-  hydrate_local_helper_in_worktree "$wt" "scripts/openspec/init-change-workspace.sh"
-
-  local openspec_script="${wt}/scripts/openspec/init-change-workspace.sh"
-  if [[ ! -f "$openspec_script" ]]; then
-    echo "[codex-agent] Missing OpenSpec change init script in sandbox: ${openspec_script}" >&2
-    echo "[codex-agent] Run 'gx setup --target ${repo_root}' and retry." >&2
-    return 1
-  fi
-  if [[ ! -x "$openspec_script" ]]; then
-    chmod +x "$openspec_script" 2>/dev/null || true
-  fi
-
   local change_slug capability_slug init_output=""
   change_slug="$(resolve_openspec_change_slug "$branch")"
   capability_slug="$(resolve_openspec_capability_slug)"
   if ! init_output="$(
     cd "$wt"
-    bash "scripts/openspec/init-change-workspace.sh" "$change_slug" "$capability_slug" 2>&1
+    run_guardex_cli internal run-shell changeInit "$change_slug" "$capability_slug" 2>&1
   )"; then
     printf '%s\n' "$init_output" >&2
     echo "[codex-agent] OpenSpec workspace initialization failed for change '${change_slug}'." >&2
@@ -632,11 +657,6 @@ worktree_has_changes() {
 claim_changed_files() {
   local wt="$1"
   local branch="$2"
-  local lock_script="${repo_root}/scripts/agent-file-locks.py"
-
-  if [[ ! -x "$lock_script" ]]; then
-    return 0
-  fi
 
   local changed_raw deleted_raw
   changed_raw="$({
@@ -647,7 +667,7 @@ claim_changed_files() {
 
   if [[ -n "$changed_raw" ]]; then
     mapfile -t changed_files < <(printf '%s\n' "$changed_raw")
-    python3 "$lock_script" claim --branch "$branch" "${changed_files[@]}" >/dev/null 2>&1 || true
+    run_guardex_cli locks claim --branch "$branch" "${changed_files[@]}" >/dev/null 2>&1 || true
   fi
 
   deleted_raw="$({
@@ -657,7 +677,7 @@ claim_changed_files() {
 
   if [[ -n "$deleted_raw" ]]; then
     mapfile -t deleted_files < <(printf '%s\n' "$deleted_raw")
-    python3 "$lock_script" allow-delete --branch "$branch" "${deleted_files[@]}" >/dev/null 2>&1 || true
+    run_guardex_cli locks allow-delete --branch "$branch" "${deleted_files[@]}" >/dev/null 2>&1 || true
   fi
 }
 
@@ -806,7 +826,7 @@ run_finish_flow() {
     return 2
   fi
 
-  if finish_output="$(bash "${repo_root}/scripts/agent-branch-finish.sh" "${finish_args[@]}" 2>&1)"; then
+  if finish_output="$(run_guardex_cli branch finish "${finish_args[@]}" 2>&1)"; then
     printf '%s\n' "$finish_output"
     return 0
   fi
@@ -829,7 +849,7 @@ run_finish_flow() {
       fi
     )
 
-    if finish_output="$(bash "${repo_root}/scripts/agent-branch-finish.sh" "${finish_args[@]}" 2>&1)"; then
+    if finish_output="$(run_guardex_cli branch finish "${finish_args[@]}" 2>&1)"; then
       printf '%s\n' "$finish_output"
       return 0
     fi
@@ -858,6 +878,19 @@ if ! ensure_openspec_plan_workspace "$worktree_path" "$worktree_branch"; then
   exit 1
 fi
 
+active_session_recorded=0
+cleanup_active_session_state_on_exit() {
+  set +e
+  if [[ "${active_session_recorded:-0}" -eq 1 && -n "${worktree_branch:-}" && "${worktree_branch:-}" != "HEAD" ]]; then
+    clear_active_session_state "$worktree_branch"
+    active_session_recorded=0
+  fi
+}
+
+record_active_session_state "$worktree_path" "$worktree_branch"
+active_session_recorded=1
+trap cleanup_active_session_state_on_exit EXIT INT TERM
+
 echo "[codex-agent] Launching ${CODEX_BIN} in sandbox: $worktree_path"
 cd "$worktree_path"
 set +e
@@ -866,6 +899,8 @@ codex_exit="$?"
 set -e
 
 cd "$repo_root"
+cleanup_active_session_state_on_exit
+trap - EXIT INT TERM
 final_exit="$codex_exit"
 auto_finish_completed=0
 
@@ -903,18 +938,16 @@ if [[ "$AUTO_FINISH" -eq 1 && -n "$worktree_branch" && "$worktree_branch" != "HE
   fi
 fi
 
-if [[ -x "${repo_root}/scripts/agent-worktree-prune.sh" ]]; then
-  echo "[codex-agent] Session ended (exit=${codex_exit}). Running worktree cleanup..."
-  prune_args=()
-  if [[ "$BASE_BRANCH_EXPLICIT" -eq 1 ]]; then
-    prune_args+=(--base "$BASE_BRANCH")
-  fi
-  if [[ "$AUTO_CLEANUP" -eq 1 && "$auto_finish_completed" -eq 1 ]]; then
-    prune_args+=(--only-dirty-worktrees --delete-branches --delete-remote-branches)
-  fi
-  if ! bash "${repo_root}/scripts/agent-worktree-prune.sh" "${prune_args[@]}"; then
-    echo "[codex-agent] Warning: automatic worktree cleanup failed." >&2
-  fi
+echo "[codex-agent] Session ended (exit=${codex_exit}). Running worktree cleanup..."
+prune_args=()
+if [[ "$BASE_BRANCH_EXPLICIT" -eq 1 ]]; then
+  prune_args+=(--base "$BASE_BRANCH")
+fi
+if [[ "$AUTO_CLEANUP" -eq 1 && "$auto_finish_completed" -eq 1 ]]; then
+  prune_args+=(--only-dirty-worktrees --delete-branches --delete-remote-branches)
+fi
+if ! run_guardex_cli worktree prune "${prune_args[@]}"; then
+  echo "[codex-agent] Warning: automatic worktree cleanup failed." >&2
 fi
 
 if [[ ! -d "$worktree_path" ]]; then
@@ -927,7 +960,7 @@ else
       echo "[codex-agent] Branch kept intentionally. Cleanup on demand: gx cleanup --branch \"${worktree_branch}\""
     else
       print_takeover_prompt "$worktree_path" "$worktree_branch"
-      echo "[codex-agent] If finished, merge with: bash scripts/agent-branch-finish.sh --branch \"${worktree_branch}\" --base dev --via-pr --wait-for-merge"
+      echo "[codex-agent] If finished, merge with: gx branch finish --branch \"${worktree_branch}\" --base dev --via-pr --wait-for-merge"
       echo "[codex-agent] Cleanup on demand: gx cleanup --branch \"${worktree_branch}\""
     fi
   fi

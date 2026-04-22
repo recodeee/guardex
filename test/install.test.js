@@ -6,6 +6,8 @@ const path = require('node:path');
 const cp = require('node:child_process');
 
 const cliPath = path.resolve(__dirname, '..', 'bin', 'multiagent-safety.js');
+const cliSourcePath = path.resolve(__dirname, '..', 'src', 'cli', 'main.js');
+const toolchainSourcePath = path.resolve(__dirname, '..', 'src', 'toolchain', 'index.js');
 const cliVersion = JSON.parse(
   fs.readFileSync(path.resolve(__dirname, '..', 'package.json'), 'utf8'),
 ).version;
@@ -445,7 +447,7 @@ const spawnUnavailableReason = spawnProbe.error
 
 if (!canSpawnChildProcesses) {
   test('self-update prompt requires explicit y/n when approval is not preconfigured', () => {
-    const source = fs.readFileSync(cliPath, 'utf8');
+    const source = fs.readFileSync(toolchainSourcePath, 'utf8');
     assert.match(
       source,
       /const shouldUpdate = interactive\s*\?\s*promptYesNoStrict\(\s*`Update now\?\s*\(\$\{NPM_BIN\} i -g \$\{packageJson\.name\}@latest\)`\s*,?\s*\)\s*:\s*autoApproval;/s,
@@ -2758,7 +2760,7 @@ exit 1
 });
 
 test('self-update prompt requires explicit y/n when approval is not preconfigured', () => {
-  const source = fs.readFileSync(cliPath, 'utf8');
+  const source = fs.readFileSync(toolchainSourcePath, 'utf8');
   assert.match(
     source,
     /const shouldUpdate = interactive\s*\?\s*promptYesNoStrict\(\s*`Update now\?\s*\(\$\{NPM_BIN\} i -g \$\{packageJson\.name\}@latest\)`\s*,?\s*\)\s*:\s*autoApproval;/s,
@@ -2812,7 +2814,7 @@ exit 1
 });
 
 test('openspec update prompt requires explicit y/n when approval is not preconfigured', () => {
-  const source = fs.readFileSync(cliPath, 'utf8');
+  const source = fs.readFileSync(toolchainSourcePath, 'utf8');
   assert.match(
     source,
     /const shouldUpdate = interactive\s*\?\s*promptYesNoStrict\(\s*`Update OpenSpec now\?\s*\(\$\{NPM_BIN\} i -g \$\{OPENSPEC_PACKAGE\}@latest && \$\{OPENSPEC_BIN\} update\)`\s*,?\s*\)\s*:\s*autoApproval;/s,
@@ -4701,6 +4703,24 @@ test('prompt --exec outputs command-only checklist', () => {
   assert.match(result.stdout, /^gx finish --all$/m);
   assert.match(result.stdout, /^gx cleanup$/m);
   assert.doesNotMatch(result.stdout, /GitGuardex \(gx\) setup checklist/);
+});
+
+test('thin entrypoint still routes hook install through the extracted hooks module', () => {
+  const repoDir = initRepo();
+  const result = runNode(['hook', 'install', '--target', repoDir], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /\[gitguardex\] Hook install target:/);
+
+  const hooksPath = runCmd('git', ['config', '--get', 'core.hooksPath'], repoDir);
+  assert.equal(hooksPath.status, 0, hooksPath.stderr || hooksPath.stdout);
+  assert.equal(hooksPath.stdout.trim(), '.githooks');
+});
+
+test('thin entrypoint routes finish --all --dry-run through the extracted finish module', () => {
+  const repoDir = initRepo();
+  const result = runNode(['finish', '--all', '--dry-run', '--target', repoDir], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /\[gitguardex\] No pending agent branches to finish\./);
 });
 
 test('deprecated copy-prompt alias still works and warns', () => {

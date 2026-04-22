@@ -7,6 +7,8 @@ BASE_BRANCH=""
 BASE_BRANCH_EXPLICIT=0
 WORKTREE_ROOT_REL=""
 WORKTREE_ROOT_EXPLICIT=0
+NODE_BIN="${GUARDEX_NODE_BIN:-node}"
+CLI_ENTRY="${GUARDEX_CLI_ENTRY:-}"
 OPENSPEC_AUTO_INIT_RAW="${GUARDEX_OPENSPEC_AUTO_INIT:-false}"
 OPENSPEC_PLAN_SLUG_OVERRIDE="${GUARDEX_OPENSPEC_PLAN_SLUG:-}"
 OPENSPEC_CHANGE_SLUG_OVERRIDE="${GUARDEX_OPENSPEC_CHANGE_SLUG:-}"
@@ -14,6 +16,23 @@ OPENSPEC_CAPABILITY_SLUG_OVERRIDE="${GUARDEX_OPENSPEC_CAPABILITY_SLUG:-}"
 OPENSPEC_MASTERPLAN_LABEL_RAW="${GUARDEX_OPENSPEC_MASTERPLAN_LABEL-masterplan}"
 PRINT_NAME_ONLY=0
 POSITIONAL_ARGS=()
+
+run_guardex_cli() {
+  if [[ -n "$CLI_ENTRY" ]]; then
+    "$NODE_BIN" "$CLI_ENTRY" "$@"
+    return $?
+  fi
+  if command -v gx >/dev/null 2>&1; then
+    gx "$@"
+    return $?
+  fi
+  if command -v gitguardex >/dev/null 2>&1; then
+    gitguardex "$@"
+    return $?
+  fi
+  echo "[agent-branch-start] Guardex CLI entrypoint unavailable; rerun via gx." >&2
+  return 127
+}
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -385,26 +404,14 @@ initialize_openspec_plan_workspace() {
   local worktree="$2"
   local plan_slug="$3"
 
-  hydrate_local_helper_in_worktree "$repo" "$worktree" "scripts/openspec/init-plan-workspace.sh"
-
   if [[ "$OPENSPEC_AUTO_INIT" -ne 1 ]]; then
     return 0
-  fi
-
-  local openspec_script="${worktree}/scripts/openspec/init-plan-workspace.sh"
-  if [[ ! -f "$openspec_script" ]]; then
-    echo "[agent-branch-start] OpenSpec init script is missing in sandbox worktree." >&2
-    echo "[agent-branch-start] Run 'gx setup --target \"$repo\"' to repair templates, then retry." >&2
-    return 1
-  fi
-  if [[ ! -x "$openspec_script" ]]; then
-    chmod +x "$openspec_script" 2>/dev/null || true
   fi
 
   local init_output=""
   if ! init_output="$(
     cd "$worktree"
-    bash "scripts/openspec/init-plan-workspace.sh" "$plan_slug" 2>&1
+    run_guardex_cli internal run-shell planInit "$plan_slug" 2>&1
   )"; then
     printf '%s\n' "$init_output" >&2
     echo "[agent-branch-start] OpenSpec workspace initialization failed for plan '${plan_slug}'." >&2
@@ -423,26 +430,14 @@ initialize_openspec_change_workspace() {
   local change_slug="$3"
   local capability_slug="$4"
 
-  hydrate_local_helper_in_worktree "$repo" "$worktree" "scripts/openspec/init-change-workspace.sh"
-
   if [[ "$OPENSPEC_AUTO_INIT" -ne 1 ]]; then
     return 0
-  fi
-
-  local openspec_script="${worktree}/scripts/openspec/init-change-workspace.sh"
-  if [[ ! -f "$openspec_script" ]]; then
-    echo "[agent-branch-start] OpenSpec change init script is missing in sandbox worktree." >&2
-    echo "[agent-branch-start] Run 'gx setup --target \"$repo\"' to repair templates, then retry." >&2
-    return 1
-  fi
-  if [[ ! -x "$openspec_script" ]]; then
-    chmod +x "$openspec_script" 2>/dev/null || true
   fi
 
   local init_output=""
   if ! init_output="$(
     cd "$worktree"
-    bash "scripts/openspec/init-change-workspace.sh" "$change_slug" "$capability_slug" 2>&1
+    run_guardex_cli internal run-shell changeInit "$change_slug" "$capability_slug" 2>&1
   )"; then
     printf '%s\n' "$init_output" >&2
     echo "[agent-branch-start] OpenSpec workspace initialization failed for change '${change_slug}'." >&2
@@ -592,7 +587,6 @@ if [[ -n "$auto_transfer_stash_ref" ]]; then
   fi
 fi
 
-hydrate_local_helper_in_worktree "$repo_root" "$worktree_path" "scripts/codex-agent.sh"
 hydrate_dependency_dir_symlink_in_worktree "$repo_root" "$worktree_path" "node_modules"
 hydrate_dependency_dir_symlink_in_worktree "$repo_root" "$worktree_path" "apps/frontend/node_modules"
 hydrate_dependency_dir_symlink_in_worktree "$repo_root" "$worktree_path" "apps/backend/node_modules"
@@ -609,6 +603,6 @@ echo "[agent-branch-start] OpenSpec change: openspec/changes/${openspec_change_s
 echo "[agent-branch-start] OpenSpec plan: openspec/plan/${openspec_plan_slug}"
 echo "[agent-branch-start] Next steps:"
 echo "  cd \"${worktree_path}\""
-echo "  python3 scripts/agent-file-locks.py claim --branch \"${branch_name}\" <file...>"
+echo "  gx locks claim --branch \"${branch_name}\" <file...>"
 echo "  # implement + commit"
-echo "  bash scripts/agent-branch-finish.sh --branch \"${branch_name}\" --base ${BASE_BRANCH} --via-pr --wait-for-merge"
+echo "  gx branch finish --branch \"${branch_name}\" --base ${BASE_BRANCH} --via-pr --wait-for-merge"

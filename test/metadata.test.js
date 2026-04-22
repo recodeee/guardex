@@ -141,23 +141,62 @@ test('critical runtime helper scripts stay in sync with templates', () => {
   }
 });
 
-test('doctor CLI parser exists to prevent runtime ReferenceError regressions', () => {
-  const cliPath = path.join(repoRoot, 'bin', 'multiagent-safety.js');
-  const cliSource = fs.readFileSync(cliPath, 'utf8');
-  assert.match(cliSource, /function parseDoctorArgs\(rawArgs\)/);
+test('thin CLI entrypoint delegates to src/cli runtime', () => {
+  const entryPath = path.join(repoRoot, 'bin', 'multiagent-safety.js');
+  const entrySource = fs.readFileSync(entryPath, 'utf8');
+  assert.match(entrySource, /require\('\.\.\/src\/cli\/main'\)/);
+  assert.match(entrySource, /runFromBin\(\)/);
+});
+
+test('package manifest ships the extracted src runtime', () => {
+  const pkg = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+  assert.ok(Array.isArray(pkg.files), 'package.json files must stay explicit');
+  assert.match(pkg.files.join('\n'), /^src$/m);
+});
+
+test('doctor CLI parser exists in src/cli args and main runtime to prevent ReferenceError regressions', () => {
+  const argsSource = fs.readFileSync(path.join(repoRoot, 'src', 'cli', 'args.js'), 'utf8');
+  const cliSource = fs.readFileSync(path.join(repoRoot, 'src', 'cli', 'main.js'), 'utf8');
+  assert.match(argsSource, /function parseDoctorArgs\(rawArgs(?:, options = \{\})?\)/);
   assert.match(cliSource, /function doctorAudit\(rawArgs\)/);
 });
 
-test('active doctor command remains single-source and runs the repair-first path', () => {
-  const cliPath = path.join(repoRoot, 'bin', 'multiagent-safety.js');
-  const cliSource = fs.readFileSync(cliPath, 'utf8');
+test('cli main delegates extracted seams and keeps doctor single-source', () => {
+  const cliSource = fs.readFileSync(path.join(repoRoot, 'src', 'cli', 'main.js'), 'utf8');
   const doctorDefs = cliSource.match(/function doctor\(rawArgs\)/g) || [];
   assert.equal(doctorDefs.length, 1, 'doctor() must not be duplicated');
+  assert.match(cliSource, /function assertProtectedMainWriteAllowed\(options, commandName\)\s*{\s*return getSandboxApi\(\)\.assertProtectedMainWriteAllowed\(options, commandName\);\s*}/s);
+  assert.match(cliSource, /function maybeSelfUpdateBeforeStatus\(\)\s*{\s*return getToolchainApi\(\)\.maybeSelfUpdateBeforeStatus\(\);\s*}/s);
+  assert.match(cliSource, /function configureHooks\(repoRoot, dryRun\)\s*{\s*return hooksModule\.configureHooks\(repoRoot, dryRun\);\s*}/s);
+  assert.match(cliSource, /function printOperations\(title, payload, dryRun = false\)\s*{\s*return scaffoldModule\.printOperations\(title, payload, dryRun\);\s*}/s);
+  assert.match(cliSource, /function hook\(rawArgs\)\s*{\s*return hooksModule\.hook\(rawArgs\);\s*}/s);
+  assert.match(cliSource, /function finish\(rawArgs, defaults = \{\}\)\s*{\s*return getFinishApi\(\)\.finish\(rawArgs, defaults\);\s*}/s);
   assert.match(cliSource, /printOperations\('Doctor\/fix', fixPayload, (?:singleRepoOptions|options)\.dryRun\);/);
 });
 
+test('extracted scaffold and git helpers expose the runtime contract expected by cli main', () => {
+  const scaffold = require(path.join(repoRoot, 'src', 'scaffold'));
+  const git = require(path.join(repoRoot, 'src', 'git'));
+
+  for (const key of [
+    'toDestinationPath',
+    'ensureParentDir',
+    'ensureExecutable',
+    'isCriticalGuardrailPath',
+    'shellSingleQuote',
+    'renderShellDispatchShim',
+    'renderPythonDispatchShim',
+    'managedForceConflictMessage',
+    'printOperations',
+    'printStandaloneOperations',
+  ]) {
+    assert.equal(typeof scaffold[key], 'function', `src/scaffold must export ${key}`);
+  }
+
+  assert.equal(git.DEFAULT_NESTED_REPO_MAX_DEPTH, 6);
+});
+
 test('worktree-change detection uses normal untracked-file mode', () => {
-  const cliPath = path.join(repoRoot, 'bin', 'multiagent-safety.js');
-  const cliSource = fs.readFileSync(cliPath, 'utf8');
+  const cliSource = fs.readFileSync(path.join(repoRoot, 'src', 'cli', 'main.js'), 'utf8');
   assert.match(cliSource, /'status',\s*'--porcelain',\s*'--untracked-files=normal',\s*'--'/s);
 });
