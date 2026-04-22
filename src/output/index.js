@@ -87,6 +87,62 @@ function detectAutoFinishSummaryStatus(summary) {
   return null;
 }
 
+const AUTO_FINISH_DETAIL_PRIORITY = new Map([
+  ['fail', 0],
+  ['pending', 1],
+  ['done', 2],
+  ['skip', 3],
+]);
+
+function autoFinishDetailPriority(status) {
+  return AUTO_FINISH_DETAIL_PRIORITY.get(status) ?? AUTO_FINISH_DETAIL_PRIORITY.size;
+}
+
+function sortAutoFinishDetailEntries(details) {
+  return details
+    .map((detail, index) => {
+      const status = detectAutoFinishDetailStatus(detail) || 'other';
+      return {
+        detail,
+        index,
+        status,
+        priority: autoFinishDetailPriority(status),
+      };
+    })
+    .sort((left, right) => (left.priority - right.priority) || (left.index - right.index));
+}
+
+function summarizeHiddenAutoFinishDetails(hiddenEntries) {
+  const counts = new Map();
+  for (const entry of hiddenEntries) {
+    counts.set(entry.status, (counts.get(entry.status) || 0) + 1);
+  }
+
+  const segments = ['fail', 'pending', 'done', 'skip', 'other']
+    .map((status) => {
+      const count = counts.get(status) || 0;
+      return count > 0 ? `${status}=${count}` : '';
+    })
+    .filter(Boolean);
+
+  let status = null;
+  if ((counts.get('fail') || 0) > 0) {
+    status = 'fail';
+  } else if ((counts.get('pending') || 0) > 0) {
+    status = 'pending';
+  } else if ((counts.get('done') || 0) > 0) {
+    status = 'done';
+  } else if ((counts.get('skip') || 0) > 0) {
+    status = 'skip';
+  }
+
+  return {
+    status,
+    message: `… ${hiddenEntries.length} more branch result(s) hidden: ${segments.join(', ')}. ` +
+      'Re-run with --verbose-auto-finish for full details.',
+  };
+}
+
 function statusDot(status) {
   if (status === 'active') {
     return colorize('●', '32');
@@ -360,15 +416,19 @@ function printAutoFinishSummary(summary, options = {}) {
         detectAutoFinishSummaryStatus(summary),
       ),
     );
-    const visibleDetails = verbose ? details : details.slice(0, detailLimit).map(summarizeAutoFinishDetail);
+    const sortedDetailEntries = verbose ? [] : sortAutoFinishDetailEntries(details);
+    const visibleDetails = verbose
+      ? details
+      : sortedDetailEntries.slice(0, detailLimit).map((entry) => summarizeAutoFinishDetail(entry.detail));
     for (const detail of visibleDetails) {
       console.log(colorizeDoctorOutput(`[${TOOL_NAME}]   ${detail}`, detectAutoFinishDetailStatus(detail)));
     }
-    if (!verbose && details.length > visibleDetails.length) {
+    if (!verbose && sortedDetailEntries.length > visibleDetails.length) {
+      const hiddenSummary = summarizeHiddenAutoFinishDetails(sortedDetailEntries.slice(visibleDetails.length));
       console.log(
         colorizeDoctorOutput(
-          `[${TOOL_NAME}]   … ${details.length - visibleDetails.length} more branch result(s). Re-run with --verbose-auto-finish for full details.`,
-          'warn',
+          `[${TOOL_NAME}]   ${hiddenSummary.message}`,
+          hiddenSummary.status || 'warn',
         ),
       );
     }
