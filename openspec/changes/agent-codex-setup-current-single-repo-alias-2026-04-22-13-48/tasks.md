@@ -28,7 +28,7 @@ Handoff: change=`agent-codex-setup-current-single-repo-alias-2026-04-22-13-48`; 
 
 ## 4. Cleanup
 
-- [ ] 4.1 Commit the change with a Lore commit message.
+- [x] 4.1 Commit the change with a Lore commit message. Result: `d942b84`.
 - [ ] 4.2 Run `gx branch finish --branch agent/codex/setup-current-single-repo-alias-2026-04-22-13-48 --base main --via-pr --wait-for-merge --cleanup`.
 - [ ] 4.3 Record the PR URL and final merge state (`MERGED`) in the completion handoff.
 - [ ] 4.4 Confirm the sandbox worktree and branch refs are gone after cleanup.
