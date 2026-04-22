@@ -36,6 +36,12 @@ Verification evidence:
 
 ## 4. Cleanup (mandatory; run before claiming completion)
 
-- [ ] 4.1 Run the cleanup pipeline: `gx branch finish --branch agent/codex/mirror-recodee-token-and-caveman-agents-2026-04-22-23-28 --base main --via-pr --wait-for-merge --cleanup`. This handles commit -> push -> PR create -> merge wait -> worktree prune in one invocation.
-- [ ] 4.2 Record the PR URL and final merge state (`MERGED`) in the completion handoff.
-- [ ] 4.3 Confirm the sandbox worktree is gone (`git worktree list` no longer shows the agent path; `git branch -a` shows no surviving local/remote refs for the branch).
+- [x] 4.1 Run the cleanup pipeline: `gx branch finish --branch agent/codex/mirror-recodee-token-and-caveman-agents-2026-04-22-23-28 --base main --via-pr --wait-for-merge --cleanup`. This handles commit -> push -> PR create -> merge wait -> worktree prune in one invocation.
+- [x] 4.2 Record the PR URL and final merge state (`MERGED`) in the completion handoff.
+- [x] 4.3 Confirm the sandbox worktree is gone (`git worktree list` no longer shows the agent path; `git branch -a` shows no surviving local/remote refs for the branch).
+
+Cleanup evidence:
+- `gx branch finish --branch agent/codex/mirror-recodee-token-and-caveman-agents-2026-04-22-23-28 --base main --via-pr --wait-for-merge --cleanup` completed successfully from the primary checkout.
+- `gh pr view "agent/codex/mirror-recodee-token-and-caveman-agents-2026-04-22-23-28" --repo recodeee/gitguardex --json number,url,state,mergedAt,headRefName,baseRefName` returned PR `#349`, `https://github.com/recodeee/gitguardex/pull/349`, state `MERGED`, merged at `2026-04-22T21:38:08Z`.
+- `git worktree list` no longer shows `/home/deadpool/Documents/recodee/gitguardex/.omx/agent-worktrees/agent__codex__mirror-recodee-token-and-caveman-agents-2026-04-22-23-28`.
+- `git branch -a --list "agent/codex/mirror-recodee-token-and-caveman-agents-2026-04-22-23-28" "remotes/origin/agent/codex/mirror-recodee-token-and-caveman-agents-2026-04-22-23-28"` returned no surviving refs.
