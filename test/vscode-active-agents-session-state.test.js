@@ -123,6 +123,7 @@ function createMockVscode(tempRoot) {
     providers: [],
     decorationProviders: [],
     treeViews: [],
+    statusBarItems: [],
     commands: new Map(),
     executedCommands: [],
     sourceControls: [],
@@ -245,6 +246,10 @@ function createMockVscode(tempRoot) {
         None: 0,
         Expanded: 1,
       },
+      StatusBarAlignment: {
+        Left: 1,
+        Right: 2,
+      },
       commands: {
         executeCommand: async (command, ...args) => {
           registrations.executedCommands.push({ command, args });
@@ -363,6 +368,26 @@ function createMockVscode(tempRoot) {
           registrations.treeViews.push(treeView);
           registrations.providers.push({ viewId, provider: options.treeDataProvider });
           return treeView;
+        },
+        createStatusBarItem: (alignment, priority) => {
+          const statusBarItem = {
+            alignment,
+            priority,
+            text: '',
+            tooltip: '',
+            command: undefined,
+            name: undefined,
+            visible: false,
+            show() {
+              this.visible = true;
+            },
+            hide() {
+              this.visible = false;
+            },
+            dispose() {},
+          };
+          registrations.statusBarItems.push(statusBarItem);
+          return statusBarItem;
         },
         registerFileDecorationProvider: (provider) => {
           registrations.decorationProviders.push(provider);
@@ -731,8 +756,12 @@ test('active-agents extension registers tree and decoration providers', async ()
 
   assert.equal(registrations.treeViews.length, 1);
   assert.equal(registrations.sourceControls.length, 1);
+  assert.equal(registrations.statusBarItems.length, 1);
   assert.equal(registrations.treeViews[0].viewId, 'gitguardex.activeAgents');
   assert.equal(registrations.sourceControls[0].label, 'Active Agents Commit');
+  assert.equal(registrations.statusBarItems[0].name, 'GitGuardex Active Agents');
+  assert.equal(registrations.statusBarItems[0].command, 'gitguardex.activeAgents.focus');
+  assert.equal(registrations.statusBarItems[0].visible, false);
   assert.equal(
     registrations.sourceControls[0].inputBox.placeholder,
     'Pick an Active Agents session to commit its worktree.',
@@ -1587,7 +1616,7 @@ test('active-agents extension commits the selected session worktree from the SCM
 
   assert.equal(
     registrations.sourceControls[0].inputBox.placeholder,
-    `Commit ${sessionItem.session.label} (Ctrl+Enter)`,
+    `Commit ${sessionItem.session.agentName} · ${sessionItem.session.taskName} on ${sessionItem.session.branch} · 0 locks (Ctrl+Enter)`,
   );
   registrations.sourceControls[0].inputBox.value = 'Ship the selected sandbox';
 

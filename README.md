@@ -269,7 +269,7 @@ To install the real companion into local VS Code from a GitGuardex-wired repo:
 node scripts/install-vscode-active-agents-extension.js
 ```
 
-It adds an `Active Agents` view to the Source Control container, groups each live repo into `ACTIVE AGENTS` and `CHANGES` sections, splits `ACTIVE AGENTS` into `BLOCKED`, `WORKING NOW`, `IDLE`, `STALLED`, and `DEAD` when those states are present, reads `.omx/state/active-sessions/*.json`, derives session state from git conflict markers, dirty worktree status, PID liveness, and recent file mtimes, and surfaces working/dead counts in the repo/header affordances. Reload the VS Code window after install.
+It adds an `Active Agents` view to the Source Control container, groups each live repo into `ACTIVE AGENTS` and `CHANGES` sections, splits `ACTIVE AGENTS` into `BLOCKED`, `WORKING NOW`, `IDLE`, `STALLED`, and `DEAD` when those states are present, mirrors the selected session or active-agent count in the VS Code status bar, reads `.omx/state/active-sessions/*.json`, derives session state from git conflict markers, dirty worktree status, PID liveness, and recent file mtimes, and surfaces working/dead counts in the repo/header affordances. Reload the VS Code window after install.
 
 ---
 

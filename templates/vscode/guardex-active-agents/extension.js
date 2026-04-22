@@ -93,10 +93,83 @@ function sessionIdleDecoration(session, now = Date.now()) {
   return undefined;
 }
 
+function formatCountLabel(count, singular, plural = `${singular}s`) {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function sessionIdentityLabel(session) {
+  const agentName = typeof session?.agentName === 'string' ? session.agentName.trim() : '';
+  const taskName = typeof session?.taskName === 'string' ? session.taskName.trim() : '';
+  const label = typeof session?.label === 'string' ? session.label.trim() : '';
+
+  if (agentName && taskName) {
+    return `${agentName} · ${taskName}`;
+  }
+  if (agentName && label) {
+    return `${agentName} · ${label}`;
+  }
+
+  return agentName || taskName || label || 'session';
+}
+
+function sessionCommitPlaceholder(session) {
+  if (!session?.branch) {
+    return 'Pick an Active Agents session to commit its worktree.';
+  }
+
+  return `Commit ${sessionIdentityLabel(session)} on ${session.branch} · ${formatCountLabel(session.lockCount || 0, 'lock')} (Ctrl+Enter)`;
+}
+
+function agentNameFromBranch(branch) {
+  const segments = String(branch || '')
+    .split('/')
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+  if (segments[0] === 'agent' && segments[1]) {
+    return segments[1];
+  }
+  return segments[0] || 'lock';
+}
+
+function agentBadgeFromBranch(branch) {
+  const normalized = agentNameFromBranch(branch).toUpperCase().replace(/[^A-Z0-9]/g, '');
+  return normalized.slice(0, 2) || 'LK';
+}
+
+function buildActiveAgentsStatusSummary(summary) {
+  const activeCount = Math.max(0, (summary?.sessionCount || 0) - (summary?.deadCount || 0));
+  if (activeCount > 0) {
+    return `$(git-branch) ${formatCountLabel(activeCount, 'active agent')}`;
+  }
+  return `$(git-branch) ${formatCountLabel(summary?.sessionCount || 0, 'tracked session')}`;
+}
+
+function buildActiveAgentsStatusTooltip(selectedSession, summary) {
+  if (selectedSession?.branch) {
+    return [
+      selectedSession.branch,
+      sessionIdentityLabel(selectedSession),
+      formatCountLabel(selectedSession.lockCount || 0, 'lock'),
+      selectedSession.worktreePath,
+      'Click to open Source Control.',
+    ].filter(Boolean).join('\n');
+  }
+
+  const activeCount = Math.max(0, (summary?.sessionCount || 0) - (summary?.deadCount || 0));
+  return [
+    formatCountLabel(activeCount, 'active agent'),
+    formatCountLabel(summary?.workingCount || 0, 'working now session', 'working now sessions'),
+    summary?.deadCount ? formatCountLabel(summary.deadCount, 'dead session') : '',
+    'Click to open Source Control.',
+  ].filter(Boolean).join('\n');
+}
+
 class SessionDecorationProvider {
   constructor(nowProvider = () => Date.now()) {
     this.nowProvider = nowProvider;
     this.sessionsByUri = new Map();
+    this.lockEntriesByFileUri = new Map();
+    this.selectedBranch = '';
     this.onDidChangeFileDecorationsEmitter = new vscode.EventEmitter();
     this.onDidChangeFileDecorations = this.onDidChangeFileDecorationsEmitter.event;
   }
@@ -107,13 +180,54 @@ class SessionDecorationProvider {
     );
   }
 
+  updateLockEntries(repoEntries) {
+    const nextEntriesByUri = new Map();
+    for (const entry of repoEntries || []) {
+      for (const [relativePath, lockEntry] of entry.lockEntries || []) {
+        nextEntriesByUri.set(
+          vscode.Uri.file(path.join(entry.repoRoot, relativePath)).toString(),
+          { branch: lockEntry.branch },
+        );
+      }
+    }
+    this.lockEntriesByFileUri = nextEntriesByUri;
+  }
+
+  setSelectedBranch(branch) {
+    this.selectedBranch = typeof branch === 'string' ? branch.trim() : '';
+  }
+
   refresh() {
     this.onDidChangeFileDecorationsEmitter.fire();
   }
 
   provideFileDecoration(uri) {
     if (!uri || uri.scheme !== SESSION_DECORATION_SCHEME) {
-      return undefined;
+      if (!uri || uri.scheme !== 'file') {
+        return undefined;
+      }
+
+      const lockEntry = this.lockEntriesByFileUri.get(uri.toString());
+      if (!lockEntry?.branch) {
+        return undefined;
+      }
+
+      const ownsSelectedSession = Boolean(this.selectedBranch) && lockEntry.branch === this.selectedBranch;
+      return {
+        badge: agentBadgeFromBranch(lockEntry.branch),
+        tooltip: ownsSelectedSession
+          ? `Locked by selected session ${lockEntry.branch}`
+          : this.selectedBranch
+            ? `Locked by ${lockEntry.branch} (selected session: ${this.selectedBranch})`
+            : `Locked by ${lockEntry.branch}`,
+        color: new vscode.ThemeColor(
+          ownsSelectedSession
+            ? 'gitDecoration.modifiedResourceForeground'
+            : this.selectedBranch
+              ? 'list.errorForeground'
+              : 'list.warningForeground',
+        ),
+      };
     }
 
     return sessionIdleDecoration(this.sessionsByUri.get(uri.toString()), this.nowProvider());
@@ -836,6 +950,11 @@ class ActiveAgentsProvider {
     this.treeView = null;
     this.lockRegistryByRepoRoot = new Map();
     this.selectedSession = null;
+    this.viewSummary = {
+      sessionCount: 0,
+      workingCount: 0,
+      deadCount: 0,
+    };
   }
 
   getTreeItem(element) {
@@ -856,6 +975,7 @@ class ActiveAgentsProvider {
     const currentKey = sessionSelectionKey(this.selectedSession);
     const nextKey = sessionSelectionKey(nextSession);
     this.selectedSession = nextSession;
+    this.decorationProvider?.setSelectedBranch(nextSession?.branch || '');
     if (currentKey !== nextKey) {
       this.onDidChangeSelectedSessionEmitter.fire(this.selectedSession);
     }
@@ -863,6 +983,10 @@ class ActiveAgentsProvider {
 
   getSelectedSession() {
     return this.selectedSession ? { ...this.selectedSession } : null;
+  }
+
+  getViewSummary() {
+    return { ...this.viewSummary };
   }
 
   syncSelectedSession(repoEntries) {
@@ -882,6 +1006,11 @@ class ActiveAgentsProvider {
     }
 
     const activeCount = Math.max(0, sessionCount - deadCount);
+    this.viewSummary = {
+      sessionCount,
+      workingCount,
+      deadCount,
+    };
     const badgeTooltipParts = [];
     if (activeCount > 0) {
       badgeTooltipParts.push(`${activeCount} active agent${activeCount === 1 ? '' : 's'}`);
@@ -918,6 +1047,7 @@ class ActiveAgentsProvider {
 
     this.updateViewState(sessionCount, workingCount, deadCount);
     this.decorationProvider?.updateSessions(repoEntries.flatMap((entry) => entry.sessions));
+    this.decorationProvider?.updateLockEntries(repoEntries);
     return repoEntries;
   }
 
@@ -996,6 +1126,7 @@ class ActiveAgentsProvider {
         changes: readRepoChanges(repoRoot).map((change) => (
           decorateChange(change, lockRegistry, currentBranch)
         )),
+        lockEntries: Array.from(lockRegistry.entriesByPath.entries()),
       };
     });
   }
@@ -1080,6 +1211,9 @@ function activate(context) {
     'gitguardex.activeAgents.commitInput',
     'Active Agents Commit',
   );
+  const activeAgentsStatusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 10);
+  activeAgentsStatusItem.name = 'GitGuardex Active Agents';
+  activeAgentsStatusItem.command = 'gitguardex.activeAgents.focus';
   provider.attachTreeView(treeView);
   const scheduleRefresh = () => refreshController.scheduleRefresh();
   const refresh = () => void refreshController.refreshNow();
@@ -1089,11 +1223,24 @@ function activate(context) {
   const updateCommitInput = (session) => {
     sourceControl.inputBox.enabled = true;
     sourceControl.inputBox.visible = true;
-    sourceControl.inputBox.placeholder = session?.label
-      ? `Commit ${session.label} (Ctrl+Enter)`
-      : 'Pick an Active Agents session to commit its worktree.';
+    sourceControl.inputBox.placeholder = sessionCommitPlaceholder(session);
+  };
+  const updateStatusBar = () => {
+    const selectedSession = provider.getSelectedSession();
+    const summary = provider.getViewSummary();
+    if ((summary.sessionCount || 0) <= 0) {
+      activeAgentsStatusItem.hide();
+      return;
+    }
+
+    activeAgentsStatusItem.text = selectedSession?.branch
+      ? `$(git-branch) ${sessionIdentityLabel(selectedSession)} · ${formatCountLabel(selectedSession.lockCount || 0, 'lock')}`
+      : buildActiveAgentsStatusSummary(summary);
+    activeAgentsStatusItem.tooltip = buildActiveAgentsStatusTooltip(selectedSession, summary);
+    activeAgentsStatusItem.show();
   };
   updateCommitInput(null);
+  updateStatusBar();
   const commitSelectedSession = async () => {
     const selectedSession = provider.getSelectedSession();
     if (!selectedSession?.worktreePath) {
@@ -1140,15 +1287,27 @@ function activate(context) {
     scheduleRefresh();
   };
 
-  provider.onDidChangeSelectedSession(updateCommitInput);
+  provider.onDidChangeSelectedSession((session) => {
+    updateCommitInput(session);
+    updateStatusBar();
+    decorationProvider.refresh();
+  });
+  provider.onDidChangeTreeData(() => {
+    updateCommitInput(provider.getSelectedSession());
+    updateStatusBar();
+  });
 
   context.subscriptions.push(
     treeView,
     sourceControl,
+    activeAgentsStatusItem,
     refreshController,
     vscode.window.registerFileDecorationProvider(decorationProvider),
     vscode.commands.registerCommand('gitguardex.activeAgents.startAgent', () => startAgentFromPrompt(refresh)),
     vscode.commands.registerCommand('gitguardex.activeAgents.refresh', refresh),
+    vscode.commands.registerCommand('gitguardex.activeAgents.focus', async () => {
+      await vscode.commands.executeCommand('workbench.view.scm');
+    }),
     vscode.commands.registerCommand('gitguardex.activeAgents.commitSelectedSession', commitSelectedSession),
     vscode.commands.registerCommand('gitguardex.activeAgents.openWorktree', async (session) => {
       if (!session?.worktreePath) {
