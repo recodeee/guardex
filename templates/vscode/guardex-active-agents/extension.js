@@ -899,7 +899,7 @@ async function maybeAutoUpdateActiveAgentsExtension(context) {
   }
 
   const selection = await vscode.window.showInformationMessage?.(
-    `GitGuardex Active Agents updated to ${candidate.version}. Reload Window to use the newest companion.`,
+    `GitGuardex Active Agents updated to ${candidate.version}. Reload this window now, then reload any other already-open VS Code windows to use the newest companion.`,
     RELOAD_WINDOW_ACTION,
     UPDATE_LATER_ACTION,
   );

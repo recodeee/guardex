@@ -4,6 +4,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
+const PATCH_COMPATIBILITY_WINDOW = 20;
+
 function parseOptions(argv) {
   const options = {};
   for (let index = 0; index < argv.length; index += 1) {
@@ -43,6 +45,26 @@ function removeIfExists(targetPath) {
   }
 }
 
+function parseSimpleSemver(version) {
+  const parts = String(version || '').trim().split('.').map((part) => Number.parseInt(part, 10));
+  if (parts.length !== 3 || parts.some((part) => Number.isNaN(part))) {
+    throw new Error(`Expected simple semver for the Active Agents companion, received "${version}".`);
+  }
+  return parts;
+}
+
+function buildInstallTargets(extensionId, version, extensionsDir) {
+  const [major, minor, patch] = parseSimpleSemver(version);
+  const firstCompatiblePatch = Math.max(0, patch - PATCH_COMPATIBILITY_WINDOW);
+  const targets = [path.join(extensionsDir, extensionId)];
+
+  for (let compatiblePatch = firstCompatiblePatch; compatiblePatch <= patch; compatiblePatch += 1) {
+    targets.push(path.join(extensionsDir, `${extensionId}-${major}.${minor}.${compatiblePatch}`));
+  }
+
+  return targets;
+}
+
 function main() {
   const repoRoot = path.resolve(__dirname, '..');
   const options = parseOptions(process.argv.slice(2));
@@ -57,30 +79,35 @@ function main() {
   );
 
   fs.mkdirSync(extensionsDir, { recursive: true });
-  const targetDir = path.join(extensionsDir, `${extensionId}-${manifest.version}`);
+  const targetDirs = buildInstallTargets(extensionId, manifest.version, extensionsDir);
+  const canonicalTargetDir = targetDirs[0];
+  const keepDirNames = new Set(targetDirs.map((targetDir) => path.basename(targetDir)));
 
   for (const entry of fs.readdirSync(extensionsDir, { withFileTypes: true })) {
     if (!entry.isDirectory()) {
       continue;
     }
-    if (entry.name === path.basename(targetDir)) {
+    if (keepDirNames.has(entry.name)) {
       continue;
     }
-    if (entry.name.startsWith(`${extensionId}-`)) {
+    if (entry.name === extensionId || entry.name.startsWith(`${extensionId}-`)) {
       removeIfExists(path.join(extensionsDir, entry.name));
     }
   }
 
-  removeIfExists(targetDir);
-  fs.cpSync(sourceDir, targetDir, {
-    recursive: true,
-    force: true,
-    preserveTimestamps: true,
-  });
+  for (const targetDir of targetDirs) {
+    removeIfExists(targetDir);
+    fs.cpSync(sourceDir, targetDir, {
+      recursive: true,
+      force: true,
+      preserveTimestamps: true,
+    });
+  }
 
   process.stdout.write(
-    `[guardex-active-agents] Installed ${extensionId}@${manifest.version} to ${targetDir}\n` +
-      '[guardex-active-agents] Reload the VS Code window to activate the Source Control companion.\n',
+    `[guardex-active-agents] Installed ${extensionId}@${manifest.version} to ${canonicalTargetDir}\n` +
+      `[guardex-active-agents] Refreshed ${targetDirs.length - 1} recent patch compatibility path(s) for already-open windows.\n` +
+      '[guardex-active-agents] Reload each already-open VS Code window to activate the newest Source Control companion.\n',
   );
 }
 

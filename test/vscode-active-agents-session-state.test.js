@@ -1087,33 +1087,44 @@ test('session-schema reads inspect data from base-branch config, log tail, and h
   );
 });
 
-test('install-vscode-active-agents-extension installs the current extension version and prunes older copies', () => {
+test('install-vscode-active-agents-extension installs the current extension into a canonical dir and refreshes recent patch compatibility copies', () => {
   const tempExtensionsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'guardex-vscode-ext-'));
   const manifest = readExtensionManifest();
-  const staleDir = path.join(tempExtensionsDir, 'recodeee.gitguardex-active-agents-0.0.0');
-  fs.mkdirSync(staleDir, { recursive: true });
-  fs.writeFileSync(path.join(staleDir, 'stale.txt'), 'old', 'utf8');
+  const extensionId = `${manifest.publisher}.${manifest.name}`;
+  const [major, minor, patch] = parseSimpleSemver(manifest.version);
+  const canonicalDir = path.join(tempExtensionsDir, extensionId);
+  const currentVersionDir = path.join(tempExtensionsDir, `${extensionId}-${manifest.version}`);
+  const recentCompatDir = patch > 0
+    ? path.join(tempExtensionsDir, `${extensionId}-${major}.${minor}.${patch - 1}`)
+    : currentVersionDir;
+  const farLegacyDir = path.join(tempExtensionsDir, `${extensionId}-99.99.99`);
+
+  fs.mkdirSync(recentCompatDir, { recursive: true });
+  fs.writeFileSync(path.join(recentCompatDir, 'stale.txt'), 'old', 'utf8');
+  fs.mkdirSync(farLegacyDir, { recursive: true });
+  fs.writeFileSync(path.join(farLegacyDir, 'stale.txt'), 'old', 'utf8');
 
   const result = runNode(installScript, ['--extensions-dir', tempExtensionsDir], {
     cwd: repoRoot,
   });
   assert.equal(result.status, 0, result.stderr);
 
-  const installedDir = path.join(
-    tempExtensionsDir,
-    `recodeee.gitguardex-active-agents-${manifest.version}`,
-  );
-  const installedManifest = readJson(path.join(installedDir, 'package.json'));
-  assert.equal(fs.existsSync(installedDir), true);
-  assert.equal(fs.existsSync(path.join(installedDir, 'extension.js')), true);
-  assert.equal(fs.existsSync(path.join(installedDir, 'session-schema.js')), true);
+  const installedManifest = readJson(path.join(canonicalDir, 'package.json'));
+  assert.equal(fs.existsSync(canonicalDir), true);
+  assert.equal(fs.existsSync(path.join(canonicalDir, 'extension.js')), true);
+  assert.equal(fs.existsSync(path.join(canonicalDir, 'session-schema.js')), true);
   assert.equal(installedManifest.icon, 'icon.png');
   assert.equal(installedManifest.version, manifest.version);
   assert.deepEqual(installedManifest.activationEvents, manifest.activationEvents);
   assert.equal(installedManifest.activationEvents.includes('onStartupFinished'), true);
-  assert.equal(fs.existsSync(path.join(installedDir, 'icon.png')), true);
-  assert.equal(fs.existsSync(staleDir), false);
-  assert.match(result.stdout, /Reload the VS Code window/);
+  assert.equal(fs.existsSync(path.join(canonicalDir, 'icon.png')), true);
+  assert.equal(fs.existsSync(currentVersionDir), true);
+  assert.equal(fs.existsSync(path.join(recentCompatDir, 'package.json')), true);
+  assert.equal(fs.existsSync(path.join(recentCompatDir, 'stale.txt')), false);
+  assert.equal(fs.existsSync(farLegacyDir), false);
+  assert.match(result.stdout, new RegExp(`Installed ${extensionId}@${manifest.version} to ${canonicalDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+  assert.match(result.stdout, /Refreshed \d+ recent patch compatibility path\(s\)/);
+  assert.match(result.stdout, /Reload each already-open VS Code window/);
 });
 
 test('active-agents extension edits require a higher manifest version than the base branch', () => {
@@ -1196,7 +1207,7 @@ test('active-agents extension auto-installs a newer workspace build and offers r
     assert.equal(execCalls[0].options.encoding, 'utf8');
     assert.match(
       registrations.informationMessages.at(-1),
-      /GitGuardex Active Agents updated to 9\.9\.9/,
+      /GitGuardex Active Agents updated to 9\.9\.9.*reload any other already-open VS Code windows/i,
     );
     assert.deepEqual(registrations.infoMessages.at(-1).slice(1), ['Reload Window', 'Later']);
     assert.equal(
