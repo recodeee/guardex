@@ -703,6 +703,28 @@ test('setup --no-recursive limits install to the top-level repo', () => {
   );
 });
 
+test('setup --current limits install to the top-level repo', () => {
+  const topDir = initRepo();
+  const nestedA = path.join(topDir, 'apps', 'a');
+  fs.mkdirSync(nestedA, { recursive: true });
+  const initResult = runCmd('git', ['init', '-b', 'dev'], nestedA);
+  assert.equal(initResult.status, 0, initResult.stderr);
+
+  const result = runNode(
+    ['setup', '--target', topDir, '--no-global-install', '--current'],
+    topDir,
+  );
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.doesNotMatch(result.stdout, /Detected \d+ git repos under/);
+
+  assert.equal(fs.existsSync(path.join(topDir, 'AGENTS.md')), true);
+  assert.equal(
+    fs.existsSync(path.join(nestedA, 'AGENTS.md')),
+    false,
+    'nested repo must not be touched when --current is set',
+  );
+});
+
 
 test('setup refreshes initialized protected main through a sandbox and prunes it', () => {
   const repoDir = initRepoOnBranch('main');

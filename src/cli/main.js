@@ -2013,7 +2013,7 @@ function parseRepoTraversalArgs(rawArgs, defaults) {
 
   for (let index = 0; index < rawArgs.length; index += 1) {
     const arg = rawArgs[index];
-    if (arg === '--no-recursive' || arg === '--no-nested' || arg === '--single-repo') {
+    if (arg === '--no-recursive' || arg === '--no-nested' || arg === '--single-repo' || arg === '--current') {
       traversalDefaults.recursive = false;
       continue;
     }
@@ -2088,10 +2088,6 @@ function parseDoctorArgs(rawArgs) {
 
   for (let index = 0; index < rawArgs.length; index += 1) {
     const arg = rawArgs[index];
-    if (arg === '--current') {
-      forwardedArgs.push('--single-repo');
-      continue;
-    }
     if (arg === '--verbose-auto-finish') {
       doctorDefaults.verboseAutoFinish = true;
       continue;
@@ -6689,7 +6685,7 @@ function setup(rawArgs) {
 
   if (discoveredRepos.length > 1) {
     console.log(
-      `[${TOOL_NAME}] Detected ${discoveredRepos.length} git repos under ${topRepoRoot}. Installing into each (use --no-recursive to limit to the top-level).`,
+      `[${TOOL_NAME}] Detected ${discoveredRepos.length} git repos under ${topRepoRoot}. Installing into each (use --no-recursive or --current to limit to the top-level).`,
     );
     for (const repoPath of discoveredRepos) {
       const marker = repoPath === topRepoRoot ? ' (top-level)' : '';

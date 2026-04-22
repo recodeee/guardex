@@ -279,6 +279,8 @@ Setup auto-installs into every nested git repo (e.g. `apps/*/.git`). Submodules 
 ```sh
 gx setup --target /mainfolder
 gx setup --target /mainfolder --no-recursive
+gx setup --target /mainfolder --current
+gx doctor --target /mainfolder --current
 ```
 
 ### Fresh repos + Docker Compose

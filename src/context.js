@@ -322,8 +322,8 @@ const SUGGESTIBLE_COMMANDS = [
 ];
 const CLI_COMMAND_DESCRIPTIONS = [
   ['status', 'Show GitGuardex CLI + service health without modifying files'],
-  ['setup', 'Install, repair, and verify guardrails (flags: --repair, --install-only, --target)'],
-  ['doctor', 'Repair drift + verify (auto-sandboxes on protected main)'],
+  ['setup', 'Install, repair, and verify guardrails (flags: --repair, --install-only, --target, --current)'],
+  ['doctor', 'Repair drift + verify (flags: --target, --current; auto-sandboxes on protected main)'],
   ['branch', 'CLI-owned branch workflow surface (start/finish/merge)'],
   ['locks', 'CLI-owned file lock surface (claim/allow-delete/release/status/validate)'],
   ['worktree', 'CLI-owned worktree cleanup surface (prune)'],
