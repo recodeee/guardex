@@ -8,6 +8,19 @@ const cp = require('node:child_process');
 const repoRoot = path.resolve(__dirname, '..');
 const sessionScript = path.join(repoRoot, 'scripts', 'agent-session-state.js');
 const installScript = path.join(repoRoot, 'scripts', 'install-vscode-active-agents-extension.js');
+const extensionManifestPath = path.join(
+  repoRoot,
+  'vscode',
+  'guardex-active-agents',
+  'package.json',
+);
+const templateExtensionManifestPath = path.join(
+  repoRoot,
+  'templates',
+  'vscode',
+  'guardex-active-agents',
+  'package.json',
+);
 const sessionSchema = require(path.join(
   repoRoot,
   'templates',
@@ -38,6 +51,83 @@ function initGitRepo(repoPath) {
   runGit(repoPath, ['init']);
   runGit(repoPath, ['config', 'user.email', 'guardex-tests@example.com']);
   runGit(repoPath, ['config', 'user.name', 'Guardex Tests']);
+}
+
+function readJson(filePath) {
+  return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+}
+
+function parseSimpleSemver(version) {
+  const parts = version.split('.').map((part) => Number.parseInt(part, 10));
+  assert.equal(parts.length, 3, `Expected simple semver, received ${version}`);
+  for (const part of parts) {
+    assert.equal(Number.isNaN(part), false, `Expected numeric semver, received ${version}`);
+  }
+  return parts;
+}
+
+function compareSimpleSemver(left, right) {
+  const leftParts = parseSimpleSemver(left);
+  const rightParts = parseSimpleSemver(right);
+  for (let index = 0; index < leftParts.length; index += 1) {
+    if (leftParts[index] !== rightParts[index]) {
+      return leftParts[index] - rightParts[index];
+    }
+  }
+  return 0;
+}
+
+function resolveRepoBaseRef() {
+  for (const candidate of ['origin/main', 'main']) {
+    const result = cp.spawnSync('git', ['-C', repoRoot, 'rev-parse', '--verify', candidate], {
+      encoding: 'utf8',
+    });
+    if (result.status === 0) {
+      return candidate;
+    }
+  }
+  throw new Error('Could not resolve a base ref for the extension version guard.');
+}
+
+function readExtensionManifest(filePath = extensionManifestPath) {
+  return readJson(filePath);
+}
+
+function readBaseExtensionManifest(baseRef) {
+  const result = cp.spawnSync(
+    'git',
+    ['-C', repoRoot, 'show', `${baseRef}:vscode/guardex-active-agents/package.json`],
+    {
+      encoding: 'utf8',
+    },
+  );
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  return JSON.parse(result.stdout);
+}
+
+function readChangedExtensionPaths(baseRef) {
+  const result = cp.spawnSync(
+    'git',
+    [
+      '-C',
+      repoRoot,
+      'diff',
+      '--name-only',
+      `${baseRef}...HEAD`,
+      '--',
+      'vscode/guardex-active-agents',
+      'templates/vscode/guardex-active-agents',
+      'scripts/install-vscode-active-agents-extension.js',
+    ],
+    {
+      encoding: 'utf8',
+    },
+  );
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  return result.stdout
+    .split('\n')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
 }
 
 function setPathMtime(filePath, whenMs) {
@@ -728,6 +818,7 @@ test('session-schema derives repo change rows from root git status', () => {
 
 test('install-vscode-active-agents-extension installs the current extension version and prunes older copies', () => {
   const tempExtensionsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'guardex-vscode-ext-'));
+  const manifest = readExtensionManifest();
   const staleDir = path.join(tempExtensionsDir, 'recodeee.gitguardex-active-agents-0.0.0');
   fs.mkdirSync(staleDir, { recursive: true });
   fs.writeFileSync(path.join(staleDir, 'stale.txt'), 'old', 'utf8');
@@ -737,17 +828,45 @@ test('install-vscode-active-agents-extension installs the current extension vers
   });
   assert.equal(result.status, 0, result.stderr);
 
-  const installedDir = path.join(tempExtensionsDir, 'recodeee.gitguardex-active-agents-0.0.1');
-  const installedManifest = JSON.parse(
-    fs.readFileSync(path.join(installedDir, 'package.json'), 'utf8'),
+  const installedDir = path.join(
+    tempExtensionsDir,
+    `recodeee.gitguardex-active-agents-${manifest.version}`,
   );
+  const installedManifest = readJson(path.join(installedDir, 'package.json'));
   assert.equal(fs.existsSync(installedDir), true);
   assert.equal(fs.existsSync(path.join(installedDir, 'extension.js')), true);
   assert.equal(fs.existsSync(path.join(installedDir, 'session-schema.js')), true);
   assert.equal(installedManifest.icon, 'icon.png');
+  assert.equal(installedManifest.version, manifest.version);
   assert.equal(fs.existsSync(path.join(installedDir, 'icon.png')), true);
   assert.equal(fs.existsSync(staleDir), false);
   assert.match(result.stdout, /Reload the VS Code window/);
+});
+
+test('active-agents extension edits require a higher manifest version than the base branch', () => {
+  const baseRef = resolveRepoBaseRef();
+  const changedPaths = readChangedExtensionPaths(baseRef);
+
+  if (changedPaths.length === 0) {
+    return;
+  }
+
+  const liveManifest = readExtensionManifest();
+  const templateManifest = readExtensionManifest(templateExtensionManifestPath);
+  const baseManifest = readBaseExtensionManifest(baseRef);
+
+  assert.equal(
+    liveManifest.version,
+    templateManifest.version,
+    'Live and template Active Agents manifests must stay in sync.',
+  );
+  assert.ok(
+    compareSimpleSemver(liveManifest.version, baseManifest.version) > 0,
+    [
+      `Active Agents extension files changed (${changedPaths.join(', ')})`,
+      `but version ${liveManifest.version} did not increase above ${baseManifest.version}.`,
+    ].join(' '),
+  );
 });
 
 test('active-agents extension registers tree and decoration providers', async () => {
