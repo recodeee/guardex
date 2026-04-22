@@ -41,8 +41,6 @@ npm i -g @imdeadpool/guardex
   </sub>
 </p>
 
-Canonical copy: [about_description.txt](./about_description.txt)
-
 <p align="center">
   <strong>guard many agent. keep one repo clean.</strong>
 </p>
