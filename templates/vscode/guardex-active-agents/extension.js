@@ -18,21 +18,29 @@ class RepoItem extends vscode.TreeItem {
     this.sessions = sessions;
     this.changes = changes;
     const descriptionParts = [`${sessions.length} active`];
+    const workingCount = countWorkingSessions(sessions);
+    if (workingCount > 0) {
+      descriptionParts.push(`${workingCount} working`);
+    }
     if (changes.length > 0) {
       descriptionParts.push(`${changes.length} changed`);
     }
     this.description = descriptionParts.join(' · ');
-    this.tooltip = repoRoot;
+    this.tooltip = [
+      repoRoot,
+      this.description,
+    ].join('\n');
     this.iconPath = new vscode.ThemeIcon('repo');
     this.contextValue = 'gitguardex.repo';
   }
 }
 
 class SectionItem extends vscode.TreeItem {
-  constructor(label, items) {
+  constructor(label, items, options = {}) {
     super(label, vscode.TreeItemCollapsibleState.Expanded);
     this.items = items;
-    this.description = items.length > 0 ? String(items.length) : '';
+    this.description = options.description
+      || (items.length > 0 ? String(items.length) : '');
     this.contextValue = 'gitguardex.section';
   }
 }
@@ -58,7 +66,9 @@ class SessionItem extends vscode.TreeItem {
       session.worktreePath,
     ];
     this.tooltip = tooltipLines.filter(Boolean).join('\n');
-    this.iconPath = new vscode.ThemeIcon('loading~spin');
+    this.iconPath = session.activityKind === 'working'
+      ? new vscode.ThemeIcon('edit')
+      : new vscode.ThemeIcon('loading~spin');
     this.contextValue = 'gitguardex.session';
     this.command = {
       command: 'gitguardex.activeAgents.openWorktree',
@@ -165,6 +175,29 @@ function buildChangeTreeNodes(changes) {
   return materialize(root);
 }
 
+function countWorkingSessions(sessions) {
+  return sessions.filter((session) => session.activityKind === 'working').length;
+}
+
+function buildActiveAgentGroupNodes(sessions) {
+  const workingSessions = sessions
+    .filter((session) => session.activityKind === 'working')
+    .map((session) => new SessionItem(session));
+  const thinkingSessions = sessions
+    .filter((session) => session.activityKind !== 'working')
+    .map((session) => new SessionItem(session));
+  const groups = [];
+
+  if (workingSessions.length > 0) {
+    groups.push(new SectionItem('WORKING NOW', workingSessions));
+  }
+  if (thinkingSessions.length > 0) {
+    groups.push(new SectionItem('THINKING', thinkingSessions));
+  }
+
+  return groups;
+}
+
 class ActiveAgentsProvider {
   constructor() {
     this.onDidChangeTreeDataEmitter = new vscode.EventEmitter();
@@ -178,10 +211,10 @@ class ActiveAgentsProvider {
 
   attachTreeView(treeView) {
     this.treeView = treeView;
-    this.updateViewState(0);
+    this.updateViewState(0, 0);
   }
 
-  updateViewState(sessionCount) {
+  updateViewState(sessionCount, workingCount) {
     if (!this.treeView) {
       return;
     }
@@ -189,7 +222,8 @@ class ActiveAgentsProvider {
     this.treeView.badge = sessionCount > 0
       ? {
           value: sessionCount,
-          tooltip: `${sessionCount} active agent${sessionCount === 1 ? '' : 's'}`,
+          tooltip: `${sessionCount} active agent${sessionCount === 1 ? '' : 's'}`
+            + (workingCount > 0 ? ` · ${workingCount} working now` : ''),
         }
       : undefined;
     this.treeView.message = sessionCount > 0
@@ -204,7 +238,9 @@ class ActiveAgentsProvider {
   async getChildren(element) {
     if (element instanceof RepoItem) {
       const sectionItems = [
-        new SectionItem('ACTIVE AGENTS', element.sessions.map((session) => new SessionItem(session))),
+        new SectionItem('ACTIVE AGENTS', buildActiveAgentGroupNodes(element.sessions), {
+          description: String(element.sessions.length),
+        }),
       ];
       if (element.changes.length > 0) {
         sectionItems.push(new SectionItem('CHANGES', buildChangeTreeNodes(element.changes)));
@@ -218,7 +254,11 @@ class ActiveAgentsProvider {
 
     const repoEntries = await this.loadRepoEntries();
     const sessionCount = repoEntries.reduce((total, entry) => total + entry.sessions.length, 0);
-    this.updateViewState(sessionCount);
+    const workingCount = repoEntries.reduce(
+      (total, entry) => total + countWorkingSessions(entry.sessions),
+      0,
+    );
+    this.updateViewState(sessionCount, workingCount);
 
     if (repoEntries.length === 0) {
       return [new InfoItem('No active Guardex agents', 'Open or start a sandbox session.')];

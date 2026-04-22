@@ -361,10 +361,15 @@ test('active-agents extension groups live sessions under a repo node', async () 
 
   const [agentsSection] = await provider.getChildren(repoItem);
   assert.equal(agentsSection.label, 'ACTIVE AGENTS');
+  assert.equal(agentsSection.description, '1');
 
-  const [sessionItem] = await provider.getChildren(agentsSection);
+  const [thinkingSection] = await provider.getChildren(agentsSection);
+  assert.equal(thinkingSection.label, 'THINKING');
+
+  const [sessionItem] = await provider.getChildren(thinkingSection);
   assert.equal(sessionItem.label, 'live-task');
   assert.match(sessionItem.description, /^thinking · \d+[smhd]/);
+  assert.equal(sessionItem.iconPath.id, 'loading~spin');
   assert.deepEqual(registrations.treeViews[0].badge, {
     value: 1,
     tooltip: '1 active agent',
@@ -417,19 +422,108 @@ test('active-agents extension shows grouped repo changes beside active agents', 
 
   const provider = registrations.providers[0].provider;
   const [repoItem] = await provider.getChildren();
+  assert.equal(repoItem.description, '1 active · 1 working · 1 changed');
   const [agentsSection, changesSection] = await provider.getChildren(repoItem);
   assert.equal(agentsSection.label, 'ACTIVE AGENTS');
   assert.equal(changesSection.label, 'CHANGES');
 
-  const [sessionItem] = await provider.getChildren(agentsSection);
+  const [workingSection] = await provider.getChildren(agentsSection);
+  assert.equal(workingSection.label, 'WORKING NOW');
+
+  const [sessionItem] = await provider.getChildren(workingSection);
   assert.equal(sessionItem.label, path.basename(worktreePath));
   assert.match(sessionItem.description, /^working · 2 files · /);
   assert.match(sessionItem.tooltip, /Changed 2 files: new-file\.txt, tracked\.txt/);
+  assert.equal(sessionItem.iconPath.id, 'edit');
+  assert.deepEqual(registrations.treeViews[0].badge, {
+    value: 1,
+    tooltip: '1 active agent · 1 working now',
+  });
 
   const [changeItem] = await provider.getChildren(changesSection);
   assert.equal(changeItem.label, 'root-file.txt');
   assert.equal(changeItem.description, 'M');
   assert.match(changeItem.tooltip, /Status Modified/);
+
+  for (const subscription of context.subscriptions) {
+    subscription.dispose?.();
+  }
+});
+
+test('active-agents extension splits working and thinking sessions into separate groups', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'guardex-vscode-mixed-view-'));
+
+  const workingPath = fs.mkdtempSync(path.join(os.tmpdir(), 'guardex-vscode-mixed-working-'));
+  initGitRepo(workingPath);
+  fs.writeFileSync(path.join(workingPath, 'tracked.txt'), 'base\n', 'utf8');
+  runGit(workingPath, ['add', 'tracked.txt']);
+  runGit(workingPath, ['commit', '-m', 'baseline']);
+  fs.writeFileSync(path.join(workingPath, 'tracked.txt'), 'base\nchanged\n', 'utf8');
+
+  const thinkingPath = fs.mkdtempSync(path.join(os.tmpdir(), 'guardex-vscode-mixed-thinking-'));
+  initGitRepo(thinkingPath);
+  fs.writeFileSync(path.join(thinkingPath, 'tracked.txt'), 'base\n', 'utf8');
+  runGit(thinkingPath, ['add', 'tracked.txt']);
+  runGit(thinkingPath, ['commit', '-m', 'baseline']);
+
+  const workingSessionPath = sessionSchema.sessionFilePathForBranch(tempRoot, 'agent/codex/working-task');
+  fs.mkdirSync(path.dirname(workingSessionPath), { recursive: true });
+  fs.writeFileSync(
+    workingSessionPath,
+    `${JSON.stringify(sessionSchema.buildSessionRecord({
+      repoRoot: tempRoot,
+      branch: 'agent/codex/working-task',
+      taskName: 'working-task',
+      agentName: 'codex',
+      worktreePath: workingPath,
+      pid: process.pid,
+      cliName: 'codex',
+    }), null, 2)}\n`,
+    'utf8',
+  );
+
+  const thinkingSessionPath = sessionSchema.sessionFilePathForBranch(tempRoot, 'agent/codex/thinking-task');
+  fs.writeFileSync(
+    thinkingSessionPath,
+    `${JSON.stringify(sessionSchema.buildSessionRecord({
+      repoRoot: tempRoot,
+      branch: 'agent/codex/thinking-task',
+      taskName: 'thinking-task',
+      agentName: 'codex',
+      worktreePath: thinkingPath,
+      pid: process.pid,
+      cliName: 'codex',
+    }), null, 2)}\n`,
+    'utf8',
+  );
+
+  const { registrations, vscode } = createMockVscode(tempRoot);
+  vscode.workspace.findFiles = async () => [
+    { fsPath: workingSessionPath },
+    { fsPath: thinkingSessionPath },
+  ];
+  const extension = loadExtensionWithMockVscode(vscode);
+  const context = { subscriptions: [] };
+
+  extension.activate(context);
+
+  const provider = registrations.providers[0].provider;
+  const [repoItem] = await provider.getChildren();
+  assert.equal(repoItem.description, '2 active · 1 working');
+
+  const [agentsSection] = await provider.getChildren(repoItem);
+  const [workingSection, thinkingSection] = await provider.getChildren(agentsSection);
+  assert.equal(workingSection.label, 'WORKING NOW');
+  assert.equal(thinkingSection.label, 'THINKING');
+
+  const [workingItem] = await provider.getChildren(workingSection);
+  const [thinkingItem] = await provider.getChildren(thinkingSection);
+  assert.match(workingItem.description, /^working · 1 file · /);
+  assert.match(thinkingItem.description, /^thinking · \d+[smhd]/);
+  assert.deepEqual(registrations.treeViews[0].badge, {
+    value: 2,
+    tooltip: '2 active agents · 1 working now',
+  });
 
   for (const subscription of context.subscriptions) {
     subscription.dispose?.();

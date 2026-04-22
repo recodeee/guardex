@@ -245,7 +245,7 @@ To install the real companion into local VS Code from a GitGuardex-wired repo:
 node scripts/install-vscode-active-agents-extension.js
 ```
 
-It adds an `Active Agents` view to the Source Control container, groups each live repo into `ACTIVE AGENTS` and `CHANGES` sections, reads `.omx/state/active-sessions/*.json`, derives `thinking` versus `working` from each live sandbox worktree, and uses VS Code's native `loading~spin` codicon for the running-state affordance. Reload the VS Code window after install.
+It adds an `Active Agents` view to the Source Control container, groups each live repo into `ACTIVE AGENTS` and `CHANGES` sections, splits `ACTIVE AGENTS` into `WORKING NOW` and `THINKING` when both states are present, reads `.omx/state/active-sessions/*.json`, derives `thinking` versus `working` from each live sandbox worktree, and surfaces a working-count summary in the repo/header affordances. Reload the VS Code window after install.
 
 ---
 
