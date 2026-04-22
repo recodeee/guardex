@@ -24,14 +24,14 @@
   <a href="#commands">Commands</a>
 </p>
 
+Canonical copy: [about_description.txt](./about_description.txt)
+
 <p align="center">
   <strong>guard many agent. keep one repo clean.</strong>
 </p>
 
 <p align="center">
-  GitGuardex is a safety layer for parallel agent work in git repos. Every task gets an isolated
-  worktree, claimed files, and a PR-only finish path instead of one shared checkout where agents
-  stomp each other.
+  Guardian T-Rex for your multi-agent repo. Isolated worktrees, file locks, and PR-only merges stop parallel Codex & Claude agents from overwriting each other's work. Auto-wires Oh My Codex, Oh My Claude, OpenSpec, and Caveman.
 </p>
 
 ---
