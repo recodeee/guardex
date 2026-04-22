@@ -261,6 +261,9 @@ scripts/openspec/init-plan-workspace.sh <plan-slug>
 `GUARDEX_ON=0` disables Guardex for that repo.
 `GUARDEX_ON=1` explicitly enables Guardex for that repo again.
 
+**Task-size routing.** Small tasks stay in direct caveman-only mode. For typos, single-file tweaks, one-liners, version bumps, or similarly bounded asks, solve directly and do not escalate into heavy OMX orchestration just because a keyword appears. Treat `quick:`, `simple:`, `tiny:`, `minor:`, `small:`, `just:`, and `only:` as explicit lightweight escape hatches.
+Promote to OMX orchestration only when the task is medium/large: multi-file behavior changes, API/schema work, refactors, migrations, architecture, cross-cutting scope, or long prompts. Heavy OMX modes (`ralph`, `autopilot`, `team`, `ultrawork`, `swarm`, `ralplan`) are for that larger scope. If the task grows while working, upgrade then.
+
 **Isolation.** Every task runs on a dedicated `agent/*` branch + worktree. Start with `gx branch start "<task>" "<agent-name>"`. Treat the base branch (`main`/`dev`) as read-only while an agent branch is active. Never `git checkout <branch>` on a primary working tree (including nested repos); use `git worktree add` instead. The `.githooks/post-checkout` hook auto-reverts primary-branch switches during agent sessions - bypass only with `GUARDEX_ALLOW_PRIMARY_BRANCH_SWITCH=1`.
 For every new task, including follow-up work in the same chat/session, if an assigned agent sub-branch/worktree is already open, continue in that sub-branch instead of creating a fresh lane unless the user explicitly redirects scope.
 Never implement directly on the local/base branch checkout; keep it unchanged and perform all edits in the agent sub-branch/worktree.
@@ -276,7 +279,7 @@ OMX completion policy: when a task is done, the agent must commit the task chang
 
 **Reporting.** Every completion handoff includes: files changed, behavior touched, verification commands + results, risks/follow-ups.
 
-**OpenSpec (when change-driven).** Keep `openspec/changes/<slug>/tasks.md` checkboxes current during work, not batched at the end. Task scaffolds and manual task edits must include an explicit final completion/cleanup section that ends with PR merge + sandbox cleanup (`gx branch finish ... --cleanup` or `gx finish --all`) and records PR URL + final `MERGED` evidence. Verify specs with `openspec validate --specs` before archive. Don't archive unverified.
+**OpenSpec (when change-driven).** Keep `openspec/changes/<slug>/tasks.md` checkboxes current during work, not batched at the end. Task scaffolds and manual task edits must include an explicit final completion/cleanup section that ends with PR merge + sandbox cleanup (`gx finish --via-pr --wait-for-merge --cleanup` or `gx branch finish ... --cleanup`) and records PR URL + final `MERGED` evidence. Verify specs with `openspec validate --specs` before archive. Don't archive unverified.
 
 **Version bumps.** If a change bumps a published version, the same PR updates release notes/changelog.
 <!-- multiagent-safety:END -->

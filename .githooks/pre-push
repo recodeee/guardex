@@ -1,114 +1,27 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ "${ALLOW_PUSH_ON_PROTECTED_BRANCH:-0}" == "1" || "${ALLOW_COMMIT_ON_PROTECTED_BRANCH:-0}" == "1" ]]; then
-  exit 0
+if [[ -n "${GUARDEX_CLI_ENTRY:-}" ]]; then
+  node_bin="${GUARDEX_NODE_BIN:-node}"
+  exec "$node_bin" "$GUARDEX_CLI_ENTRY" 'hook' 'run' 'pre-push' "$@"
 fi
 
-repo_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
-if [[ -z "$repo_root" ]]; then
-  exit 0
-fi
-guardex_env_helper="${repo_root}/scripts/guardex-env.sh"
-if [[ -f "$guardex_env_helper" ]]; then
-  # shellcheck source=/dev/null
-  source "$guardex_env_helper"
-fi
-if declare -F guardex_repo_is_enabled >/dev/null 2>&1 && ! guardex_repo_is_enabled "$repo_root"; then
-  exit 0
-fi
-
-is_vscode_git_context=0
-if [[ -n "${VSCODE_GIT_IPC_HANDLE:-}" || -n "${VSCODE_GIT_ASKPASS_NODE:-}" || -n "${VSCODE_IPC_HOOK_CLI:-}" ]]; then
-  is_vscode_git_context=1
-fi
-
-allow_vscode_protected_raw="${GUARDEX_ALLOW_VSCODE_PROTECTED_BRANCH_WRITES:-$(git config --get multiagent.allowVscodeProtectedBranchWrites || true)}"
-if [[ -z "$allow_vscode_protected_raw" ]]; then
-  allow_vscode_protected_raw="false"
-fi
-allow_vscode_protected="$(printf '%s' "$allow_vscode_protected_raw" | tr '[:upper:]' '[:lower:]')"
-
-allow_vscode_protected_branch_writes=0
-case "$allow_vscode_protected" in
-  1|true|yes|on) allow_vscode_protected_branch_writes=1 ;;
-  0|false|no|off) allow_vscode_protected_branch_writes=0 ;;
-  *) allow_vscode_protected_branch_writes=0 ;;
-esac
-
-is_codex_session=0
-if [[ -n "${CODEX_THREAD_ID:-}" || -n "${OMX_SESSION_ID:-}" || "${CODEX_CI:-0}" == "1" ]]; then
-  is_codex_session=1
-fi
-
-# Superset covering Claude Code so only agents are blocked from pushing to
-# protected refs; humans push directly from their primary checkout.
-is_agent_session=$is_codex_session
-if [[ -n "${CLAUDECODE:-}" || -n "${CLAUDE_CODE_SESSION_ID:-}" ]]; then
-  is_agent_session=1
-fi
-
-protected_branches_raw="${GUARDEX_PROTECTED_BRANCHES:-$(git config --get multiagent.protectedBranches || true)}"
-if [[ -z "$protected_branches_raw" ]]; then
-  protected_branches_raw="dev main master"
-fi
-protected_branches_raw="${protected_branches_raw//,/ }"
-
-is_protected_branch() {
-  local branch="$1"
-  for protected_branch in $protected_branches_raw; do
-    if [[ "$branch" == "$protected_branch" ]]; then
-      return 0
-    fi
-  done
-  return 1
+resolve_guardex_cli() {
+  if [[ -n "${GUARDEX_CLI_BIN:-}" ]]; then
+    printf '%s' "$GUARDEX_CLI_BIN"
+    return 0
+  fi
+  if command -v gx >/dev/null 2>&1; then
+    printf '%s' "gx"
+    return 0
+  fi
+  if command -v gitguardex >/dev/null 2>&1; then
+    printf '%s' "gitguardex"
+    return 0
+  fi
+  echo "[gitguardex-shim] Missing gx CLI in PATH." >&2
+  exit 1
 }
 
-blocked_refs=()
-while IFS=' ' read -r local_ref local_sha remote_ref remote_sha; do
-  if [[ -z "${remote_ref:-}" || "$remote_ref" != refs/heads/* ]]; then
-    continue
-  fi
-
-  remote_branch="${remote_ref#refs/heads/}"
-  if is_protected_branch "$remote_branch"; then
-    blocked_refs+=("$remote_branch")
-  fi
-done
-
-if [[ "${#blocked_refs[@]}" -gt 0 ]]; then
-  if [[ "$is_codex_session" == "1" ]]; then
-    {
-      echo "[guardex-preedit-guard] Codex push detected toward protected branch."
-      echo "[guardex-preedit-guard] Protected target(s): ${blocked_refs[*]}"
-      echo "[guardex-preedit-guard] Run Codex from an agent/* branch and merge via PR."
-      echo
-      echo "Temporary bypass (not recommended):"
-      echo "  ALLOW_PUSH_ON_PROTECTED_BRANCH=1 git push ..."
-    } >&2
-    exit 1
-  fi
-
-  # Humans may push directly to protected branches; only agent sessions are blocked.
-  if [[ "$is_agent_session" != "1" ]]; then
-    exit 0
-  fi
-
-  if [[ "$is_vscode_git_context" == "1" && "$allow_vscode_protected_branch_writes" == "1" ]]; then
-    exit 0
-  fi
-
-  {
-    echo "[agent-branch-guard] Push to protected branch blocked."
-    echo "[agent-branch-guard] Protected target(s): ${blocked_refs[*]}"
-    echo "[agent-branch-guard] Use an agent branch and merge via PR."
-    echo "[agent-branch-guard] Optional repo opt-in for VS Code protected-branch push:"
-    echo "  git config multiagent.allowVscodeProtectedBranchWrites true"
-    echo
-    echo "Temporary bypass (not recommended):"
-    echo "  ALLOW_PUSH_ON_PROTECTED_BRANCH=1 git push ..."
-  } >&2
-  exit 1
-fi
-
-exit 0
+cli_bin="$(resolve_guardex_cli)"
+exec "$cli_bin" 'hook' 'run' 'pre-push' "$@"

@@ -1,51 +1,27 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ "${GUARDEX_DISABLE_POST_MERGE_CLEANUP:-0}" == "1" ]]; then
-  exit 0
+if [[ -n "${GUARDEX_CLI_ENTRY:-}" ]]; then
+  node_bin="${GUARDEX_NODE_BIN:-node}"
+  exec "$node_bin" "$GUARDEX_CLI_ENTRY" 'hook' 'run' 'post-merge' "$@"
 fi
 
-repo_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
-if [[ -z "$repo_root" ]]; then
-  exit 0
-fi
-guardex_env_helper="${repo_root}/scripts/guardex-env.sh"
-if [[ -f "$guardex_env_helper" ]]; then
-  # shellcheck source=/dev/null
-  source "$guardex_env_helper"
-fi
-if declare -F guardex_repo_is_enabled >/dev/null 2>&1 && ! guardex_repo_is_enabled "$repo_root"; then
-  exit 0
-fi
+resolve_guardex_cli() {
+  if [[ -n "${GUARDEX_CLI_BIN:-}" ]]; then
+    printf '%s' "$GUARDEX_CLI_BIN"
+    return 0
+  fi
+  if command -v gx >/dev/null 2>&1; then
+    printf '%s' "gx"
+    return 0
+  fi
+  if command -v gitguardex >/dev/null 2>&1; then
+    printf '%s' "gitguardex"
+    return 0
+  fi
+  echo "[gitguardex-shim] Missing gx CLI in PATH." >&2
+  exit 1
+}
 
-branch="$(git -C "$repo_root" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
-if [[ -z "$branch" || "$branch" == "HEAD" ]]; then
-  exit 0
-fi
-
-base_branch="${GUARDEX_BASE_BRANCH:-$(git -C "$repo_root" config --get multiagent.baseBranch || true)}"
-if [[ -z "$base_branch" ]]; then
-  base_branch="dev"
-fi
-
-if [[ "$branch" != "$base_branch" ]]; then
-  exit 0
-fi
-
-cli_path="$repo_root/bin/multiagent-safety.js"
-if [[ ! -f "$cli_path" ]]; then
-  exit 0
-fi
-
-node_bin="${GUARDEX_NODE_BIN:-node}"
-if ! command -v "$node_bin" >/dev/null 2>&1; then
-  exit 0
-fi
-
-"$node_bin" "$cli_path" cleanup \
-  --target "$repo_root" \
-  --base "$base_branch" \
-  --include-pr-merged \
-  --keep-clean-worktrees >/dev/null 2>&1 || true
-
-exit 0
+cli_bin="$(resolve_guardex_cli)"
+exec "$cli_bin" 'hook' 'run' 'post-merge' "$@"
