@@ -70,6 +70,9 @@ function createMockVscode(tempRoot) {
     openedDocuments: [],
     shownDocuments: [],
     infoMessages: [],
+    inputResponses: [],
+    quickPickCalls: [],
+    quickPickResponse: undefined,
     warningMessages: [],
     watchers: [],
   };
@@ -205,6 +208,11 @@ function createMockVscode(tempRoot) {
         showWarningMessage: async (...args) => {
           registrations.warningMessages.push(args);
           return undefined;
+        },
+        showInputBox: async () => registrations.inputResponses.shift(),
+        showQuickPick: async (items, options) => {
+          registrations.quickPickCalls.push({ items, options });
+          return registrations.quickPickResponse;
         },
         createTerminal: (options) => {
           const terminal = {
@@ -448,12 +456,42 @@ test('active-agents extension registers tree and decoration providers', async ()
 
   const provider = registrations.providers[0].provider;
   assert.equal(typeof provider.getTreeItem, 'function');
+  assert.equal(typeof registrations.commands.get('gitguardex.activeAgents.startAgent'), 'function');
 
-  const [rootItem] = await provider.getChildren();
-  assert.equal(rootItem.label, 'No active Guardex agents');
-  assert.equal(provider.getTreeItem(rootItem), rootItem);
+  const rootItems = await provider.getChildren();
+  assert.deepEqual(rootItems, []);
   assert.equal(registrations.treeViews[0].badge, undefined);
-  assert.equal(registrations.treeViews[0].message, 'Start a sandbox session to populate this view.');
+  assert.equal(registrations.treeViews[0].message, undefined);
+
+  for (const subscription of context.subscriptions) {
+    subscription.dispose?.();
+  }
+});
+
+test('active-agents extension startAgent command prompts and runs gx branch start in a terminal', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'guardex-vscode-start-agent-'));
+  const { registrations, vscode } = createMockVscode(tempRoot);
+  registrations.inputResponses.push('demo task', 'codex');
+  const extension = loadExtensionWithMockVscode(vscode);
+  const context = { subscriptions: [] };
+
+  extension.activate(context);
+
+  await registrations.commands.get('gitguardex.activeAgents.startAgent')();
+
+  assert.equal(registrations.terminals.length, 1);
+  assert.deepEqual(registrations.terminals[0].options, {
+    name: `GitGuardex: ${path.basename(tempRoot)}`,
+    cwd: tempRoot,
+  });
+  assert.equal(registrations.terminals[0].shown, true);
+  assert.deepEqual(registrations.terminals[0].sentTexts, [
+    {
+      text: "gx branch start 'demo task' 'codex'",
+      addNewLine: true,
+    },
+  ]);
+  assert.deepEqual(registrations.quickPickCalls, []);
 
   for (const subscription of context.subscriptions) {
     subscription.dispose?.();

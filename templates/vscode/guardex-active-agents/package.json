@@ -20,6 +20,10 @@
   "contributes": {
     "commands": [
       {
+        "command": "gitguardex.activeAgents.startAgent",
+        "title": "Start Guardex Agent"
+      },
+      {
         "command": "gitguardex.activeAgents.refresh",
         "title": "Refresh Active Agents"
       },
@@ -57,6 +61,12 @@
         }
       ]
     },
+    "viewsWelcome": [
+      {
+        "view": "gitguardex.activeAgents",
+        "contents": "No active Guardex agents are visible in this workspace yet.\n\n[Start agent](command:gitguardex.activeAgents.startAgent)\n[Open guide](https://github.com/recodeee/gitguardex/blob/main/vscode/guardex-active-agents/README.md#quick-start)\n[Refresh](command:gitguardex.activeAgents.refresh)"
+      }
+    ],
     "menus": {
       "view/title": [
         {

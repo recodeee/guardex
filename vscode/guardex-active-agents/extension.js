@@ -74,14 +74,6 @@ class SessionDecorationProvider {
   }
 }
 
-class InfoItem extends vscode.TreeItem {
-  constructor(label, description = '') {
-    super(label, vscode.TreeItemCollapsibleState.None);
-    this.description = description;
-    this.iconPath = new vscode.ThemeIcon('info');
-  }
-}
-
 class RepoItem extends vscode.TreeItem {
   constructor(repoRoot, sessions, changes) {
     super(path.basename(repoRoot), vscode.TreeItemCollapsibleState.Expanded);
@@ -462,6 +454,83 @@ function countWorkingSessions(sessions) {
   return sessions.filter((session) => session.activityKind === 'working').length;
 }
 
+function shellQuote(value) {
+  return `'${String(value).replace(/'/g, `'\\''`)}'`;
+}
+
+async function pickRepoRoot() {
+  const workspaceFolders = vscode.workspace.workspaceFolders || [];
+  if (workspaceFolders.length === 0) {
+    vscode.window.showInformationMessage?.('Open a Guardex workspace folder to start an agent.');
+    return null;
+  }
+
+  if (workspaceFolders.length === 1) {
+    return workspaceFolders[0].uri.fsPath;
+  }
+
+  const picks = workspaceFolders.map((folder) => ({
+    label: path.basename(folder.uri.fsPath),
+    description: folder.uri.fsPath,
+    repoRoot: folder.uri.fsPath,
+  }));
+  const selection = await vscode.window.showQuickPick?.(picks, {
+    placeHolder: 'Select the Guardex repo where gx branch start should run.',
+  });
+  return selection?.repoRoot || null;
+}
+
+async function promptStartAgentDetails() {
+  const taskName = await vscode.window.showInputBox?.({
+    prompt: 'Task for gx branch start',
+    placeHolder: 'vscode active agents welcome view',
+    ignoreFocusOut: true,
+    validateInput: (value) => value.trim() ? undefined : 'Task is required.',
+  });
+  if (!taskName) {
+    return null;
+  }
+
+  const agentName = await vscode.window.showInputBox?.({
+    prompt: 'Agent name for gx branch start',
+    placeHolder: 'codex',
+    value: 'codex',
+    ignoreFocusOut: true,
+    validateInput: (value) => value.trim() ? undefined : 'Agent name is required.',
+  });
+  if (!agentName) {
+    return null;
+  }
+
+  return {
+    taskName: taskName.trim(),
+    agentName: agentName.trim(),
+  };
+}
+
+async function startAgentFromPrompt(refresh) {
+  const repoRoot = await pickRepoRoot();
+  if (!repoRoot) {
+    return;
+  }
+
+  const details = await promptStartAgentDetails();
+  if (!details) {
+    return;
+  }
+
+  const terminal = vscode.window.createTerminal?.({
+    name: `GitGuardex: ${path.basename(repoRoot)}`,
+    cwd: repoRoot,
+  });
+  terminal?.show(true);
+  terminal?.sendText(
+    `gx branch start ${shellQuote(details.taskName)} ${shellQuote(details.agentName)}`,
+    true,
+  );
+  refresh();
+}
+
 function buildActiveAgentGroupNodes(sessions) {
   const workingSessions = sessions
     .filter((session) => session.activityKind === 'working')
@@ -511,9 +580,7 @@ class ActiveAgentsProvider {
             + (workingCount > 0 ? ` · ${workingCount} working now` : ''),
         }
       : undefined;
-    this.treeView.message = sessionCount > 0
-      ? undefined
-      : 'Start a sandbox session to populate this view.';
+    this.treeView.message = undefined;
   }
 
   async syncRepoEntries() {
@@ -569,7 +636,7 @@ class ActiveAgentsProvider {
     const repoEntries = await this.syncRepoEntries();
 
     if (repoEntries.length === 0) {
-      return [new InfoItem('No active Guardex agents', 'Open or start a sandbox session.')];
+      return [];
     }
 
     return repoEntries.map((entry) => new RepoItem(entry.repoRoot, entry.sessions, entry.changes));
@@ -638,6 +705,7 @@ function activate(context) {
   context.subscriptions.push(
     treeView,
     vscode.window.registerFileDecorationProvider(decorationProvider),
+    vscode.commands.registerCommand('gitguardex.activeAgents.startAgent', () => startAgentFromPrompt(refresh)),
     vscode.commands.registerCommand('gitguardex.activeAgents.refresh', refresh),
     vscode.commands.registerCommand('gitguardex.activeAgents.openWorktree', async (session) => {
       if (!session?.worktreePath) {
