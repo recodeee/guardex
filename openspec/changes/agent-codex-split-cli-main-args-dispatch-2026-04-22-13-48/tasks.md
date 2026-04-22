@@ -33,6 +33,6 @@ Verification note: `node --test test/cli-args-dispatch.test.js`, `node --test te
 
 ## 4. Cleanup
 
-- [ ] 4.1 Run `gx branch finish --branch agent/codex/split-cli-main-args-dispatch-2026-04-22-13-48 --base dev --via-pr --wait-for-merge --cleanup`.
+- [ ] 4.1 Run `gx branch finish --branch agent/codex/split-cli-main-args-dispatch-2026-04-22-13-48 --base main --via-pr --wait-for-merge --cleanup`.
 - [ ] 4.2 Record PR URL and final merge state (`MERGED`) in the completion handoff.
 - [ ] 4.3 Confirm the sandbox worktree is removed and no local/remote refs remain for the branch.
