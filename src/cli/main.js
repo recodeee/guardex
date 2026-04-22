@@ -114,6 +114,12 @@ const {
   invokePackageAsset,
 } = require('../core/runtime');
 const {
+  parseVersionString,
+  compareParsedVersions,
+  isNewerVersion,
+} = require('../core/versions');
+const { readSingleLineFromStdin } = require('../core/stdin');
+const {
   normalizeManagedForcePath,
   parseCommonArgs,
   parseSetupArgs,
@@ -169,9 +175,6 @@ const {
   removeLegacyManagedRepoFile,
   ensureAgentsSnippet,
   ensureManagedGitignore,
-  stripJsonComments,
-  stripJsonTrailingCommas,
-  parseJsonObjectLikeFile,
   buildRepoVscodeSettings,
   ensureRepoVscodeSettings,
   configureHooks,
@@ -867,44 +870,6 @@ function isInteractiveTerminal() {
   return Boolean(process.stdin.isTTY && process.stdout.isTTY);
 }
 
-const stdinWaitArray = new Int32Array(new SharedArrayBuffer(4));
-
-function sleepSyncMs(milliseconds) {
-  Atomics.wait(stdinWaitArray, 0, 0, milliseconds);
-}
-
-function readSingleLineFromStdin() {
-  let input = '';
-  const buffer = Buffer.alloc(1);
-
-  while (true) {
-    let bytesRead = 0;
-    try {
-      bytesRead = fs.readSync(process.stdin.fd, buffer, 0, 1);
-    } catch (error) {
-      if (error && ['EAGAIN', 'EWOULDBLOCK', 'EINTR'].includes(error.code)) {
-        sleepSyncMs(15);
-        continue;
-      }
-      return input;
-    }
-
-    if (bytesRead === 0) {
-      if (process.stdin.isTTY) {
-        sleepSyncMs(15);
-        continue;
-      }
-      return input;
-    }
-
-    const char = buffer.toString('utf8', 0, bytesRead);
-    if (char === '\n' || char === '\r') {
-      return input;
-    }
-    input += char;
-  }
-}
-
 function parseAutoApproval(name) {
   const raw = process.env[name];
   if (raw == null) return null;
@@ -981,38 +946,6 @@ function describeGuardexRepoToggle(toggle) {
     return 'default enabled mode';
   }
   return `${toggle.source} (${GUARDEX_REPO_TOGGLE_ENV}=${toggle.raw})`;
-}
-
-function parseVersionString(version) {
-  const match = String(version || '').trim().match(/^v?(\d+)\.(\d+)\.(\d+)/);
-  if (!match) return null;
-  return [
-    Number.parseInt(match[1], 10),
-    Number.parseInt(match[2], 10),
-    Number.parseInt(match[3], 10),
-  ];
-}
-
-function compareParsedVersions(left, right) {
-  if (!left || !right) return 0;
-  for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
-    const leftValue = left[index] || 0;
-    const rightValue = right[index] || 0;
-    if (leftValue > rightValue) return 1;
-    if (leftValue < rightValue) return -1;
-  }
-  return 0;
-}
-
-function isNewerVersion(latest, current) {
-  const latestParts = parseVersionString(latest);
-  const currentParts = parseVersionString(current);
-
-  if (!latestParts || !currentParts) {
-    return String(latest || '').trim() !== String(current || '').trim();
-  }
-
-  return compareParsedVersions(latestParts, currentParts) > 0;
 }
 
 function parseNpmVersionOutput(stdout) {

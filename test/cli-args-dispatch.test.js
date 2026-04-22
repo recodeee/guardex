@@ -107,6 +107,7 @@ test('parseAgentsArgs applies interval overrides and validates the subcommand', 
     reviewIntervalSeconds: 15,
     cleanupIntervalSeconds: 45,
     idleMinutes: 12,
+    pid: null,
   });
 });
 

@@ -69,5 +69,9 @@
   },
   "devDependencies": {
     "fast-check": "^3.23.2"
+  },
+  "dependencies": {
+    "jsonc-parser": "^3.3.1",
+    "semver": "^7.7.4"
   }
 }

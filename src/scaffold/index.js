@@ -26,6 +26,7 @@ const {
   EXECUTABLE_RELATIVE_PATHS,
   CRITICAL_GUARDRAIL_PATHS,
 } = require('../context');
+const { parse: parseJsonc, printParseErrorCode } = require('jsonc-parser');
 const { run } = require('../core/runtime');
 
 function ensureParentDir(repoRoot, filePath, dryRun) {
@@ -576,121 +577,13 @@ function ensureManagedGitignore(repoRoot, dryRun) {
   return { status: 'updated', file: '.gitignore', note: 'appended gitguardex-managed entries' };
 }
 
-function stripJsonComments(source) {
-  let result = '';
-  let inString = false;
-  let escapeNext = false;
-  let inLineComment = false;
-  let inBlockComment = false;
-
-  for (let index = 0; index < source.length; index += 1) {
-    const current = source[index];
-    const next = source[index + 1];
-
-    if (inLineComment) {
-      if (current === '\n' || current === '\r') {
-        inLineComment = false;
-        result += current;
-      }
-      continue;
-    }
-
-    if (inBlockComment) {
-      if (current === '*' && next === '/') {
-        inBlockComment = false;
-        index += 1;
-        continue;
-      }
-      if (current === '\n' || current === '\r') {
-        result += current;
-      }
-      continue;
-    }
-
-    if (inString) {
-      result += current;
-      if (escapeNext) {
-        escapeNext = false;
-      } else if (current === '\\') {
-        escapeNext = true;
-      } else if (current === '"') {
-        inString = false;
-      }
-      continue;
-    }
-
-    if (current === '"') {
-      inString = true;
-      result += current;
-      continue;
-    }
-
-    if (current === '/' && next === '/') {
-      inLineComment = true;
-      index += 1;
-      continue;
-    }
-
-    if (current === '/' && next === '*') {
-      inBlockComment = true;
-      index += 1;
-      continue;
-    }
-
-    result += current;
-  }
-
-  return result;
-}
-
-function stripJsonTrailingCommas(source) {
-  let result = '';
-  let inString = false;
-  let escapeNext = false;
-
-  for (let index = 0; index < source.length; index += 1) {
-    const current = source[index];
-
-    if (inString) {
-      result += current;
-      if (escapeNext) {
-        escapeNext = false;
-      } else if (current === '\\') {
-        escapeNext = true;
-      } else if (current === '"') {
-        inString = false;
-      }
-      continue;
-    }
-
-    if (current === '"') {
-      inString = true;
-      result += current;
-      continue;
-    }
-
-    if (current === ',') {
-      let lookahead = index + 1;
-      while (lookahead < source.length && /\s/.test(source[lookahead])) {
-        lookahead += 1;
-      }
-      if (source[lookahead] === '}' || source[lookahead] === ']') {
-        continue;
-      }
-    }
-
-    result += current;
-  }
-
-  return result;
-}
-
 function parseJsonObjectLikeFile(source, relativePath) {
-  let parsed;
-  try {
-    parsed = JSON.parse(stripJsonTrailingCommas(stripJsonComments(source)));
-  } catch (error) {
-    throw new Error(`Unable to parse ${relativePath} as JSON or JSONC: ${error.message}`);
+  const errors = [];
+  const parsed = parseJsonc(source, errors, { allowTrailingComma: true });
+
+  if (errors.length > 0) {
+    const formattedErrors = errors.map((entry) => printParseErrorCode(entry.error)).join(', ');
+    throw new Error(`Unable to parse ${relativePath} as JSON or JSONC: ${formattedErrors}`);
   }
 
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
@@ -871,8 +764,6 @@ module.exports = {
   removeLegacyManagedRepoFile,
   ensureAgentsSnippet,
   ensureManagedGitignore,
-  stripJsonComments,
-  stripJsonTrailingCommas,
   parseJsonObjectLikeFile,
   buildRepoVscodeSettings,
   ensureRepoVscodeSettings,
