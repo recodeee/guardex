@@ -703,7 +703,7 @@ test('setup --no-recursive limits install to the top-level repo', () => {
   );
 });
 
-test('setup --current limits install to the top-level repo', () => {
+test('setup --current limits install to the target repo only', () => {
   const topDir = initRepo();
   const nestedA = path.join(topDir, 'apps', 'a');
   fs.mkdirSync(nestedA, { recursive: true });

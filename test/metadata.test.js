@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const cp = require('node:child_process');
 
 const repoRoot = path.resolve(__dirname, '..');
 const packageJsonPath = path.join(repoRoot, 'package.json');
@@ -166,12 +167,26 @@ test('cli main delegates extracted seams and keeps doctor single-source', () => 
   const cliSource = fs.readFileSync(path.join(repoRoot, 'src', 'cli', 'main.js'), 'utf8');
   const doctorDefs = cliSource.match(/function doctor\(rawArgs\)/g) || [];
   assert.equal(doctorDefs.length, 1, 'doctor() must not be duplicated');
+  assert.doesNotMatch(cliSource, /function parseSetupArgs\(/);
+  assert.doesNotMatch(cliSource, /function parseDoctorArgs\(/);
   assert.match(cliSource, /function assertProtectedMainWriteAllowed\(options, commandName\)\s*{\s*return getSandboxApi\(\)\.assertProtectedMainWriteAllowed\(options, commandName\);\s*}/s);
   assert.match(cliSource, /function maybeSelfUpdateBeforeStatus\(\)\s*{\s*return getToolchainApi\(\)\.maybeSelfUpdateBeforeStatus\(\);\s*}/s);
   assert.match(cliSource, /function hook\(rawArgs\)\s*{\s*return hooksModule\.hook\(rawArgs, \{/s);
   assert.match(cliSource, /function internal\(rawArgs\)\s*{\s*return hooksModule\.internal\(rawArgs, \{/s);
   assert.match(cliSource, /function finish\(rawArgs, defaults = \{\}\)\s*{\s*return getFinishApi\(\)\.finish\(rawArgs, defaults\);\s*}/s);
   assert.match(cliSource, /printOperations\('Doctor\/fix', fixPayload, (?:singleRepoOptions|options)\.dryRun\);/);
+});
+
+test('cli main module loads after extracted arg and dispatch seams move out', () => {
+  const result = cp.spawnSync(process.execPath, ['-e', "require('./src/cli/main.js')"], {
+    cwd: repoRoot,
+    encoding: 'utf8',
+  });
+  assert.equal(
+    result.status,
+    0,
+    `src/cli/main.js must load cleanly after seam extraction.\n${(result.stderr || result.stdout || '').trim()}`,
+  );
 });
 
 test('worktree-change detection uses normal untracked-file mode', () => {
