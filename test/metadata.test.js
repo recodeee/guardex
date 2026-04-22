@@ -146,6 +146,7 @@ test('thin CLI entrypoint delegates to src/cli runtime', () => {
   const entrySource = fs.readFileSync(entryPath, 'utf8');
   assert.match(entrySource, /require\('\.\.\/src\/cli\/main'\)/);
   assert.match(entrySource, /runFromBin\(\)/);
+  assert.ok((fs.statSync(entryPath).mode & 0o111) !== 0, 'bin/multiagent-safety.js must stay executable');
 });
 
 test('package manifest ships the extracted src runtime', () => {
