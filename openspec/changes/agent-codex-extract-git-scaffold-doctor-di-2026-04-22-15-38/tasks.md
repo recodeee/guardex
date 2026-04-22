@@ -41,6 +41,14 @@ Verified on 2026-04-22:
 
 ## 4. Cleanup (mandatory; run before claiming completion)
 
-- [ ] 4.1 Run `gx branch finish --branch agent/codex/extract-doctor-sandbox-module-2026-04-22-15-38 --base main --via-pr --wait-for-merge --cleanup`.
-- [ ] 4.2 Record the PR URL and final merge state (`MERGED`) in the completion handoff.
-- [ ] 4.3 Confirm the sandbox worktree is gone (`git worktree list` no longer shows the agent path; `git branch -a` shows no surviving local/remote refs for the branch).
+- [x] 4.1 Run `gx branch finish --branch agent/codex/extract-doctor-sandbox-module-2026-04-22-15-38 --base main --via-pr --wait-for-merge --cleanup`.
+- [x] 4.2 Record the PR URL and final merge state (`MERGED`) in the completion handoff.
+- [x] 4.3 Confirm the sandbox worktree is gone (`git worktree list` no longer shows the agent path; `git branch -a` shows no surviving local/remote refs for the branch).
+
+Cleanup verified on 2026-04-22:
+- `gx branch finish --branch agent/codex/extract-doctor-sandbox-module-2026-04-22-15-38 --base main --via-pr --wait-for-merge --cleanup`
+- PR `#323` `MERGED`: `https://github.com/recodeee/gitguardex/pull/323`
+- `gx cleanup --base main`
+- `git worktree list` -> only `/home/deadpool/Documents/recodee/gitguardex [main]`
+- `git fetch origin --prune`
+- `git branch -a --list "*extract-doctor-sandbox-module-2026-04-22-15-38*"` -> no refs
