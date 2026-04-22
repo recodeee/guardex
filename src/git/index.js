@@ -1,3 +1,4 @@
+const fs = require('node:fs');
 const { path } = require('../context');
 const { run } = require('../core/runtime');
 
@@ -41,66 +42,75 @@ const NESTED_REPO_DEFAULT_SKIP_DIRS = new Set([
   '.pnpm-store',
 ]);
 
+function resolveGitCommonDir(repoPath) {
+  const result = run('git', ['-C', repoPath, 'rev-parse', '--git-common-dir'], { cwd: repoPath });
+  if (result.status !== 0) return null;
+  const raw = result.stdout.trim();
+  if (!raw) return null;
+  return path.resolve(repoPath, raw);
+}
+
 function discoverNestedGitRepos(rootPath, opts = {}) {
   const maxDepth = Number.isFinite(opts.maxDepth)
     ? Math.max(1, opts.maxDepth)
     : NESTED_REPO_DEFAULT_MAX_DEPTH;
   const extraSkip = new Set(Array.isArray(opts.extraSkip) ? opts.extraSkip : []);
   const includeSubmodules = Boolean(opts.includeSubmodules);
+  const skipRelativeDirs = Array.isArray(opts.skipRelativeDirs) ? opts.skipRelativeDirs.filter(Boolean) : [];
   const resolvedRoot = path.resolve(rootPath);
 
   if (!isGitRepo(resolvedRoot)) {
     throw new Error(`Target is not inside a git repository: ${resolvedRoot}`);
   }
 
-  const results = [];
-  const seen = new Set();
+  const rootCommonDir = resolveGitCommonDir(resolvedRoot);
+  const skipAbsolutes = skipRelativeDirs.map((relativeDir) => path.join(resolvedRoot, relativeDir));
+  const found = new Set([resolvedRoot]);
 
-  function visit(directoryPath, depth) {
-    const repoRoot = resolveRepoRoot(directoryPath);
-    if (!seen.has(repoRoot)) {
-      seen.add(repoRoot);
-      results.push(repoRoot);
-    }
+  function shouldSkipDir(dirName) {
+    return NESTED_REPO_DEFAULT_SKIP_DIRS.has(dirName) || extraSkip.has(dirName);
+  }
 
-    if (depth >= maxDepth) {
-      return;
-    }
-
-    let entries = [];
+  function walk(currentPath, depth) {
+    if (depth > maxDepth) return;
+    let entries;
     try {
-      entries = require('node:fs').readdirSync(directoryPath, { withFileTypes: true });
+      entries = fs.readdirSync(currentPath, { withFileTypes: true });
     } catch {
       return;
     }
 
     for (const entry of entries) {
-      if (!entry.isDirectory()) {
-        continue;
-      }
-      if (NESTED_REPO_DEFAULT_SKIP_DIRS.has(entry.name) || extraSkip.has(entry.name)) {
-        continue;
-      }
+      const entryPath = path.join(currentPath, entry.name);
 
-      const childPath = path.join(directoryPath, entry.name);
-      const gitDir = path.join(childPath, '.git');
-      if (require('node:fs').existsSync(gitDir)) {
-        if (!includeSubmodules) {
-          const gitInfo = require('node:fs').lstatSync(gitDir);
-          if (gitInfo.isFile()) {
-            continue;
-          }
+      if (entry.name === '.git') {
+        if (entry.isDirectory()) {
+          if (entryPath === path.join(resolvedRoot, '.git')) continue;
+          found.add(path.dirname(entryPath));
+        } else if (includeSubmodules && entry.isFile()) {
+          found.add(path.dirname(entryPath));
         }
-        visit(childPath, depth + 1);
         continue;
       }
 
-      visit(childPath, depth + 1);
+      if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
+      if (shouldSkipDir(entry.name)) continue;
+      if (skipAbsolutes.includes(entryPath)) continue;
+      walk(entryPath, depth + 1);
     }
   }
 
-  visit(resolvedRoot, 0);
-  return results;
+  walk(resolvedRoot, 0);
+
+  const filtered = Array.from(found).filter((repoPath) => {
+    if (repoPath === resolvedRoot || !rootCommonDir) return true;
+    const childCommonDir = resolveGitCommonDir(repoPath);
+    return !childCommonDir || childCommonDir !== rootCommonDir;
+  });
+
+  const [root, ...rest] = filtered;
+  rest.sort((a, b) => a.localeCompare(b));
+  return root ? [root, ...rest] : [];
 }
 
 module.exports = {
