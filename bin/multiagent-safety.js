@@ -447,6 +447,65 @@ function colorizeDoctorOutput(text, status) {
   return colorCode ? colorize(text, colorCode) : text;
 }
 
+/**
+ * @typedef {Object} AutoFinishSummary
+ * @property {boolean} [enabled]
+ * @property {number} [attempted]
+ * @property {number} [completed]
+ * @property {number} [skipped]
+ * @property {number} [failed]
+ * @property {string[]} [details]
+ * @property {string} [baseBranch]
+ */
+
+/**
+ * @typedef {Object} OperationResult
+ * @property {string} status
+ * @property {string} note
+ * @property {string} [stdout]
+ * @property {string} [stderr]
+ * @property {string} [prUrl]
+ * @property {string[]} [stagedFiles]
+ * @property {string} [commitMessage]
+ * @property {unknown[]} [operations]
+ * @property {OperationResult} [cleanup]
+ * @property {OperationResult} [hookRefresh]
+ */
+
+/**
+ * @typedef {Object} SandboxMetadata
+ * @property {string} branch
+ * @property {string} worktreePath
+ */
+
+/**
+ * @typedef {Object} SandboxStartResult
+ * @property {SandboxMetadata} metadata
+ * @property {string} [stdout]
+ * @property {string} [stderr]
+ */
+
+/**
+ * @typedef {Object} DoctorLockSyncState
+ * @property {OperationResult} result
+ * @property {string | null} sandboxLockContent
+ */
+
+/**
+ * @typedef {Object} DoctorSandboxExecution
+ * @property {OperationResult} autoCommit
+ * @property {OperationResult} finish
+ * @property {OperationResult} protectedBaseRepairSync
+ * @property {OperationResult} lockSync
+ * @property {OperationResult} omxScaffoldSync
+ * @property {AutoFinishSummary} autoFinish
+ * @property {string | null} sandboxLockContent
+ */
+
+/**
+ * @param {string | null | undefined} detail
+ * @returns {string | null}
+ */
 function detectAutoFinishDetailStatus(detail) {
   const trimmed = String(detail || '').trim();
   const match = trimmed.match(/^\[(\w+)\]/);
@@ -459,6 +518,10 @@ function detectAutoFinishDetailStatus(detail) {
   return null;
 }
 
+/**
+ * @param {AutoFinishSummary | null | undefined} summary
+ * @returns {string | null}
+ */
 function detectAutoFinishSummaryStatus(summary) {
   if (!summary || summary.enabled === false) {
     return detectAutoFinishDetailStatus(summary?.details?.[0]);
@@ -819,6 +882,10 @@ function summarizeAutoFinishDetail(detail) {
   return `[${status}] ${branch}: ${truncateTail(message, DOCTOR_AUTO_FINISH_MESSAGE_MAX)}`;
 }
 
+/**
+ * @param {AutoFinishSummary | null | undefined} summary
+ * @param {{ baseBranch?: string, verbose?: boolean, detailLimit?: number }} [options]
+ */
 function printAutoFinishSummary(summary, options = {}) {
   const enabled = Boolean(summary && summary.enabled);
   const details = Array.isArray(summary && summary.details) ? summary.details : [];
@@ -2631,7 +2698,367 @@ function syncDoctorLocalSupportFiles(repoRoot, dryRun) {
   return [];
 }
 
+/**
+ * @param {string} [note]
+ * @returns {OperationResult}
+ */
+function createDoctorSkippedOperation(note = 'sandbox doctor did not complete successfully') {
+  return {
+    status: 'skipped',
+    note,
+  };
+}
+
+/**
+ * @param {string} [note]
+ * @returns {AutoFinishSummary}
+ */
+function createSkippedDoctorAutoFinishSummary(note = 'sandbox doctor did not complete successfully') {
+  return {
+    enabled: false,
+    attempted: 0,
+    completed: 0,
+    skipped: 0,
+    failed: 0,
+    details: [`Skipped auto-finish sweep (${note}).`],
+  };
+}
+
+/**
+ * Default the lifecycle to skipped states until the nested doctor run succeeds.
+ *
+ * @param {string} [note]
+ * @returns {DoctorSandboxExecution}
+ */
+function createDoctorSandboxExecutionState(note = 'sandbox doctor did not complete successfully') {
+  return {
+    autoCommit: createDoctorSkippedOperation(note),
+    finish: createDoctorSkippedOperation(note),
+    protectedBaseRepairSync: createDoctorSkippedOperation(note),
+    lockSync: createDoctorSkippedOperation(note),
+    omxScaffoldSync: createDoctorSkippedOperation(note),
+    autoFinish: createSkippedDoctorAutoFinishSummary(note),
+    sandboxLockContent: null,
+  };
+}
+
+/**
+ * @param {string} repoRoot
+ * @param {boolean} dryRun
+ * @returns {OperationResult}
+ */
+function summarizeDoctorOmxScaffoldSync(repoRoot, dryRun) {
+  const omxScaffoldOps = ensureOmxScaffold(repoRoot, dryRun);
+  const changedOmxPaths = omxScaffoldOps.filter((operation) => operation.status !== 'unchanged');
+  if (changedOmxPaths.length === 0) {
+    return {
+      status: 'unchanged',
+      note: '.omx scaffold already in sync',
+      operations: omxScaffoldOps,
+    };
+  }
+  return {
+    status: dryRun ? 'would-sync' : 'synced',
+    note: `${dryRun ? 'would sync' : 'synced'} ${changedOmxPaths.length} .omx path(s)`,
+    operations: omxScaffoldOps,
+  };
+}
+
+/**
+ * @param {string} repoRoot
+ * @param {SandboxMetadata} metadata
+ * @returns {DoctorLockSyncState}
+ */
+function syncDoctorLockRegistryBeforeMerge(repoRoot, metadata) {
+  const sandboxLockPath = path.join(metadata.worktreePath, LOCK_FILE_RELATIVE);
+  const baseLockPath = path.join(repoRoot, LOCK_FILE_RELATIVE);
+  if (!fs.existsSync(baseLockPath)) {
+    return {
+      result: {
+        status: 'skipped',
+        note: `${LOCK_FILE_RELATIVE} missing in protected base workspace`,
+      },
+      sandboxLockContent: null,
+    };
+  }
+  if (!fs.existsSync(sandboxLockPath)) {
+    return {
+      result: {
+        status: 'skipped',
+        note: `${LOCK_FILE_RELATIVE} missing in sandbox worktree`,
+      },
+      sandboxLockContent: null,
+    };
+  }
+
+  const sourceContent = stripDoctorSandboxLocks(
+    fs.readFileSync(sandboxLockPath, 'utf8'),
+    metadata.branch,
+  );
+  const destinationContent = fs.readFileSync(baseLockPath, 'utf8');
+  if (sourceContent === destinationContent) {
+    return {
+      result: {
+        status: 'unchanged',
+        note: `${LOCK_FILE_RELATIVE} already in sync`,
+      },
+      sandboxLockContent: sourceContent,
+    };
+  }
+
+  fs.mkdirSync(path.dirname(baseLockPath), { recursive: true });
+  fs.writeFileSync(baseLockPath, sourceContent, 'utf8');
+  return {
+    result: {
+      status: 'synced',
+      note: `${LOCK_FILE_RELATIVE} synced from sandbox`,
+    },
+    sandboxLockContent: sourceContent,
+  };
+}
+
+/**
+ * @param {string} repoRoot
+ * @param {string | null} sandboxLockContent
+ * @returns {OperationResult}
+ */
+function syncDoctorLockRegistryAfterMerge(repoRoot, sandboxLockContent) {
+  if (sandboxLockContent === null) {
+    return {
+      status: 'skipped',
+      note: `${LOCK_FILE_RELATIVE} missing in sandbox worktree`,
+    };
+  }
+
+  const baseLockPath = path.join(repoRoot, LOCK_FILE_RELATIVE);
+  if (!fs.existsSync(baseLockPath)) {
+    fs.mkdirSync(path.dirname(baseLockPath), { recursive: true });
+    fs.writeFileSync(baseLockPath, sandboxLockContent, 'utf8');
+    return {
+      status: 'synced',
+      note: `${LOCK_FILE_RELATIVE} recreated from sandbox`,
+    };
+  }
+
+  const destinationContent = fs.readFileSync(baseLockPath, 'utf8');
+  if (sandboxLockContent === destinationContent) {
+    return {
+      status: 'unchanged',
+      note: `${LOCK_FILE_RELATIVE} already in sync`,
+    };
+  }
+
+  fs.mkdirSync(path.dirname(baseLockPath), { recursive: true });
+  fs.writeFileSync(baseLockPath, sandboxLockContent, 'utf8');
+  return {
+    status: 'synced',
+    note: `${LOCK_FILE_RELATIVE} synced from sandbox`,
+  };
+}
+
+/**
+ * @param {object} options
+ * @param {{ repoRoot: string, branch: string }} blocked
+ * @param {SandboxMetadata} metadata
+ * @returns {DoctorSandboxExecution}
+ */
+function executeDoctorSandboxLifecycle(options, blocked, metadata) {
+  const execution = createDoctorSandboxExecutionState();
+  const dryRun = Boolean(options.dryRun);
+
+  execution.omxScaffoldSync = summarizeDoctorOmxScaffoldSync(blocked.repoRoot, dryRun);
+
+  if (!dryRun) {
+    execution.autoCommit = autoCommitDoctorSandboxChanges(metadata);
+    if (execution.autoCommit.status === 'committed') {
+      execution.finish = finishDoctorSandboxBranch(blocked, metadata, options);
+    } else if (execution.autoCommit.status === 'no-changes') {
+      execution.finish = createDoctorSkippedOperation('no doctor changes to auto-finish');
+    } else if (execution.autoCommit.status !== 'failed') {
+      execution.finish = createDoctorSkippedOperation('auto-commit did not run');
+    }
+  } else {
+    execution.autoCommit = createDoctorSkippedOperation('dry-run skips doctor sandbox auto-commit');
+    execution.finish = createDoctorSkippedOperation('dry-run skips doctor sandbox finish flow');
+  }
+
+  const lockSyncState = syncDoctorLockRegistryBeforeMerge(blocked.repoRoot, metadata);
+  execution.lockSync = lockSyncState.result;
+  execution.sandboxLockContent = lockSyncState.sandboxLockContent;
+
+  execution.protectedBaseRepairSync = mergeDoctorSandboxRepairsBackToProtectedBase(
+    options,
+    blocked,
+    metadata,
+    execution.autoCommit,
+    execution.finish,
+  );
+
+  syncDoctorLocalSupportFiles(blocked.repoRoot, dryRun);
+
+  execution.omxScaffoldSync = summarizeDoctorOmxScaffoldSync(blocked.repoRoot, dryRun);
+  execution.lockSync = syncDoctorLockRegistryAfterMerge(
+    blocked.repoRoot,
+    execution.sandboxLockContent,
+  );
+  execution.autoFinish = autoFinishReadyAgentBranches(blocked.repoRoot, {
+    baseBranch: blocked.branch,
+    dryRun: options.dryRun,
+    waitForMerge: options.waitForMerge,
+    excludeBranches: [metadata.branch],
+  });
+
+  return execution;
+}
+
+function emitDoctorSandboxJsonOutput(nestedResult, execution) {
+  if (nestedResult.stdout) {
+    if (nestedResult.status === 0) {
+      try {
+        const parsed = JSON.parse(nestedResult.stdout);
+        process.stdout.write(
+          JSON.stringify(
+            {
+              ...parsed,
+              protectedBaseRepairSync: execution.protectedBaseRepairSync,
+              sandboxOmxScaffoldSync: execution.omxScaffoldSync,
+              sandboxLockSync: execution.lockSync,
+              sandboxAutoCommit: execution.autoCommit,
+              sandboxFinish: execution.finish,
+              autoFinish: execution.autoFinish,
+            },
+            null,
+            2,
+          ) + '\n',
+        );
+      } catch {
+        process.stdout.write(nestedResult.stdout);
+      }
+    } else {
+      process.stdout.write(nestedResult.stdout);
+    }
+  }
+  if (nestedResult.stderr) process.stderr.write(nestedResult.stderr);
+}
+
+/**
+ * @param {object} options
+ * @param {{ branch: string }} blocked
+ * @param {SandboxMetadata} metadata
+ * @param {SandboxStartResult} startResult
+ * @param {any} nestedResult
+ * @param {DoctorSandboxExecution} execution
+ */
+function emitDoctorSandboxConsoleOutput(options, blocked, metadata, startResult, nestedResult, execution) {
+  console.log(
+    `[${TOOL_NAME}] doctor detected protected branch '${blocked.branch}'. ` +
+    `Running repairs in sandbox branch '${metadata.branch || 'agent/<auto>'}'.`,
+  );
+  if (startResult.stdout) process.stdout.write(startResult.stdout);
+  if (startResult.stderr) process.stderr.write(startResult.stderr);
+  if (nestedResult.stdout) process.stdout.write(nestedResult.stdout);
+  if (nestedResult.stderr) process.stderr.write(nestedResult.stderr);
+  if (nestedResult.status !== 0) {
+    return;
+  }
+
+  if (execution.autoCommit.status === 'committed') {
+    console.log(
+      `[${TOOL_NAME}] Auto-committed doctor repairs in sandbox branch '${metadata.branch}'.`,
+    );
+  } else if (execution.autoCommit.status === 'failed') {
+    console.log(`[${TOOL_NAME}] Doctor sandbox auto-commit failed; branch left for manual follow-up.`);
+    if (execution.autoCommit.stdout) process.stdout.write(execution.autoCommit.stdout);
+    if (execution.autoCommit.stderr) process.stderr.write(execution.autoCommit.stderr);
+  } else {
+    console.log(`[${TOOL_NAME}] Doctor sandbox auto-commit skipped: ${execution.autoCommit.note}.`);
+  }
+
+  if (execution.protectedBaseRepairSync.status === 'merged') {
+    console.log(`[${TOOL_NAME}] Fast-forwarded tracked doctor repairs into the protected branch workspace.`);
+  } else if (execution.protectedBaseRepairSync.status === 'unchanged') {
+    console.log(`[${TOOL_NAME}] Protected branch workspace already had the tracked doctor repairs.`);
+  } else if (execution.protectedBaseRepairSync.status === 'would-merge') {
+    console.log(`[${TOOL_NAME}] Dry run: would fast-forward tracked doctor repairs into the protected branch workspace.`);
+  } else if (execution.protectedBaseRepairSync.status === 'failed') {
+    console.log(`[${TOOL_NAME}] Protected branch tracked repair merge failed: ${execution.protectedBaseRepairSync.note}.`);
+    if (execution.protectedBaseRepairSync.stdout) process.stdout.write(execution.protectedBaseRepairSync.stdout);
+    if (execution.protectedBaseRepairSync.stderr) process.stderr.write(execution.protectedBaseRepairSync.stderr);
+  } else {
+    console.log(`[${TOOL_NAME}] Protected branch tracked repair merge skipped: ${execution.protectedBaseRepairSync.note}.`);
+  }
+
+  if (execution.lockSync.status === 'synced') {
+    console.log(
+      `[${TOOL_NAME}] Synced repaired lock registry back to protected branch workspace (${LOCK_FILE_RELATIVE}).`,
+    );
+  } else if (execution.lockSync.status === 'unchanged') {
+    console.log(`[${TOOL_NAME}] Lock registry already synced in protected branch workspace.`);
+  } else {
+    console.log(`[${TOOL_NAME}] Lock registry sync skipped: ${execution.lockSync.note}.`);
+  }
+
+  if (execution.finish.status === 'completed') {
+    console.log(`[${TOOL_NAME}] Auto-finish flow completed for sandbox branch '${metadata.branch}'.`);
+    if (execution.finish.stdout) process.stdout.write(execution.finish.stdout);
+    if (execution.finish.stderr) process.stderr.write(execution.finish.stderr);
+  } else if (execution.finish.status === 'pending') {
+    console.log(
+      `[${TOOL_NAME}] Auto-finish pending for sandbox branch '${metadata.branch}': ${execution.finish.note}.`,
+    );
+    if (execution.finish.prUrl) {
+      console.log(`[${TOOL_NAME}] PR: ${execution.finish.prUrl}`);
+    }
+    if (execution.finish.stdout) process.stdout.write(execution.finish.stdout);
+    if (execution.finish.stderr) process.stderr.write(execution.finish.stderr);
+  } else if (execution.finish.status === 'failed') {
+    console.log(`[${TOOL_NAME}] Auto-finish flow failed for sandbox branch '${metadata.branch}'.`);
+    console.log(`[${TOOL_NAME}] Auto-finish flow failed for sandbox branch '${metadata.branch}'.`);
+    if (execution.finish.stdout) process.stdout.write(execution.finish.stdout);
+    if (execution.finish.stderr) process.stderr.write(execution.finish.stderr);
+  } else {
+    console.log(`[${TOOL_NAME}] Auto-finish skipped: ${execution.finish.note}.`);
+  }
+
+  printAutoFinishSummary(execution.autoFinish, {
+    baseBranch: blocked.branch,
+    verbose: options.verboseAutoFinish,
+  });
+  if (execution.omxScaffoldSync.status === 'synced') {
+    console.log(`[${TOOL_NAME}] Synced .omx scaffold back to protected branch workspace.`);
+  } else if (execution.omxScaffoldSync.status === 'unchanged') {
+    console.log(`[${TOOL_NAME}] .omx scaffold already aligned in protected branch workspace.`);
+  } else if (execution.omxScaffoldSync.status === 'would-sync') {
+    console.log(`[${TOOL_NAME}] Dry run: would sync .omx scaffold back to protected branch workspace.`);
+  } else {
+    console.log(`[${TOOL_NAME}] .omx scaffold sync skipped: ${execution.omxScaffoldSync.note}.`);
+  }
+}
+
+function setDoctorSandboxExitCode(nestedResult, execution) {
+  if (typeof nestedResult.status === 'number') {
+    let exitCode = nestedResult.status;
+    if (exitCode === 0 && execution.autoCommit.status === 'failed') {
+      exitCode = 1;
+    }
+    if (
+      exitCode === 0 &&
+      execution.autoCommit.status === 'committed' &&
+      (execution.finish.status === 'failed' || execution.finish.status === 'pending')
+    ) {
+      exitCode = 1;
+    }
+    if (exitCode === 0 && execution.protectedBaseRepairSync.status === 'failed') {
+      exitCode = 1;
+    }
+    process.exitCode = exitCode;
+    return;
+  }
+  process.exitCode = 1;
+}
+
 function runDoctorInSandbox(options, blocked) {
+  /** @type {SandboxStartResult} */
   const startResult = startProtectedBaseSandbox(blocked, {
     taskName: `${SHORT_TOOL_NAME}-doctor`,
     sandboxSuffix: 'gx-doctor',
@@ -2648,308 +3075,17 @@ function runDoctorInSandbox(options, blocked) {
     throw nestedResult.error;
   }
 
-  let autoCommitResult = {
-    status: 'skipped',
-    note: 'sandbox doctor did not complete successfully',
-  };
-  let finishResult = {
-    status: 'skipped',
-    note: 'sandbox doctor did not complete successfully',
-  };
-
-  let protectedBaseRepairSyncResult = {
-    status: 'skipped',
-    note: 'sandbox doctor did not complete successfully',
-  };
-  let lockSyncResult = {
-    status: 'skipped',
-    note: 'sandbox doctor did not complete successfully',
-  };
-  let sandboxLockContent = null;
-  let postSandboxAutoFinishSummary = {
-    enabled: false,
-    attempted: 0,
-    completed: 0,
-    skipped: 0,
-    failed: 0,
-    details: ['Skipped auto-finish sweep (sandbox doctor did not complete successfully).'],
-  };
-  let omxScaffoldSyncResult = {
-    status: 'skipped',
-    note: 'sandbox doctor did not complete successfully',
-  };
-  if (nestedResult.status === 0) {
-    const omxScaffoldOps = ensureOmxScaffold(blocked.repoRoot, Boolean(options.dryRun));
-    const changedOmxPaths = omxScaffoldOps.filter((operation) => operation.status !== 'unchanged');
-    if (changedOmxPaths.length === 0) {
-      omxScaffoldSyncResult = {
-        status: 'unchanged',
-        note: '.omx scaffold already in sync',
-        operations: omxScaffoldOps,
-      };
-    } else {
-      omxScaffoldSyncResult = {
-        status: options.dryRun ? 'would-sync' : 'synced',
-        note: `${options.dryRun ? 'would sync' : 'synced'} ${changedOmxPaths.length} .omx path(s)`,
-        operations: omxScaffoldOps,
-      };
-    }
-
-    if (!options.dryRun) {
-      autoCommitResult = autoCommitDoctorSandboxChanges(metadata);
-      if (autoCommitResult.status === 'committed') {
-        finishResult = finishDoctorSandboxBranch(blocked, metadata, options);
-      } else if (autoCommitResult.status === 'no-changes') {
-        finishResult = {
-          status: 'skipped',
-          note: 'no doctor changes to auto-finish',
-        };
-      } else if (autoCommitResult.status !== 'failed') {
-        finishResult = {
-          status: 'skipped',
-          note: 'auto-commit did not run',
-        };
-      }
-    } else {
-      autoCommitResult = {
-        status: 'skipped',
-        note: 'dry-run skips doctor sandbox auto-commit',
-      };
-      finishResult = {
-        status: 'skipped',
-        note: 'dry-run skips doctor sandbox finish flow',
-      };
-    }
-
-    const sandboxLockPath = path.join(metadata.worktreePath, LOCK_FILE_RELATIVE);
-    const baseLockPath = path.join(blocked.repoRoot, LOCK_FILE_RELATIVE);
-    if (!fs.existsSync(baseLockPath)) {
-      lockSyncResult = {
-        status: 'skipped',
-        note: `${LOCK_FILE_RELATIVE} missing in protected base workspace`,
-      };
-    } else if (!fs.existsSync(sandboxLockPath)) {
-      lockSyncResult = {
-        status: 'skipped',
-        note: `${LOCK_FILE_RELATIVE} missing in sandbox worktree`,
-      };
-    } else {
-      const sourceContent = stripDoctorSandboxLocks(
-        fs.readFileSync(sandboxLockPath, 'utf8'),
-        metadata.branch,
-      );
-      sandboxLockContent = sourceContent;
-      const destinationContent = fs.readFileSync(baseLockPath, 'utf8');
-      if (sourceContent === destinationContent) {
-        lockSyncResult = {
-          status: 'unchanged',
-          note: `${LOCK_FILE_RELATIVE} already in sync`,
-        };
-      } else {
-        fs.mkdirSync(path.dirname(baseLockPath), { recursive: true });
-        fs.writeFileSync(baseLockPath, sourceContent, 'utf8');
-        lockSyncResult = {
-          status: 'synced',
-          note: `${LOCK_FILE_RELATIVE} synced from sandbox`,
-        };
-      }
-    }
-
-    protectedBaseRepairSyncResult = mergeDoctorSandboxRepairsBackToProtectedBase(
-      options,
-      blocked,
-      metadata,
-      autoCommitResult,
-      finishResult,
-    );
-
-    syncDoctorLocalSupportFiles(blocked.repoRoot, Boolean(options.dryRun));
-
-    const postMergeOmxScaffoldOps = ensureOmxScaffold(blocked.repoRoot, Boolean(options.dryRun));
-    const postMergeChangedOmxPaths = postMergeOmxScaffoldOps.filter((operation) => operation.status !== 'unchanged');
-    if (postMergeChangedOmxPaths.length === 0) {
-      omxScaffoldSyncResult = {
-        status: 'unchanged',
-        note: '.omx scaffold already in sync',
-        operations: postMergeOmxScaffoldOps,
-      };
-    } else {
-      omxScaffoldSyncResult = {
-        status: options.dryRun ? 'would-sync' : 'synced',
-        note: `${options.dryRun ? 'would sync' : 'synced'} ${postMergeChangedOmxPaths.length} .omx path(s)`,
-        operations: postMergeOmxScaffoldOps,
-      };
-    }
-
-    const postMergeBaseLockPath = path.join(blocked.repoRoot, LOCK_FILE_RELATIVE);
-    if (sandboxLockContent === null) {
-      lockSyncResult = {
-        status: 'skipped',
-        note: `${LOCK_FILE_RELATIVE} missing in sandbox worktree`,
-      };
-    } else if (!fs.existsSync(postMergeBaseLockPath)) {
-      fs.mkdirSync(path.dirname(postMergeBaseLockPath), { recursive: true });
-      fs.writeFileSync(postMergeBaseLockPath, sandboxLockContent, 'utf8');
-      lockSyncResult = {
-        status: 'synced',
-        note: `${LOCK_FILE_RELATIVE} recreated from sandbox`,
-      };
-    } else {
-      const destinationContent = fs.readFileSync(postMergeBaseLockPath, 'utf8');
-      if (sandboxLockContent === destinationContent) {
-        lockSyncResult = {
-          status: 'unchanged',
-          note: `${LOCK_FILE_RELATIVE} already in sync`,
-        };
-      } else {
-        fs.mkdirSync(path.dirname(postMergeBaseLockPath), { recursive: true });
-        fs.writeFileSync(postMergeBaseLockPath, sandboxLockContent, 'utf8');
-        lockSyncResult = {
-          status: 'synced',
-          note: `${LOCK_FILE_RELATIVE} synced from sandbox`,
-        };
-      }
-    }
-
-    postSandboxAutoFinishSummary = autoFinishReadyAgentBranches(blocked.repoRoot, {
-      baseBranch: blocked.branch,
-      dryRun: options.dryRun,
-      waitForMerge: options.waitForMerge,
-      excludeBranches: [metadata.branch],
-    });
-  }
+  const execution = nestedResult.status === 0
+    ? executeDoctorSandboxLifecycle(options, blocked, metadata)
+    : createDoctorSandboxExecutionState();
 
   if (options.json) {
-    if (nestedResult.stdout) {
-      if (nestedResult.status === 0) {
-        try {
-          const parsed = JSON.parse(nestedResult.stdout);
-          process.stdout.write(
-            JSON.stringify(
-              {
-                ...parsed,
-                protectedBaseRepairSync: protectedBaseRepairSyncResult,
-                sandboxOmxScaffoldSync: omxScaffoldSyncResult,
-                sandboxLockSync: lockSyncResult,
-                sandboxAutoCommit: autoCommitResult,
-                sandboxFinish: finishResult,
-                autoFinish: postSandboxAutoFinishSummary,
-              },
-              null,
-              2,
-            ) + '\n',
-          );
-        } catch {
-          process.stdout.write(nestedResult.stdout);
-        }
-      } else {
-        process.stdout.write(nestedResult.stdout);
-      }
-    }
-    if (nestedResult.stderr) process.stderr.write(nestedResult.stderr);
+    emitDoctorSandboxJsonOutput(nestedResult, execution);
   } else {
-    console.log(
-      `[${TOOL_NAME}] doctor detected protected branch '${blocked.branch}'. ` +
-      `Running repairs in sandbox branch '${metadata.branch || 'agent/<auto>'}'.`,
-    );
-    if (startResult.stdout) process.stdout.write(startResult.stdout);
-    if (startResult.stderr) process.stderr.write(startResult.stderr);
-    if (nestedResult.stdout) process.stdout.write(nestedResult.stdout);
-    if (nestedResult.stderr) process.stderr.write(nestedResult.stderr);
-    if (nestedResult.status === 0) {
-      if (autoCommitResult.status === 'committed') {
-        console.log(
-          `[${TOOL_NAME}] Auto-committed doctor repairs in sandbox branch '${metadata.branch}'.`,
-        );
-      } else if (autoCommitResult.status === 'failed') {
-        console.log(`[${TOOL_NAME}] Doctor sandbox auto-commit failed; branch left for manual follow-up.`);
-        if (autoCommitResult.stdout) process.stdout.write(autoCommitResult.stdout);
-        if (autoCommitResult.stderr) process.stderr.write(autoCommitResult.stderr);
-      } else {
-        console.log(`[${TOOL_NAME}] Doctor sandbox auto-commit skipped: ${autoCommitResult.note}.`);
-      }
-
-      if (protectedBaseRepairSyncResult.status === 'merged') {
-        console.log(`[${TOOL_NAME}] Fast-forwarded tracked doctor repairs into the protected branch workspace.`);
-      } else if (protectedBaseRepairSyncResult.status === 'unchanged') {
-        console.log(`[${TOOL_NAME}] Protected branch workspace already had the tracked doctor repairs.`);
-      } else if (protectedBaseRepairSyncResult.status === 'would-merge') {
-        console.log(`[${TOOL_NAME}] Dry run: would fast-forward tracked doctor repairs into the protected branch workspace.`);
-      } else if (protectedBaseRepairSyncResult.status === 'failed') {
-        console.log(`[${TOOL_NAME}] Protected branch tracked repair merge failed: ${protectedBaseRepairSyncResult.note}.`);
-        if (protectedBaseRepairSyncResult.stdout) process.stdout.write(protectedBaseRepairSyncResult.stdout);
-        if (protectedBaseRepairSyncResult.stderr) process.stderr.write(protectedBaseRepairSyncResult.stderr);
-      } else {
-        console.log(`[${TOOL_NAME}] Protected branch tracked repair merge skipped: ${protectedBaseRepairSyncResult.note}.`);
-      }
-
-      if (lockSyncResult.status === 'synced') {
-        console.log(
-          `[${TOOL_NAME}] Synced repaired lock registry back to protected branch workspace (${LOCK_FILE_RELATIVE}).`,
-        );
-      } else if (lockSyncResult.status === 'unchanged') {
-        console.log(`[${TOOL_NAME}] Lock registry already synced in protected branch workspace.`);
-      } else {
-        console.log(`[${TOOL_NAME}] Lock registry sync skipped: ${lockSyncResult.note}.`);
-      }
-
-      if (finishResult.status === 'completed') {
-        console.log(`[${TOOL_NAME}] Auto-finish flow completed for sandbox branch '${metadata.branch}'.`);
-        if (finishResult.stdout) process.stdout.write(finishResult.stdout);
-        if (finishResult.stderr) process.stderr.write(finishResult.stderr);
-      } else if (finishResult.status === 'pending') {
-        console.log(
-          `[${TOOL_NAME}] Auto-finish pending for sandbox branch '${metadata.branch}': ${finishResult.note}.`,
-        );
-        if (finishResult.prUrl) {
-          console.log(`[${TOOL_NAME}] PR: ${finishResult.prUrl}`);
-        }
-        if (finishResult.stdout) process.stdout.write(finishResult.stdout);
-        if (finishResult.stderr) process.stderr.write(finishResult.stderr);
-      } else if (finishResult.status === 'failed') {
-        console.log(`[${TOOL_NAME}] Auto-finish flow failed for sandbox branch '${metadata.branch}'.`);
-        console.log(`[${TOOL_NAME}] Auto-finish flow failed for sandbox branch '${metadata.branch}'.`);
-        if (finishResult.stdout) process.stdout.write(finishResult.stdout);
-        if (finishResult.stderr) process.stderr.write(finishResult.stderr);
-      } else {
-        console.log(`[${TOOL_NAME}] Auto-finish skipped: ${finishResult.note}.`);
-      }
-
-      printAutoFinishSummary(postSandboxAutoFinishSummary, {
-        baseBranch: blocked.branch,
-        verbose: options.verboseAutoFinish,
-      });
-      if (omxScaffoldSyncResult.status === 'synced') {
-        console.log(`[${TOOL_NAME}] Synced .omx scaffold back to protected branch workspace.`);
-      } else if (omxScaffoldSyncResult.status === 'unchanged') {
-        console.log(`[${TOOL_NAME}] .omx scaffold already aligned in protected branch workspace.`);
-      } else if (omxScaffoldSyncResult.status === 'would-sync') {
-        console.log(`[${TOOL_NAME}] Dry run: would sync .omx scaffold back to protected branch workspace.`);
-      } else {
-        console.log(`[${TOOL_NAME}] .omx scaffold sync skipped: ${omxScaffoldSyncResult.note}.`);
-      }
-    }
+    emitDoctorSandboxConsoleOutput(options, blocked, metadata, startResult, nestedResult, execution);
   }
 
-  if (typeof nestedResult.status === 'number') {
-    let exitCode = nestedResult.status;
-    if (exitCode === 0 && autoCommitResult.status === 'failed') {
-      exitCode = 1;
-    }
-    if (
-      exitCode === 0 &&
-      autoCommitResult.status === 'committed' &&
-      (finishResult.status === 'failed' || finishResult.status === 'pending')
-    ) {
-      exitCode = 1;
-    }
-    if (exitCode === 0 && protectedBaseRepairSyncResult.status === 'failed') {
-      exitCode = 1;
-    }
-    process.exitCode = exitCode;
-    return;
-  }
-  process.exitCode = 1;
+  setDoctorSandboxExitCode(nestedResult, execution);
 }
 
 function runSetupInSandbox(options, blocked, repoLabel = '') {
