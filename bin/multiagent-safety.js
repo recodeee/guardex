@@ -754,6 +754,36 @@ function compactAutoFinishPathSegments(message) {
   });
 }
 
+function detectRecoverableAutoFinishConflict(message) {
+  const text = String(message || '').trim();
+  if (!text) {
+    return null;
+  }
+
+  if (/rebase --continue/i.test(text) && /rebase --abort/i.test(text)) {
+    return {
+      rawLabel: 'auto-finish requires manual rebase.',
+      summary: 'manual rebase required in the source-probe worktree; run rebase --continue or rebase --abort',
+    };
+  }
+
+  if (/Rebase\/merge '.+' into '.+' and resolve conflicts before finishing\./i.test(text)) {
+    return {
+      rawLabel: 'auto-finish requires manual rebase or merge.',
+      summary: 'manual rebase or merge required before auto-finish can continue',
+    };
+  }
+
+  if (/Merge conflict detected while merging/i.test(text)) {
+    return {
+      rawLabel: 'auto-finish requires manual merge resolution.',
+      summary: 'manual merge resolution required before auto-finish can continue',
+    };
+  }
+
+  return null;
+}
+
 function summarizeAutoFinishDetail(detail) {
   const trimmed = String(detail || '').trim();
   const match = trimmed.match(/^\[(\w+)\]\s+([^:]+):\s*(.*)$/);
@@ -764,8 +794,11 @@ function summarizeAutoFinishDetail(detail) {
   const [, status, rawBranch, rawMessage] = match;
   const branch = truncateMiddle(rawBranch, DOCTOR_AUTO_FINISH_BRANCH_LABEL_MAX);
   let message = String(rawMessage || '').trim();
+  const recoverableConflict = status === 'skip' ? detectRecoverableAutoFinishConflict(message) : null;
 
-  if (status === 'fail') {
+  if (recoverableConflict) {
+    message = recoverableConflict.summary;
+  } else if (status === 'fail') {
     message = message.replace(/^auto-finish failed\.?\s*/i, '');
     if (/\[agent-sync-guard\]/.test(message) && /Resolve conflicts/i.test(message)) {
       message = 'rebase conflict in finish flow; run rebase --continue or rebase --abort in the source-probe worktree';
@@ -3560,6 +3593,14 @@ function autoFinishReadyAgentBranches(repoRoot, options = {}) {
     if (finishResult.status === 0) {
       summary.completed += 1;
       summary.details.push(`[done] ${branch}: auto-finish completed.`);
+      continue;
+    }
+
+    const recoverableConflict = detectRecoverableAutoFinishConflict(combinedOutput);
+    if (recoverableConflict) {
+      summary.skipped += 1;
+      const tail = combinedOutput ? ` ${combinedOutput.split('\n').slice(-2).join(' | ')}` : '';
+      summary.details.push(`[skip] ${branch}: ${recoverableConflict.rawLabel}${tail}`);
       continue;
     }
 

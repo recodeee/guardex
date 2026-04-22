@@ -1669,7 +1669,7 @@ exit 1
   assert.match(combinedOutput, /Auto-finish sweep \(base=main\): attempted=1, completed=1, skipped=\d+, failed=0/);
 });
 
-test('doctor compacts auto-finish failures by default and expands them with --verbose-auto-finish', () => {
+test('doctor treats recoverable auto-finish rebase conflicts as actionable skips', () => {
   const repoDir = initRepoOnBranch('main');
   seedCommit(repoDir);
   attachOriginRemoteForBranch(repoDir, 'main');
@@ -1706,10 +1706,11 @@ exit 1
   );
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const compactOutput = `${result.stdout}\n${result.stderr}`;
+  assert.match(compactOutput, /Auto-finish sweep \(base=main\): attempted=1, completed=0, skipped=\d+, failed=0/);
   assert.match(
     compactOutput,
     new RegExp(
-      `\\[fail\\] ${escapeRegexLiteral(readyBranch)}: rebase conflict in finish flow; run rebase --continue or rebase --abort in the source-probe worktree`,
+      `\\[skip\\] ${escapeRegexLiteral(readyBranch)}: manual rebase required in the source-probe worktree; run rebase --continue or rebase --abort`,
     ),
   );
   assert.doesNotMatch(compactOutput, /git -C "\/tmp\/very\/long\/path\/for\/source-probe-agent-worktree/);
@@ -1721,11 +1722,11 @@ exit 1
   );
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const verboseOutput = `${result.stdout}\n${result.stderr}`;
-  assert.match(verboseOutput, new RegExp(`\\[fail\\] ${escapeRegexLiteral(readyBranch)}: auto-finish failed\\.`));
+  assert.match(verboseOutput, new RegExp(`\\[skip\\] ${escapeRegexLiteral(readyBranch)}: auto-finish requires manual rebase\\.`));
   assert.match(verboseOutput, /git -C ".+rebase --continue/);
 });
 
-test('doctor colors failure and success status lines when color output is enabled', () => {
+test('doctor colors manual conflict skips yellow and success status lines green', () => {
   const repoDir = initRepoOnBranch('main');
   seedCommit(repoDir);
   attachOriginRemoteForBranch(repoDir, 'main');
@@ -1767,12 +1768,12 @@ exit 1
   assert.match(ansiOutput, /\u001B\[32m\[gitguardex\] ✅ No safety issues detected\.\u001B\[0m/);
   assert.match(
     ansiOutput,
-    /\u001B\[31m\[gitguardex\] Auto-finish sweep \(base=main\): attempted=1, completed=0, skipped=\d+, failed=1\u001B\[0m/,
+    /\u001B\[33m\[gitguardex\] Auto-finish sweep \(base=main\): attempted=1, completed=0, skipped=\d+, failed=0\u001B\[0m/,
   );
   assert.match(
     ansiOutput,
     new RegExp(
-      `\\u001B\\[31m\\[gitguardex\\]\\s+\\[fail\\] ${escapeRegexLiteral(readyBranch)}: rebase conflict in finish flow; run rebase --continue or rebase --abort in the source-probe worktree\\u001B\\[0m`,
+      `\\u001B\\[33m\\[gitguardex\\]\\s+\\[skip\\] ${escapeRegexLiteral(readyBranch)}: manual rebase required in the source-probe worktree; run rebase --continue or rebase --abort\\u001B\\[0m`,
     ),
   );
   assert.match(ansiOutput, /\u001B\[32m\[gitguardex\] ✅ Repo is fully safe\.\u001B\[0m/);
