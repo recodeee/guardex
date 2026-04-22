@@ -2,7 +2,77 @@ const fs = require('node:fs');
 const path = require('node:path');
 const cp = require('node:child_process');
 const vscode = require('vscode');
-const { formatElapsedFrom, readActiveSessions, readRepoChanges } = require('./session-schema.js');
+const {
+  formatElapsedFrom,
+  readActiveSessions,
+  readRepoChanges,
+  sanitizeBranchForFile,
+} = require('./session-schema.js');
+
+const SESSION_DECORATION_SCHEME = 'gitguardex-agent';
+const IDLE_WARNING_MS = 10 * 60 * 1000;
+const IDLE_ERROR_MS = 30 * 60 * 1000;
+const LOCK_FILE_RELATIVE = path.join('.omx', 'state', 'agent-file-locks.json');
+
+function sessionDecorationUri(branch) {
+  return vscode.Uri.parse(`${SESSION_DECORATION_SCHEME}://${sanitizeBranchForFile(branch)}`);
+}
+
+function sessionIdleDecoration(session, now = Date.now()) {
+  if (!session || session.activityKind === 'working') {
+    return undefined;
+  }
+
+  const startedAtMs = Date.parse(session.startedAt);
+  if (!Number.isFinite(startedAtMs)) {
+    return undefined;
+  }
+
+  const elapsedMs = now - startedAtMs;
+  if (elapsedMs > IDLE_ERROR_MS) {
+    return {
+      badge: '30m+',
+      tooltip: 'idle 30m+',
+      color: new vscode.ThemeColor('list.errorForeground'),
+    };
+  }
+  if (elapsedMs > IDLE_WARNING_MS) {
+    return {
+      badge: '10m+',
+      tooltip: 'idle 10m+',
+      color: new vscode.ThemeColor('list.warningForeground'),
+    };
+  }
+
+  return undefined;
+}
+
+class SessionDecorationProvider {
+  constructor(nowProvider = () => Date.now()) {
+    this.nowProvider = nowProvider;
+    this.sessionsByUri = new Map();
+    this.onDidChangeFileDecorationsEmitter = new vscode.EventEmitter();
+    this.onDidChangeFileDecorations = this.onDidChangeFileDecorationsEmitter.event;
+  }
+
+  updateSessions(sessions) {
+    this.sessionsByUri = new Map(
+      sessions.map((session) => [sessionDecorationUri(session.branch).toString(), session]),
+    );
+  }
+
+  refresh() {
+    this.onDidChangeFileDecorationsEmitter.fire();
+  }
+
+  provideFileDecoration(uri) {
+    if (!uri || uri.scheme !== SESSION_DECORATION_SCHEME) {
+      return undefined;
+    }
+
+    return sessionIdleDecoration(this.sessionsByUri.get(uri.toString()), this.nowProvider());
+  }
+}
 
 class InfoItem extends vscode.TreeItem {
   constructor(label, description = '') {
@@ -48,8 +118,10 @@ class SectionItem extends vscode.TreeItem {
 
 class SessionItem extends vscode.TreeItem {
   constructor(session) {
-    super(session.label, vscode.TreeItemCollapsibleState.None);
+    const lockCount = Number.isFinite(session.lockCount) ? session.lockCount : 0;
+    super(`${session.label} 🔒 ${lockCount}`, vscode.TreeItemCollapsibleState.None);
     this.session = session;
+    this.resourceUri = sessionDecorationUri(session.branch);
     const descriptionParts = [session.activityLabel || 'thinking'];
     if (session.activityCountLabel) {
       descriptionParts.push(session.activityCountLabel);
@@ -63,6 +135,7 @@ class SessionItem extends vscode.TreeItem {
       session.changeCount > 0
         ? `Changed ${session.activityCountLabel}: ${session.activitySummary}`
         : session.activitySummary,
+      `Locks ${lockCount}`,
       `Started ${session.startedAt}`,
       session.worktreePath,
     ];
@@ -99,9 +172,13 @@ class ChangeItem extends vscode.TreeItem {
       change.relativePath,
       `Status ${change.statusText}`,
       change.originalPath ? `Renamed from ${change.originalPath}` : '',
+      change.hasForeignLock ? `Locked by ${change.lockOwnerBranch}` : '',
       change.absolutePath,
     ].filter(Boolean).join('\n');
     this.resourceUri = vscode.Uri.file(change.absolutePath);
+    if (change.hasForeignLock) {
+      this.iconPath = new vscode.ThemeIcon('warning');
+    }
     this.contextValue = 'gitguardex.change';
     this.command = {
       command: 'gitguardex.activeAgents.openChange',
@@ -232,6 +309,94 @@ function repoRootFromSessionFile(filePath) {
   return path.resolve(path.dirname(filePath), '..', '..', '..');
 }
 
+function repoRootFromLockFile(filePath) {
+  return path.resolve(path.dirname(filePath), '..', '..');
+}
+
+function normalizeRelativePath(relativePath) {
+  return String(relativePath || '').replace(/\\/g, '/');
+}
+
+function emptyLockRegistry() {
+  return {
+    entriesByPath: new Map(),
+    countsByBranch: new Map(),
+  };
+}
+
+function readLockRegistry(repoRoot) {
+  const lockPath = path.join(repoRoot, LOCK_FILE_RELATIVE);
+  if (!fs.existsSync(lockPath)) {
+    return emptyLockRegistry();
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
+  } catch (_error) {
+    return emptyLockRegistry();
+  }
+
+  const locks = parsed?.locks;
+  if (!locks || typeof locks !== 'object' || Array.isArray(locks)) {
+    return emptyLockRegistry();
+  }
+
+  const entriesByPath = new Map();
+  const countsByBranch = new Map();
+  for (const [rawRelativePath, entry] of Object.entries(locks)) {
+    if (!entry || typeof entry !== 'object') {
+      continue;
+    }
+
+    const relativePath = normalizeRelativePath(rawRelativePath);
+    const branch = typeof entry.branch === 'string' ? entry.branch.trim() : '';
+    if (!relativePath || !branch) {
+      continue;
+    }
+
+    entriesByPath.set(relativePath, {
+      branch,
+      claimedAt: typeof entry.claimed_at === 'string' ? entry.claimed_at : '',
+      allowDelete: Boolean(entry.allow_delete),
+    });
+    countsByBranch.set(branch, (countsByBranch.get(branch) || 0) + 1);
+  }
+
+  return {
+    entriesByPath,
+    countsByBranch,
+  };
+}
+
+function readCurrentBranch(repoRoot) {
+  try {
+    return cp.execFileSync('git', ['-C', repoRoot, 'rev-parse', '--abbrev-ref', 'HEAD'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch (_error) {
+    return '';
+  }
+}
+
+function decorateSession(session, lockRegistry) {
+  return {
+    ...session,
+    lockCount: lockRegistry.countsByBranch.get(session.branch) || 0,
+  };
+}
+
+function decorateChange(change, lockRegistry, owningBranch) {
+  const lockEntry = lockRegistry.entriesByPath.get(normalizeRelativePath(change.relativePath));
+  const lockOwnerBranch = lockEntry?.branch || '';
+  return {
+    ...change,
+    lockOwnerBranch,
+    hasForeignLock: Boolean(lockOwnerBranch) && (!owningBranch || lockOwnerBranch !== owningBranch),
+  };
+}
+
 function buildChangeTreeNodes(changes) {
   const root = [];
 
@@ -317,10 +482,12 @@ function buildActiveAgentGroupNodes(sessions) {
 }
 
 class ActiveAgentsProvider {
-  constructor() {
+  constructor(decorationProvider) {
+    this.decorationProvider = decorationProvider;
     this.onDidChangeTreeDataEmitter = new vscode.EventEmitter();
     this.onDidChangeTreeData = this.onDidChangeTreeDataEmitter.event;
     this.treeView = null;
+    this.lockRegistryByRepoRoot = new Map();
   }
 
   getTreeItem(element) {
@@ -349,8 +516,37 @@ class ActiveAgentsProvider {
       : 'Start a sandbox session to populate this view.';
   }
 
-  refresh() {
+  async syncRepoEntries() {
+    const repoEntries = await this.loadRepoEntries();
+    const sessionCount = repoEntries.reduce((total, entry) => total + entry.sessions.length, 0);
+    const workingCount = repoEntries.reduce(
+      (total, entry) => total + countWorkingSessions(entry.sessions),
+      0,
+    );
+
+    this.updateViewState(sessionCount, workingCount);
+    this.decorationProvider?.updateSessions(repoEntries.flatMap((entry) => entry.sessions));
+    return repoEntries;
+  }
+
+  async refresh() {
+    await this.syncRepoEntries();
     this.onDidChangeTreeDataEmitter.fire();
+    this.decorationProvider?.refresh();
+  }
+
+  readLockRegistryForRepo(repoRoot) {
+    const lockRegistry = readLockRegistry(repoRoot);
+    this.lockRegistryByRepoRoot.set(repoRoot, lockRegistry);
+    return lockRegistry;
+  }
+
+  getLockRegistryForRepo(repoRoot) {
+    return this.lockRegistryByRepoRoot.get(repoRoot) || this.readLockRegistryForRepo(repoRoot);
+  }
+
+  refreshLockRegistryForFile(filePath) {
+    this.readLockRegistryForRepo(repoRootFromLockFile(filePath));
   }
 
   async getChildren(element) {
@@ -370,13 +566,7 @@ class ActiveAgentsProvider {
       return element.items;
     }
 
-    const repoEntries = await this.loadRepoEntries();
-    const sessionCount = repoEntries.reduce((total, entry) => total + entry.sessions.length, 0);
-    const workingCount = repoEntries.reduce(
-      (total, entry) => total + countWorkingSessions(entry.sessions),
-      0,
-    );
-    this.updateViewState(sessionCount, workingCount);
+    const repoEntries = await this.syncRepoEntries();
 
     if (repoEntries.length === 0) {
       return [new InfoItem('No active Guardex agents', 'Open or start a sandbox session.')];
@@ -405,12 +595,16 @@ class ActiveAgentsProvider {
 
     const repoEntries = [];
     for (const repoRoot of repoRoots) {
-      const sessions = readActiveSessions(repoRoot);
+      const lockRegistry = this.getLockRegistryForRepo(repoRoot);
+      const sessions = readActiveSessions(repoRoot).map((session) => decorateSession(session, lockRegistry));
       if (sessions.length > 0) {
+        const currentBranch = readCurrentBranch(repoRoot);
         repoEntries.push({
           repoRoot,
           sessions,
-          changes: readRepoChanges(repoRoot),
+          changes: readRepoChanges(repoRoot).map((change) => (
+            decorateChange(change, lockRegistry, currentBranch)
+          )),
         });
       }
     }
@@ -421,18 +615,29 @@ class ActiveAgentsProvider {
 }
 
 function activate(context) {
-  const provider = new ActiveAgentsProvider();
+  const decorationProvider = new SessionDecorationProvider();
+  const provider = new ActiveAgentsProvider(decorationProvider);
   const treeView = vscode.window.createTreeView('gitguardex.activeAgents', {
     treeDataProvider: provider,
     showCollapseAll: true,
   });
   provider.attachTreeView(treeView);
-  const refresh = () => provider.refresh();
-  const watcher = vscode.workspace.createFileSystemWatcher('**/.omx/state/active-sessions/*.json');
+  const refresh = () => {
+    void provider.refresh();
+  };
+  const sessionWatcher = vscode.workspace.createFileSystemWatcher('**/.omx/state/active-sessions/*.json');
+  const lockWatcher = vscode.workspace.createFileSystemWatcher('**/.omx/state/agent-file-locks.json');
   const interval = setInterval(refresh, 5_000);
+  const refreshLockRegistry = (uri) => {
+    if (uri?.fsPath) {
+      provider.refreshLockRegistryForFile(uri.fsPath);
+    }
+    refresh();
+  };
 
   context.subscriptions.push(
     treeView,
+    vscode.window.registerFileDecorationProvider(decorationProvider),
     vscode.commands.registerCommand('gitguardex.activeAgents.refresh', refresh),
     vscode.commands.registerCommand('gitguardex.activeAgents.openWorktree', async (session) => {
       if (!session?.worktreePath) {
@@ -462,13 +667,17 @@ function activate(context) {
     vscode.commands.registerCommand('gitguardex.activeAgents.stopSession', (session) => stopSession(session, refresh)),
     vscode.commands.registerCommand('gitguardex.activeAgents.openSessionDiff', openSessionDiff),
     vscode.workspace.onDidChangeWorkspaceFolders(refresh),
-    watcher,
+    sessionWatcher,
+    lockWatcher,
     { dispose: () => clearInterval(interval) },
   );
 
-  watcher.onDidCreate(refresh, undefined, context.subscriptions);
-  watcher.onDidChange(refresh, undefined, context.subscriptions);
-  watcher.onDidDelete(refresh, undefined, context.subscriptions);
+  sessionWatcher.onDidCreate(refresh, undefined, context.subscriptions);
+  sessionWatcher.onDidChange(refresh, undefined, context.subscriptions);
+  sessionWatcher.onDidDelete(refresh, undefined, context.subscriptions);
+  lockWatcher.onDidCreate(refreshLockRegistry, undefined, context.subscriptions);
+  lockWatcher.onDidChange(refreshLockRegistry, undefined, context.subscriptions);
+  lockWatcher.onDidDelete(refreshLockRegistry, undefined, context.subscriptions);
 }
 
 function deactivate() {}
