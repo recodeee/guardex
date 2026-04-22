@@ -27,6 +27,6 @@
 
 ## 6. Cleanup
 
-- [ ] 6.1 If this lane owns finalization, run `gx branch finish --branch agent/codex/vscode-active-agents-logo-and-runtime-pl-2026-04-22-16-05 --base main --via-pr --wait-for-merge --cleanup`.
-- [ ] 6.2 Record PR URL + final `MERGED` state in the handoff.
-- [ ] 6.3 Confirm sandbox cleanup (`git worktree list`, `git branch -a`) or append `BLOCKED:` and stop.
+- [x] 6.1 Finalization already completed on `agent/codex/vscode-active-agents-logo-and-runtime-im-2026-04-22-16-17` via `gx branch finish --base main --via-pr --wait-for-merge --cleanup`.
+- [x] 6.2 Recorded merge evidence: `PR #322` is `MERGED` (`https://github.com/recodeee/gitguardex/pull/322`, merged at `2026-04-22T14:31:31Z`).
+- [x] 6.3 Confirmed cleanup evidence: current `git worktree list --porcelain` and `git branch -a` output no longer shows the original implementation worktree or surviving refs.

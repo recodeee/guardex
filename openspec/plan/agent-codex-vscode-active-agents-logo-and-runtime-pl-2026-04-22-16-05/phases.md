@@ -29,7 +29,7 @@ One phase is intended to fit into a single Codex or Claude session task.
   - checkpoints: W1, V1
   - summary: Synced README copy, extended the install payload test, and verified the bundled icon via both focused tests and a manual install smoke check.
 
-- [>] [PH05] Validate and finish the lane
+- [x] [PH05] Validate and finish the lane
   - session: codex
   - checkpoints: E1, V1
-  - summary: Run focused verification, validate OpenSpec artifacts, then finish with `gx branch finish --via-pr --wait-for-merge --cleanup`.
+  - summary: Focused verification passed, `PR #322` merged, and the original implementation branch/worktree no longer appears in current `git branch -a` or `git worktree list --porcelain` output.

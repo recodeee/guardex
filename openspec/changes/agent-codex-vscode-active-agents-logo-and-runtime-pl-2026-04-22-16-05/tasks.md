@@ -8,8 +8,8 @@ This change is complete only when **all** of the following are true:
 
 ## Handoff
 
-- Handoff: change=`agent-codex-vscode-active-agents-logo-and-runtime-pl-2026-04-22-16-05`; branch=`agent/codex/vscode-active-agents-logo-and-runtime-pl-2026-04-22-16-05`; scope=`logo.png packaging for the Active Agents extension, delta-only runtime audit, mirrored source parity, focused tests/docs`; action=`continue in this sandbox, execute the phase board in openspec/plan/agent-codex-vscode-active-agents-logo-and-runtime-pl-2026-04-22-16-05/, and finish with gx branch finish after validation`.
-- Copy prompt: Continue `agent-codex-vscode-active-agents-logo-and-runtime-pl-2026-04-22-16-05` on branch `agent/codex/vscode-active-agents-logo-and-runtime-pl-2026-04-22-16-05`. Work inside the existing sandbox, review `openspec/changes/agent-codex-vscode-active-agents-logo-and-runtime-pl-2026-04-22-16-05/tasks.md`, continue from the current state instead of creating a new sandbox, and when the work is done run `gx branch finish --branch agent/codex/vscode-active-agents-logo-and-runtime-pl-2026-04-22-16-05 --base main --via-pr --wait-for-merge --cleanup`.
+- Handoff: change=`agent-codex-vscode-active-agents-logo-and-runtime-pl-2026-04-22-16-05`; implementation-branch=`agent/codex/vscode-active-agents-logo-and-runtime-im-2026-04-22-16-17`; scope=`logo.png packaging for the Active Agents extension, delta-only runtime audit, mirrored source parity, focused tests/docs`; result=`merged via PR #322`; action=`no pending implementation work remains in this change; only post-merge bookkeeping verification was required`.
+- Copy prompt: `PR #322` already merged. Do not resume the old implementation sandbox; open a new helper lane from `main` only if a fresh follow-up is needed.
 
 ## 1. Specification
 
@@ -36,6 +36,6 @@ This change is complete only when **all** of the following are true:
 
 ## 5. Cleanup (mandatory; run before claiming completion)
 
-- [ ] 5.1 Run the cleanup pipeline: `gx branch finish --branch agent/codex/vscode-active-agents-logo-and-runtime-pl-2026-04-22-16-05 --base main --via-pr --wait-for-merge --cleanup`. This handles commit -> push -> PR create -> merge wait -> worktree prune in one invocation.
-- [ ] 5.2 Record the PR URL and final merge state (`MERGED`) in the completion handoff.
-- [ ] 5.3 Confirm the sandbox worktree is gone (`git worktree list` no longer shows the agent path; `git branch -a` shows no surviving local/remote refs for the branch).
+- [x] 5.1 Finalization already completed on the implementation lane via `gx branch finish --branch agent/codex/vscode-active-agents-logo-and-runtime-im-2026-04-22-16-17 --base main --via-pr --wait-for-merge --cleanup`.
+- [x] 5.2 Recorded merge evidence: `https://github.com/recodeee/gitguardex/pull/322` reached `MERGED` at `2026-04-22T14:31:31Z`.
+- [x] 5.3 Confirmed cleanup evidence on the current repo state: `git worktree list --porcelain` no longer lists the implementation worktree and `git branch -a` shows no surviving refs matching `vscode-active-agents-logo-and-runtime`.
