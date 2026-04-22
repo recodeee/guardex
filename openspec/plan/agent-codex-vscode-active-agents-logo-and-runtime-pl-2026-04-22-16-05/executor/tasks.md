@@ -20,9 +20,21 @@
 
 - [x] [E1] READY - Execution start checkpoint
 
+### E1 Acceptance Criteria
+
+- [x] The audit froze the touched-file list before widening scope.
+- [x] The branded icon shipped first and the runtime/provider layer stayed untouched because the requested behavior already shipped.
+- [x] Mirrored docs/tests stayed aligned with the final implementation result.
+
+### E1 Verification Evidence
+
+- [x] `executor/tasks.md` records the frozen touched-file scope and the no-runtime-provider-change result.
+- [x] `phases.md` marks the execution phase complete.
+- [x] `checkpoints.md` records the merged implementation evidence for `PR #322`.
+
 ## 5. Collaboration
 
-- [x] 5.1 Owner recorded this lane before edits.
+- [x] 5.1 Owner recorded this lane before edits in the root checkpoint log.
 - [x] 5.2 N/A - solo lane.
 
 ## 6. Cleanup

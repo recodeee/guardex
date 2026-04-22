@@ -27,6 +27,6 @@ This change is complete only when **all** of the following are true:
 
 ## 4. Cleanup (mandatory; run before claiming completion)
 
-- [ ] 4.1 Run `gx branch finish --branch agent/codex/always-active-vscode-extension-2026-04-22-16-18 --base main --via-pr --wait-for-merge --cleanup`.
-- [ ] 4.2 Record the PR URL and final merge state (`MERGED`) in the completion handoff.
-- [ ] 4.3 Confirm the sandbox worktree is gone (`git worktree list` no longer shows the agent path; `git branch -a` shows no surviving local/remote refs for the branch).
+- [x] 4.1 Run `gx branch finish --branch agent/codex/always-active-vscode-extension-2026-04-22-16-18 --base main --via-pr --wait-for-merge --cleanup`; the guarded finish merged PR `#327` and needed one manual cleanup pass after the live `/tmp` worktree blocked local branch deletion.
+- [x] 4.2 Record the PR URL and final merge state (`MERGED`) in the completion handoff: `https://github.com/recodeee/gitguardex/pull/327` (`MERGED`, merged at `2026-04-22T14:55:22Z`).
+- [x] 4.3 Confirm the sandbox worktree is gone and the branch refs are gone: `git worktree list` no longer shows `/tmp/gitguardex-agent__codex__always-active-vscode-extension-2026-04-22-16-18`, and `git fetch --prune origin` removed the last stale `origin/agent/codex/always-active-vscode-extension-2026-04-22-16-18` tracking ref after local branch deletion.

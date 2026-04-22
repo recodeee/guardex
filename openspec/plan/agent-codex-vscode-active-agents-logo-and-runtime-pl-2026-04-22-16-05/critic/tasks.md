@@ -20,9 +20,21 @@
 
 - [x] [C1] READY - Quality gate checkpoint
 
+### C1 Acceptance Criteria
+
+- [x] The plan stays delta-based and does not reopen already-landed Active Agents behavior without evidence.
+- [x] Every acceptance criterion maps to a concrete proof surface: install payload, focused test, OpenSpec validation, or merge evidence.
+- [x] The cleanup record is explicit instead of implied by unchecked boxes or stale branch names.
+
+### C1 Verification Evidence
+
+- [x] `critic/tasks.md` records the `APPROVE` verdict and the no-runtime-rewrite outcome.
+- [x] `phases.md` and `planner/plan.md` both preserve the delta-only runtime conclusion.
+- [x] `checkpoints.md` records the critic checkpoint and the merged cleanup-bookkeeping evidence.
+
 ## 5. Collaboration
 
-- [x] 5.1 Owner recorded this lane before edits.
+- [x] 5.1 Owner recorded this lane before edits in the root checkpoint log.
 - [x] 5.2 N/A - solo lane.
 
 ## 6. Cleanup

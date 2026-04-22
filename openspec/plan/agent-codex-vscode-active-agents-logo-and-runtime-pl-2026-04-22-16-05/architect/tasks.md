@@ -20,9 +20,21 @@
 
 - [x] [A1] READY - Architecture review checkpoint
 
+### A1 Acceptance Criteria
+
+- [x] The icon strategy is fixed to a bundled asset inside the installable extension payload.
+- [x] The lane keeps `vscode/` and `templates/` mirrored instead of widening into source-tree canonicalization.
+- [x] Runtime/provider behavior remains unchanged unless the audit proved a missing delta.
+
+### A1 Verification Evidence
+
+- [x] `planner/plan.md` ADR documents the preferred in-place patch and rejected alternatives.
+- [x] `phases.md` marks the architecture phase complete with the bundled-icon decision.
+- [x] `checkpoints.md` records the architecture checkpoint in the root chronology.
+
 ## 5. Collaboration
 
-- [x] 5.1 Owner recorded this lane before edits.
+- [x] 5.1 Owner recorded this lane before edits in the root checkpoint log.
 - [x] 5.2 N/A - solo lane.
 
 ## 6. Cleanup

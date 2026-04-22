@@ -32,4 +32,4 @@ One phase is intended to fit into a single Codex or Claude session task.
 - [x] [PH05] Validate and finish the lane
   - session: codex
   - checkpoints: E1, V1
-  - summary: Focused verification passed, `PR #322` merged, and the original implementation branch/worktree no longer appears in current `git branch -a` or `git worktree list --porcelain` output.
+  - summary: Focused verification passed, `PR #322` merged the implementation lane, `PR #326` merged the cleanup bookkeeping, and the original implementation branch/worktree no longer appears in current git state.

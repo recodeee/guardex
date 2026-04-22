@@ -20,9 +20,21 @@
 
 - [x] [V1] READY - Verification checkpoint
 
+### V1 Acceptance Criteria
+
+- [x] Verification proves the bundled icon lands in the installed payload and the manifest metadata points at it.
+- [x] Focused validation covers the real changed surfaces without widening into unrelated repo noise.
+- [x] Merge and cleanup evidence are explicit for the finished lane.
+
+### V1 Verification Evidence
+
+- [x] `verifier/tasks.md` records the focused verification and idempotency checks.
+- [x] `checkpoints.md` records both the merged implementation evidence and the merged cleanup-bookkeeping evidence.
+- [x] `planner/plan.md` completion section captures the PR numbers, merge commits, and cleanup-state proof.
+
 ## 5. Collaboration
 
-- [x] 5.1 Owner recorded this lane before edits.
+- [x] 5.1 Owner recorded this lane before edits in the root checkpoint log.
 - [x] 5.2 N/A - solo lane.
 
 ## 6. Cleanup

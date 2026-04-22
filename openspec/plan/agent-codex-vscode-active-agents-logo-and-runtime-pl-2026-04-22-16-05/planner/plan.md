@@ -13,6 +13,8 @@ After this plan lands, the `GitGuardex Active Agents` VS Code extension shows Gi
 - [x] (2026-04-22 14:10Z) Capture initial scope, acceptance criteria, and the real packaging/runtime constraints from the current repo.
 - [x] (2026-04-22 14:18Z) Draft architecture/tradeoff plan and verification strategy for branding plus delta-only runtime follow-up.
 - [x] (2026-04-22 14:24Z) Publish execution-ready handoff with explicit lanes, files, and verification steps.
+- [x] (2026-04-22 14:31Z) Merge the implementation lane as `PR #322` after focused tests, OpenSpec validation, and install smoke evidence.
+- [x] (2026-04-22 14:43Z) Merge the bookkeeping reconciliation lane as `PR #326` so the cleanup record stays aligned with the merged implementation lane.
 
 ## Surprises & Discoveries
 
@@ -34,10 +36,31 @@ After this plan lands, the `GitGuardex Active Agents` VS Code extension shows Gi
 - Decision: Ship the branded icon from inside the extension payload, sourced from the existing repo `logo.png`.
   Rationale: VS Code extension manifest icons must resolve from the installed extension directory; referencing the repo root would not survive local install.
   Date/Author: 2026-04-22 / codex
+- Decision: Do not split this plan into parallel waves.
+  Rationale: The work stayed narrow, the runtime slice audited to no-op, and a single owner kept the bookkeeping truthful.
+  Date/Author: 2026-04-22 / codex
 
 ## Outcomes & Retrospective
 
-Plan draft is ready. Next execution should start with icon packaging and source-parity decisions, not with runtime rewrites.
+The plan completed as intended: the branded icon shipped in `PR #322`, the runtime scope stayed delta-only, and `PR #326` reconciled the cleanup bookkeeping so the plan artifacts match the merged lane.
+
+## Completion Evidence
+
+- Implementation PR:
+  - `PR #322`
+  - URL: `https://github.com/recodeee/gitguardex/pull/322`
+  - head: `agent/codex/vscode-active-agents-logo-and-runtime-im-2026-04-22-16-17`
+  - merge commit: `14a08b67ffcc3f51193134ead568b07dd716bd39`
+  - merged at: `2026-04-22T14:31:31Z`
+- Cleanup-bookkeeping PR:
+  - `PR #326`
+  - URL: `https://github.com/recodeee/gitguardex/pull/326`
+  - head: `agent/codex/record-active-agents-logo-merge-evidence-2026-04-22-16-36`
+  - merge commit: `68d520e08aa2dd3b3f4c43d5bac0d13771abb5de`
+  - merged at: `2026-04-22T14:43:27Z`
+- Current repo state:
+  - `git worktree list --porcelain` shows no surviving original implementation worktree
+  - `git branch -a | rg 'vscode-active-agents-logo-and-runtime-(im|pl)-2026-04-22'` finds no surviving implementation or plan-slug refs
 
 ## Context and Orientation
 
@@ -182,3 +205,4 @@ List exact commands with working directory and short expected outcomes.
 ## Revision Note
 
 - 2026-04-22 14:24Z: Replaced scaffold with an execution-ready plan for Active Agents branding plus delta-only runtime follow-up.
+- 2026-04-22 14:43Z: Recorded the merged implementation and cleanup-bookkeeping evidence so the root plan artifacts now match the finished lane.

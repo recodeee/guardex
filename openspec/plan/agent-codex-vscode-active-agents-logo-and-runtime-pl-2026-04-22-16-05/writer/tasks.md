@@ -20,9 +20,21 @@
 
 - [x] [W1] READY - Docs update checkpoint
 
+### W1 Acceptance Criteria
+
+- [x] Operator-facing docs explain the branded extension result and the install/reload expectation.
+- [x] Source and template docs stay terminology-consistent.
+- [x] Docs reflect the actual delta-only runtime outcome instead of implying missing provider work.
+
+### W1 Verification Evidence
+
+- [x] `writer/tasks.md` records the synced source/template README updates.
+- [x] `phases.md` marks the docs/regression phase complete.
+- [x] `checkpoints.md` records the writer checkpoint in the root chronology.
+
 ## 5. Collaboration
 
-- [x] 5.1 Owner recorded this lane before edits.
+- [x] 5.1 Owner recorded this lane before edits in the root checkpoint log.
 - [x] 5.2 N/A - solo lane.
 
 ## 6. Cleanup
