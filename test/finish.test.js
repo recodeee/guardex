@@ -198,6 +198,50 @@ test('agent-branch-finish auto-syncs source branch when behind origin/dev', () =
 });
 
 
+test('agent-branch-finish removes stale source-probe worktrees before creating a fresh probe', () => {
+  const repoDir = initRepo();
+  seedCommit(repoDir);
+  attachOriginRemote(repoDir);
+
+  let result = runNode(['setup', '--target', repoDir, '--no-global-install'], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  result = runCmd('git', ['add', '.'], repoDir);
+  assert.equal(result.status, 0, result.stderr);
+  result = runCmd('git', ['commit', '-m', 'apply gx setup'], repoDir, {
+    ALLOW_COMMIT_ON_PROTECTED_BRANCH: '1',
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  result = runCmd('git', ['push', 'origin', 'dev'], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+
+  result = runCmd('git', ['checkout', '-b', 'agent/test-stale-source-probe'], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  commitFile(repoDir, 'agent-stale-source-probe.txt', 'agent branch change\n', 'agent branch change');
+
+  result = runCmd('git', ['checkout', 'dev'], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+
+  const sourceProbePath = path.join(
+    repoDir,
+    '.omx',
+    'agent-worktrees',
+    '__source-probe-agent__test-stale-source-probe-20260422-153300',
+  );
+  result = runCmd('git', ['worktree', 'add', sourceProbePath, 'agent/test-stale-source-probe'], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  fs.writeFileSync(path.join(sourceProbePath, 'agent-stale-source-probe.txt'), 'stale probe dirty change\n', 'utf8');
+
+  const finish = runBranchFinish(['--branch', 'agent/test-stale-source-probe'], repoDir);
+  assert.equal(finish.status, 0, finish.stderr || finish.stdout);
+  assert.match(finish.stderr, /Removing stale source-probe worktree for 'agent\/test-stale-source-probe'/);
+  assert.equal(fs.existsSync(sourceProbePath), false, 'stale source-probe worktree should be removed before finish continues');
+  assert.match(
+    finish.stdout,
+    /Merged 'agent\/test-stale-source-probe' into 'dev' via direct flow and kept source branch\/worktree\./,
+  );
+});
+
+
 test('agent-branch-finish pr mode continues cleanup when gh merge only fails local branch deletion', () => {
   const repoDir = initRepo();
   seedCommit(repoDir);

@@ -111,6 +111,13 @@ is_managed_worktree_path() {
   return 1
 }
 
+is_temporary_worktree_path() {
+  local entry="$1"
+  local name
+  name="$(basename "$entry")"
+  [[ "$name" == __agent_integrate-* || "$name" == __source-probe-* ]]
+}
+
 resolve_base_branch() {
   local configured=""
   local current=""
@@ -425,7 +432,9 @@ process_entry() {
   local remove_reason=""
   local branch_delete_mode="safe"
 
-  if [[ -z "$branch_ref" ]]; then
+  if is_temporary_worktree_path "$wt"; then
+    remove_reason="temporary-worktree"
+  elif [[ -z "$branch_ref" ]]; then
     remove_reason="detached-worktree"
   elif ! git -C "$repo_root" show-ref --verify --quiet "refs/heads/${branch}"; then
     remove_reason="missing-branch"
@@ -450,6 +459,11 @@ process_entry() {
 
   if ! branch_idle_gate "$branch" "$wt" "$remove_reason"; then
     return
+  fi
+
+  if [[ "$remove_reason" == "temporary-worktree" ]]; then
+    git -C "$wt" rebase --abort >/dev/null 2>&1 || true
+    git -C "$wt" merge --abort >/dev/null 2>&1 || true
   fi
 
   if [[ "$FORCE_DIRTY" -ne 1 ]] && ! is_clean_worktree "$wt"; then

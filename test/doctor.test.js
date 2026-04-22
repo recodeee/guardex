@@ -616,7 +616,7 @@ exit 1
   assert.match(
     compactOutput,
     new RegExp(
-      `\\[skip\\] ${escapeRegexLiteral(readyBranch)}: manual rebase required in the source-probe worktree; run rebase --continue or rebase --abort`,
+      `\\[skip\\] ${escapeRegexLiteral(readyBranch)}: manual rebase required on the branch before auto-finish can continue`,
     ),
   );
   assert.doesNotMatch(compactOutput, /git -C "\/tmp\/very\/long\/path\/for\/source-probe-agent-worktree/);
@@ -629,7 +629,10 @@ exit 1
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const verboseOutput = `${result.stdout}\n${result.stderr}`;
   assert.match(verboseOutput, new RegExp(`\\[skip\\] ${escapeRegexLiteral(readyBranch)}: auto-finish requires manual rebase\\.`));
-  assert.match(verboseOutput, /git -C ".+rebase --continue/);
+  assert.match(
+    verboseOutput,
+    new RegExp(`Reattach '${escapeRegexLiteral(readyBranch)}' in a regular worktree, then rebase it onto origin/main manually\\.`),
+  );
 });
 
 
@@ -680,7 +683,7 @@ exit 1
   assert.match(
     ansiOutput,
     new RegExp(
-      `\\u001B\\[33m\\[gitguardex\\]\\s+\\[skip\\] ${escapeRegexLiteral(readyBranch)}: manual rebase required in the source-probe worktree; run rebase --continue or rebase --abort\\u001B\\[0m`,
+      `\\u001B\\[33m\\[gitguardex\\]\\s+\\[skip\\] ${escapeRegexLiteral(readyBranch)}: manual rebase required on the branch before auto-finish can continue\\u001B\\[0m`,
     ),
   );
   assert.match(ansiOutput, /\u001B\[32m\[gitguardex\] ✅ Repo is fully safe\.\u001B\[0m/);

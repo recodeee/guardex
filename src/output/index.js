@@ -281,7 +281,14 @@ function detectRecoverableAutoFinishConflict(message) {
   if (/rebase --continue/i.test(text) && /rebase --abort/i.test(text)) {
     return {
       rawLabel: 'auto-finish requires manual rebase.',
-      summary: 'manual rebase required in the source-probe worktree; run rebase --continue or rebase --abort',
+      summary: 'manual rebase required on the branch before auto-finish can continue',
+    };
+  }
+
+  if (/Reattach '.+' in a regular worktree, then rebase it onto origin\/.+ manually\./i.test(text)) {
+    return {
+      rawLabel: 'auto-finish requires manual rebase.',
+      summary: 'manual rebase required on the branch before auto-finish can continue',
     };
   }
 

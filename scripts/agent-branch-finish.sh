@@ -218,10 +218,39 @@ fi
 
 get_worktree_for_branch() {
   local branch="$1"
-  git -C "$repo_root" worktree list --porcelain | awk -v target="refs/heads/${branch}" '
+  git -C "$repo_root" worktree list --porcelain | awk -v target="refs/heads/${branch}" -v probe_prefix="${agent_worktree_root}/__source-probe-" '
     $1 == "worktree" { wt = $2 }
-    $1 == "branch" && $2 == target { print wt; exit }
+    $1 == "branch" && $2 == target {
+      if (index(wt, probe_prefix) != 1) {
+        print wt
+        exit
+      }
+    }
   '
+}
+
+remove_stale_source_probe_worktrees() {
+  local branch="$1"
+  local stale_probe=""
+
+  while IFS= read -r stale_probe; do
+    [[ -z "$stale_probe" ]] && continue
+    [[ "$stale_probe" == "$current_worktree" ]] && continue
+
+    echo "[agent-branch-finish] Removing stale source-probe worktree for '${branch}': ${stale_probe}" >&2
+    git -C "$stale_probe" rebase --abort >/dev/null 2>&1 || true
+    git -C "$stale_probe" merge --abort >/dev/null 2>&1 || true
+    git -C "$repo_root" worktree remove "$stale_probe" --force >/dev/null 2>&1 || true
+  done < <(
+    git -C "$repo_root" worktree list --porcelain | awk -v target="refs/heads/${branch}" -v probe_prefix="${agent_worktree_root}/__source-probe-" '
+      $1 == "worktree" { wt = $2 }
+      $1 == "branch" && $2 == target {
+        if (index(wt, probe_prefix) == 1) {
+          print wt
+        }
+      }
+    '
+  )
 }
 
 is_clean_worktree() {
@@ -230,6 +259,7 @@ is_clean_worktree() {
     && git -C "$wt" diff --cached --quiet -- . ":(exclude).omx/state/agent-file-locks.json"
 }
 
+remove_stale_source_probe_worktrees "$SOURCE_BRANCH"
 source_worktree="$(get_worktree_for_branch "$SOURCE_BRANCH")"
 created_source_probe=0
 source_probe_path=""
@@ -295,8 +325,13 @@ if [[ "$should_require_sync" -eq 1 ]] && git -C "$repo_root" show-ref --verify -
 
       echo "[agent-sync-guard] Auto-sync failed while rebasing '${SOURCE_BRANCH}' onto origin/${BASE_BRANCH}." >&2
       if [[ "$rebase_active" -eq 1 ]]; then
-        echo "[agent-sync-guard] Resolve conflicts, then run: git -C \"$source_worktree\" rebase --continue" >&2
-        echo "[agent-sync-guard] Or abort: git -C \"$source_worktree\" rebase --abort" >&2
+        if [[ "$created_source_probe" -eq 1 ]]; then
+          echo "[agent-sync-guard] Temporary source-probe worktree will be cleaned up on exit." >&2
+          echo "[agent-sync-guard] Reattach '${SOURCE_BRANCH}' in a regular worktree, then rebase it onto origin/${BASE_BRANCH} manually." >&2
+        else
+          echo "[agent-sync-guard] Resolve conflicts, then run: git -C \"$source_worktree\" rebase --continue" >&2
+          echo "[agent-sync-guard] Or abort: git -C \"$source_worktree\" rebase --abort" >&2
+        fi
       fi
       exit 1
     fi
