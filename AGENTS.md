@@ -6,6 +6,58 @@ This document is the agent contract for this repo. It applies identically to Cod
 
 When writing complex features or significant refactors, use an ExecPlan (as described in `.agent/PLANS.md`) from design to implementation.
 
+## Objective
+
+- Optimize for task completion with low token use.
+- Prefer phase-based execution over conversational micro-steps.
+
+## Token-Efficient Execution
+
+### Planning
+
+- Start each task with a plan of at most 4 bullets.
+- Work in phases:
+  1. minimal inspection
+  2. grouped edits or grouped repo actions
+  3. focused verification
+  4. compact summary
+- Treat obvious follow-on actions as part of the active phase; do not stop for tiny internal checkpoints.
+- If context grows or the session becomes fragmented, write a short working summary and continue from it.
+
+### Token Discipline
+
+- Do not re-read the same file, line range, or command output unless the file changed or new evidence requires it.
+- Prefer targeted reads: `rg`, `head`, `tail`, `git diff`, and exact line ranges.
+- Keep command output compact and relevant.
+- Avoid repeated status checks unless something changed.
+
+### Command Discipline
+
+- Batch related shell commands whenever safe.
+- Prefer one-shot non-interactive commands, scripts, or exact invocations over interactive loops or repeated stdin driving.
+- For diagnosis, gather the relevant evidence in one pass, then summarize once.
+
+### Git And PR Workflow
+
+- Treat local git and PR work as one bounded phase when possible: inspect status, stage intended files, commit, push, and check PR or CI.
+- Do not narrate every trivial git step; summarize branch, commit, PR, and CI state once per phase.
+
+### Reporting
+
+- Use this format:
+  1. Plan
+  2. Actions taken
+  3. Verification
+  4. Result
+- Keep reports concise and focused on blockers, material changes, and verification outcomes.
+
+### Verification
+
+- Always verify before finalizing.
+- Choose the smallest verification that meaningfully proves the change.
+- Do not run redundant checks.
+- Pause only for destructive actions, ambiguous intent, missing credentials or access, or conflicting evidence.
+
 ## Environment
 
 - Python: .venv/bin/python (uv, CPython 3.13.3)
