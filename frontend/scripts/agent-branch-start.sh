@@ -278,16 +278,30 @@ resolve_openspec_capability_slug() {
   sanitize_slug "$task_slug" "general-behavior"
 }
 
+resolve_repo_prefix() {
+  local root
+  root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+  basename "$root"
+}
+
 resolve_worktree_leaf() {
   local branch_name="$1"
   local agent_slug="$2"
   local masterplan_label=""
   local branch_leaf=""
+  local repo_prefix
+  repo_prefix="$(resolve_repo_prefix)"
 
   masterplan_label="$(resolve_openspec_masterplan_label)"
   if [[ -n "$masterplan_label" ]] && [[ "$branch_name" == "agent/${agent_slug}/"* ]]; then
     branch_leaf="${branch_name#agent/${agent_slug}/}"
-    printf 'agent__%s__%s__%s' "$agent_slug" "$masterplan_label" "$branch_leaf"
+    printf '%s__%s__%s__%s' "$repo_prefix" "$agent_slug" "$masterplan_label" "$branch_leaf"
+    return 0
+  fi
+
+  if [[ "$branch_name" == agent/*/* ]]; then
+    local without_agent="${branch_name#agent/}"
+    printf '%s__%s' "$repo_prefix" "${without_agent//\//__}"
     return 0
   fi
 

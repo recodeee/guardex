@@ -102,7 +102,7 @@ test('codex-agent launches codex inside a fresh sandbox worktree and keeps branc
   const launchedCwd = fs.readFileSync(cwdMarker, 'utf8').trim();
   assert.match(
     launchedCwd,
-    new RegExp(`${escapeRegexLiteral(repoDir)}/\\.omx/agent-worktrees/agent__planner__masterplan__`),
+    new RegExp(`${escapeRegexLiteral(repoDir)}/\\.omx/agent-worktrees/${escapeRegexLiteral(path.basename(repoDir))}__planner__masterplan__`),
   );
 
   const launchedArgs = fs.readFileSync(argsMarker, 'utf8').trim();
@@ -338,7 +338,7 @@ test('codex-agent ignores stale repo-local starter shims and keeps the visible c
   const launchedCwd = fs.readFileSync(cwdMarker, 'utf8').trim();
   assert.match(
     launchedCwd,
-    new RegExp(`${escapeRegexLiteral(repoDir)}/\\.omx/agent-worktrees/agent__planner__masterplan__`),
+    new RegExp(`${escapeRegexLiteral(repoDir)}/\\.omx/agent-worktrees/${escapeRegexLiteral(path.basename(repoDir))}__planner__masterplan__`),
   );
   assert.notEqual(launchedCwd, repoDir);
   assert.match(combinedOutput, /\[codex-agent\] OpenSpec change workspace:/);
@@ -411,7 +411,7 @@ test('codex-agent supports --codex-bin override before positional arguments', ()
   const launchedCwd = fs.readFileSync(cwdMarker, 'utf8').trim();
   assert.match(
     launchedCwd,
-    new RegExp(`${escapeRegexLiteral(repoDir)}/\\.omx/agent-worktrees/agent__planner__`),
+    new RegExp(`${escapeRegexLiteral(repoDir)}/\\.omx/agent-worktrees/${escapeRegexLiteral(path.basename(repoDir))}__planner__`),
   );
   const launchedArgs = fs.readFileSync(argsMarker, 'utf8').trim();
   assert.match(launchedArgs, /--model gpt-5\.4-mini/);
