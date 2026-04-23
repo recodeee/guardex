@@ -173,6 +173,8 @@ if [[ -z "$stored_worktree_root_rel" ]]; then
   stored_worktree_root_rel=".omx/agent-worktrees"
 fi
 agent_worktree_root="${repo_common_root}/${stored_worktree_root_rel}"
+runtime_state_root_rel="$(dirname "$stored_worktree_root_rel")"
+temp_worktree_root="${repo_common_root}/${runtime_state_root_rel}/.tmp-worktrees"
 
 if [[ "$BASE_BRANCH_EXPLICIT" -eq 1 && -z "$BASE_BRANCH" ]]; then
   echo "[agent-branch-finish] --base requires a non-empty branch name." >&2
@@ -218,7 +220,7 @@ fi
 
 get_worktree_for_branch() {
   local branch="$1"
-  git -C "$repo_root" worktree list --porcelain | awk -v target="refs/heads/${branch}" -v probe_prefix="${agent_worktree_root}/__source-probe-" '
+  git -C "$repo_root" worktree list --porcelain | awk -v target="refs/heads/${branch}" -v probe_prefix="${temp_worktree_root}/__source-probe-" '
     $1 == "worktree" { wt = $2 }
     $1 == "branch" && $2 == target {
       if (index(wt, probe_prefix) != 1) {
@@ -242,7 +244,7 @@ remove_stale_source_probe_worktrees() {
     git -C "$stale_probe" merge --abort >/dev/null 2>&1 || true
     git -C "$repo_root" worktree remove "$stale_probe" --force >/dev/null 2>&1 || true
   done < <(
-    git -C "$repo_root" worktree list --porcelain | awk -v target="refs/heads/${branch}" -v probe_prefix="${agent_worktree_root}/__source-probe-" '
+    git -C "$repo_root" worktree list --porcelain | awk -v target="refs/heads/${branch}" -v probe_prefix="${temp_worktree_root}/__source-probe-" '
       $1 == "worktree" { wt = $2 }
       $1 == "branch" && $2 == target {
         if (index(wt, probe_prefix) == 1) {
@@ -264,10 +266,14 @@ source_worktree="$(get_worktree_for_branch "$SOURCE_BRANCH")"
 created_source_probe=0
 source_probe_path=""
 integration_worktree=""
+integration_branch=""
 
 cleanup() {
   if [[ -n "$integration_worktree" && -d "$integration_worktree" ]]; then
     git -C "$repo_root" worktree remove "$integration_worktree" --force >/dev/null 2>&1 || true
+  fi
+  if [[ -n "${integration_branch:-}" ]]; then
+    git -C "$repo_root" branch -D "$integration_branch" >/dev/null 2>&1 || true
   fi
   if [[ "$created_source_probe" -eq 1 && -n "$source_probe_path" && -d "$source_probe_path" ]]; then
     # Abort any in-progress git op so `worktree remove --force` succeeds on conflict-stuck probes.
@@ -279,7 +285,7 @@ cleanup() {
 trap cleanup EXIT
 
 if [[ -z "$source_worktree" ]]; then
-  source_probe_path="${agent_worktree_root}/__source-probe-${SOURCE_BRANCH//\//__}-$(date +%Y%m%d-%H%M%S)"
+  source_probe_path="${temp_worktree_root}/__source-probe-${SOURCE_BRANCH//\//__}-$(date +%Y%m%d-%H%M%S)"
   mkdir -p "$(dirname "$source_probe_path")"
   git -C "$repo_root" worktree add "$source_probe_path" "$SOURCE_BRANCH" >/dev/null
   source_worktree="$source_probe_path"
@@ -343,7 +349,7 @@ if [[ "$should_require_sync" -eq 1 ]] && git -C "$repo_root" show-ref --verify -
 fi
 
 integration_stamp="$(date +%Y%m%d-%H%M%S)"
-integration_worktree_base="${agent_worktree_root}/__integrate-${BASE_BRANCH//\//__}-${integration_stamp}"
+integration_worktree_base="${temp_worktree_root}/__integrate-${BASE_BRANCH//\//__}-${integration_stamp}"
 integration_branch_base="__agent_integrate_${BASE_BRANCH//\//_}_$(date +%Y%m%d_%H%M%S)"
 integration_worktree="$integration_worktree_base"
 integration_branch="$integration_branch_base"

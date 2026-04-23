@@ -224,7 +224,7 @@ test('agent-branch-finish removes stale source-probe worktrees before creating a
   const sourceProbePath = path.join(
     repoDir,
     '.omx',
-    'agent-worktrees',
+    '.tmp-worktrees',
     '__source-probe-agent__test-stale-source-probe-20260422-153300',
   );
   result = runCmd('git', ['worktree', 'add', sourceProbePath, 'agent/test-stale-source-probe'], repoDir);
@@ -235,6 +235,8 @@ test('agent-branch-finish removes stale source-probe worktrees before creating a
   assert.equal(finish.status, 0, finish.stderr || finish.stdout);
   assert.match(finish.stderr, /Removing stale source-probe worktree for 'agent\/test-stale-source-probe'/);
   assert.equal(fs.existsSync(sourceProbePath), false, 'stale source-probe worktree should be removed before finish continues');
+  result = runCmd('git', ['branch', '--list', '__agent_integrate_dev_*'], repoDir);
+  assert.equal(result.stdout.trim(), '', 'temporary integrate branches should be removed after finish exits');
   assert.match(
     finish.stdout,
     /Merged 'agent\/test-stale-source-probe' into 'dev' via direct flow and kept source branch\/worktree\./,

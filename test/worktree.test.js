@@ -151,7 +151,7 @@ test('worktree prune removes __source-probe worktrees even when they track agent
   const sourceProbePath = path.join(
     repoDir,
     '.omx',
-    'agent-worktrees',
+    '.tmp-worktrees',
     '__source-probe-agent__test-source-probe-prune-20260422-153300',
   );
   result = runCmd('git', ['worktree', 'add', sourceProbePath, 'agent/test-source-probe-prune'], repoDir);
@@ -164,6 +164,28 @@ test('worktree prune removes __source-probe worktrees even when they track agent
 
   const branchResult = runCmd('git', ['show-ref', '--verify', '--quiet', 'refs/heads/agent/test-source-probe-prune'], repoDir);
   assert.equal(branchResult.status, 0, 'agent branch ref should remain after pruning only the temporary worktree');
+});
+
+
+test('worktree prune deletes stale temporary helper branches without worktrees', () => {
+  const repoDir = initRepo();
+  let result = runNode(['setup', '--target', repoDir, '--no-global-install'], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  seedCommit(repoDir);
+
+  result = runCmd('git', ['branch', '__agent_integrate_dev_20260423_114500', 'dev'], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+
+  result = runWorktreePrune(['--delete-branches'], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /Deleted stale temporary branch: __agent_integrate_dev_20260423_114500/);
+
+  const branchResult = runCmd(
+    'git',
+    ['show-ref', '--verify', '--quiet', 'refs/heads/__agent_integrate_dev_20260423_114500'],
+    repoDir,
+  );
+  assert.notEqual(branchResult.status, 0, 'stale temporary helper branch should be removed');
 });
 
 

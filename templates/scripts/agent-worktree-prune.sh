@@ -20,7 +20,9 @@ PR_MERGED_LOOKUP_LOADED=0
 declare -A MERGED_PR_BRANCHES=()
 WORKTREE_ROOT_RELS=(
   ".omx/agent-worktrees"
+  ".omx/.tmp-worktrees"
   ".omc/agent-worktrees"
+  ".omc/.tmp-worktrees"
 )
 
 if [[ -n "$BASE_BRANCH" ]]; then
@@ -90,8 +92,14 @@ repo_common_dir="$(cd "$repo_common_dir" && pwd -P)"
 resolve_worktree_root_rel_for_entry() {
   local entry="$1"
   case "$entry" in
+    */.omc/.tmp-worktrees/*)
+      printf '%s' '.omc/.tmp-worktrees'
+      ;;
     */.omc/agent-worktrees/*)
       printf '%s' '.omc/agent-worktrees'
+      ;;
+    */.omx/.tmp-worktrees/*)
+      printf '%s' '.omx/.tmp-worktrees'
       ;;
     *)
       printf '%s' '.omx/agent-worktrees'
@@ -538,6 +546,19 @@ if [[ "$DELETE_BRANCHES" -eq 1 ]]; then
     if branch_has_worktree "$branch"; then
       continue
     fi
+    if [[ "$branch" == __agent_integrate_* || "$branch" == __source-probe-* ]]; then
+      if ! branch_idle_gate "$branch" "" "temporary-worktree"; then
+        continue
+      fi
+      if run_cmd git -C "$repo_root" branch -D "$branch" >/dev/null 2>&1; then
+        removed_branches=$((removed_branches + 1))
+        echo "[agent-worktree-prune] Deleted stale temporary branch: ${branch}"
+      fi
+      continue
+    fi
+    if [[ "$branch" != agent/* ]]; then
+      continue
+    fi
     if ! branch_idle_gate "$branch" "" "stale-merged-branch"; then
       continue
     fi
@@ -566,7 +587,7 @@ if [[ "$DELETE_BRANCHES" -eq 1 ]]; then
         fi
       fi
     fi
-  done < <(git -C "$repo_root" for-each-ref --format='%(refname:short)' refs/heads/agent)
+  done < <(git -C "$repo_root" for-each-ref --format='%(refname:short)' refs/heads)
 fi
 
 run_cmd git -C "$repo_root" worktree prune

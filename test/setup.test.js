@@ -1187,8 +1187,12 @@ test('setup merges Guardex repo-scan ignores into tracked VS Code workspace sett
     'custom-folder',
     '.omx/agent-worktrees',
     '**/.omx/agent-worktrees',
+    '.omx/.tmp-worktrees',
+    '**/.omx/.tmp-worktrees',
     '.omc/agent-worktrees',
     '**/.omc/agent-worktrees',
+    '.omc/.tmp-worktrees',
+    '**/.omc/.tmp-worktrees',
   ]);
 });
 

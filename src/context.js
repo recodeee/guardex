@@ -263,8 +263,12 @@ const AGENT_WORKTREE_RELATIVE_DIRS = [
 const MANAGED_REPO_SCAN_IGNORED_FOLDERS = [
   '.omx/agent-worktrees',
   '**/.omx/agent-worktrees',
+  '.omx/.tmp-worktrees',
+  '**/.omx/.tmp-worktrees',
   '.omc/agent-worktrees',
   '**/.omc/agent-worktrees',
+  '.omc/.tmp-worktrees',
+  '**/.omc/.tmp-worktrees',
 ];
 const MANAGED_GITIGNORE_PATHS = [
   '.omx/',

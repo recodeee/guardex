@@ -157,8 +157,12 @@ function assertManagedRepoVscodeSettings(settings) {
   assert.deepEqual(settings['git.repositoryScanIgnoredFolders'], [
     '.omx/agent-worktrees',
     '**/.omx/agent-worktrees',
+    '.omx/.tmp-worktrees',
+    '**/.omx/.tmp-worktrees',
     '.omc/agent-worktrees',
     '**/.omc/agent-worktrees',
+    '.omc/.tmp-worktrees',
+    '**/.omc/.tmp-worktrees',
   ]);
 }
 
