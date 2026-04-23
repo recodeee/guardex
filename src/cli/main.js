@@ -146,6 +146,7 @@ const {
   colorizeDoctorOutput,
   statusDot,
   printToolLogsSummary,
+  getInvokedCliName,
   usage,
   formatElapsedDuration,
   startTransientSpinner,
@@ -1763,11 +1764,55 @@ function printStatusRepairHint(scanResult) {
   );
 }
 
+function countAgentWorktrees(repoRoot) {
+  if (!repoRoot || typeof repoRoot !== 'string') return 0;
+  const relPaths = ['.omc/agent-worktrees', '.omx/agent-worktrees'];
+  let count = 0;
+  for (const rel of relPaths) {
+    try {
+      const entries = fs.readdirSync(path.join(repoRoot, rel), { withFileTypes: true });
+      count += entries.filter((entry) => entry.isDirectory()).length;
+    } catch (_err) {
+      // missing dir or permission error; not an active-agent signal
+    }
+  }
+  return count;
+}
+
+function deriveNextStepHint({ scanResult, worktreeCount, invoked, inGitRepo }) {
+  if (!inGitRepo) {
+    return `${invoked} setup --target <path-to-git-repo>   # initialize guardrails in a repo`;
+  }
+  if (!scanResult) {
+    return `${invoked} setup   # bootstrap repo guardrails`;
+  }
+  if (scanResult.guardexEnabled === false) {
+    return `set GUARDEX_ON=1 in .env   # re-enable guardrails, then '${invoked} doctor'`;
+  }
+  const branch = scanResult.branch || '';
+  if (branch.startsWith('agent/')) {
+    return `${invoked} branch finish --branch "${branch}" --via-pr --wait-for-merge --cleanup`;
+  }
+  if (worktreeCount > 0) {
+    const plural = worktreeCount === 1 ? 'worktree' : 'worktrees';
+    return `${invoked} finish --all   # ${worktreeCount} active agent ${plural}`;
+  }
+  if (scanResult.errors > 0 || scanResult.warnings > 0) {
+    return `${invoked} doctor   # repair drift`;
+  }
+  return `${invoked} branch start "<task>" "<agent-name>"   # start a sandboxed agent task`;
+}
+
 function status(rawArgs) {
-  const options = parseCommonArgs(rawArgs, {
+  const { found: verboseFlag, remaining: afterVerbose } = extractFlag(rawArgs, '--verbose');
+  const options = parseCommonArgs(afterVerbose, {
     target: process.cwd(),
     json: false,
   });
+  const forceCompact = envFlagIsTruthy(process.env.GUARDEX_COMPACT_STATUS);
+  const forceExpand = envFlagIsTruthy(process.env.GUARDEX_VERBOSE_STATUS) || verboseFlag;
+  const interactive = Boolean(process.stdout.isTTY);
+  const invokedBasename = getInvokedCliName();
 
   const toolchain = toolchainModule.detectGlobalToolchainPackages();
   const npmServices = GLOBAL_TOOLCHAIN_PACKAGES.map((pkg) => {
@@ -1846,15 +1891,24 @@ function status(rawArgs) {
     return payload;
   }
 
+  const allServicesActive = toolchain.ok && services.every((service) => service.status === 'active');
+  const compact = !forceExpand && (forceCompact || (interactive && allServicesActive));
+
   console.log(`[${TOOL_NAME}] CLI: ${payload.cli.runtime}`);
   if (!toolchain.ok) {
     console.log(`[${TOOL_NAME}] ⚠️ Could not detect global services: ${toolchain.error}`);
   }
 
-  console.log(`[${TOOL_NAME}] Global services:`);
-  for (const service of services) {
-    const serviceLabel = service.displayName || service.name;
-    console.log(`  - ${statusDot(service.status)} ${serviceLabel}: ${service.status}`);
+  if (compact) {
+    console.log(
+      `[${TOOL_NAME}] Global services: ${services.length}/${services.length} ${statusDot('active')} active`,
+    );
+  } else {
+    console.log(`[${TOOL_NAME}] Global services:`);
+    for (const service of services) {
+      const serviceLabel = service.displayName || service.name;
+      console.log(`  - ${statusDot(service.status)} ${serviceLabel}: ${service.status}`);
+    }
   }
   const inactiveOptionalCompanions = [...npmServices, ...localCompanionServices]
     .filter((service) => service.status !== 'active')
@@ -1890,6 +1944,14 @@ function status(rawArgs) {
     console.log(
       `[${TOOL_NAME}] Repo safety service: ${statusDot('inactive')} inactive (no git repository at target).`,
     );
+    const inactiveHint = deriveNextStepHint({
+      scanResult: null,
+      worktreeCount: 0,
+      invoked: invokedBasename,
+      inGitRepo,
+    });
+    console.log(`[${TOOL_NAME}] Next: ${inactiveHint}`);
+    printToolLogsSummary({ invokedBasename, compact });
     process.exitCode = 0;
     return payload;
   }
@@ -1900,7 +1962,21 @@ function status(rawArgs) {
     );
     console.log(`[${TOOL_NAME}] Repo: ${scanResult.repoRoot}`);
     console.log(`[${TOOL_NAME}] Branch: ${scanResult.branch}`);
-    printToolLogsSummary();
+    const worktreeCountDisabled = countAgentWorktrees(scanResult.repoRoot);
+    if (worktreeCountDisabled > 0) {
+      const plural = worktreeCountDisabled === 1 ? 'worktree' : 'worktrees';
+      console.log(
+        `[${TOOL_NAME}] ⚠ ${worktreeCountDisabled} active agent ${plural} under .omc/agent-worktrees or .omx/agent-worktrees.`,
+      );
+    }
+    const disabledHint = deriveNextStepHint({
+      scanResult,
+      worktreeCount: worktreeCountDisabled,
+      invoked: invokedBasename,
+      inGitRepo,
+    });
+    console.log(`[${TOOL_NAME}] Next: ${disabledHint}`);
+    printToolLogsSummary({ invokedBasename, compact });
     process.exitCode = 0;
     return payload;
   }
@@ -1923,7 +1999,21 @@ function status(rawArgs) {
   printStatusRepairHint(scanResult);
   console.log(`[${TOOL_NAME}] Repo: ${scanResult.repoRoot}`);
   console.log(`[${TOOL_NAME}] Branch: ${scanResult.branch}`);
-  printToolLogsSummary();
+  const worktreeCountActive = countAgentWorktrees(scanResult.repoRoot);
+  if (worktreeCountActive > 0) {
+    const plural = worktreeCountActive === 1 ? 'worktree' : 'worktrees';
+    console.log(
+      `[${TOOL_NAME}] ⚠ ${worktreeCountActive} active agent ${plural} → ${invokedBasename} finish --all`,
+    );
+  }
+  const activeHint = deriveNextStepHint({
+    scanResult,
+    worktreeCount: worktreeCountActive,
+    invoked: invokedBasename,
+    inGitRepo,
+  });
+  console.log(`[${TOOL_NAME}] Next: ${activeHint}`);
+  printToolLogsSummary({ invokedBasename, compact });
 
   process.exitCode = 0;
   return payload;

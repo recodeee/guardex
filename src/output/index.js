@@ -219,15 +219,34 @@ function repoToggleLines(indent = '  ') {
   ];
 }
 
-function printToolLogsSummary() {
-  const usageLine = `    $ ${SHORT_TOOL_NAME} <command> [options]`;
+const KNOWN_CLI_BASENAMES = new Set(['gx', 'gitguardex', 'guardex']);
+
+function getInvokedCliName() {
+  const raw = path.basename(String(process.argv[1] || '')).replace(/\.js$/, '');
+  if (!KNOWN_CLI_BASENAMES.has(raw)) {
+    return SHORT_TOOL_NAME;
+  }
+  return raw;
+}
+
+function printToolLogsSummary(options = {}) {
+  const invoked = options.invokedBasename || getInvokedCliName();
+  const compact = Boolean(options.compact);
+
+  if (compact) {
+    const helpLine = `Try '${invoked} help' for commands, or '${invoked} status --verbose' for full service details.`;
+    console.log(`[${TOOL_NAME}] ${colorize(helpLine, '2')}`);
+    return;
+  }
+
+  const usageLine = `    $ ${invoked} <command> [options]`;
   const quickstartDetails = quickstartLines('    ');
   const agentBotDetails = agentBotCatalogLines('    ');
   const repoToggleDetails = repoToggleLines('    ');
 
   if (!supportsAnsiColors()) {
     const commandDetails = groupedCommandCatalogLines('    ');
-    console.log(`${TOOL_NAME}-tools logs:`);
+    console.log(`${invoked} help:`);
     console.log('  USAGE');
     console.log(usageLine);
     console.log('  QUICKSTART');
@@ -246,10 +265,11 @@ function printToolLogsSummary() {
     for (const line of repoToggleDetails) {
       console.log(line);
     }
+    console.log(`  Try '${invoked} doctor' for one-step repair + verification.`);
     return;
   }
 
-  const title = colorize(`${TOOL_NAME}-tools logs`, '1;36');
+  const title = colorize(`${invoked} help`, '1;36');
   const usageHeader = colorize('USAGE', '1');
   const quickstartHeader = colorize('QUICKSTART', '1');
   const commandsHeader = colorize('COMMANDS', '1');
@@ -293,11 +313,12 @@ function printToolLogsSummary() {
     }
     console.log(`  ${pipe}${line.slice(2)}`);
   }
-  console.log(`  ${corner}─ ${colorize(`Try '${TOOL_NAME} doctor' for one-step repair + verification.`, '2')}`);
+  console.log(`  ${corner}─ ${colorize(`Try '${invoked} doctor' for one-step repair + verification.`, '2')}`);
 }
 
 function usage(options = {}) {
   const { outsideGitRepo = false } = options;
+  const invoked = options.invokedBasename || getInvokedCliName();
 
   const groupedCommandLines = groupedCommandCatalogLines('  ', {
     colorizeLabel: (text) => colorize(text, '1;36'),
@@ -311,7 +332,7 @@ VERSION
   ${runtimeVersion()}
 
 USAGE
-  $ ${SHORT_TOOL_NAME} <command> [options]
+  $ ${invoked} <command> [options]
 
 QUICKSTART
 ${quickstartLines().join('\n')}
@@ -326,19 +347,20 @@ REPO TOGGLE
 ${repoToggleLines().join('\n')}
 
 NOTES
-  - No command = ${SHORT_TOOL_NAME} status. ${SHORT_TOOL_NAME} init is an alias of ${SHORT_TOOL_NAME} setup.
+  - No command = ${invoked} status (compact in a TTY; pass --verbose for full services + help tree).
+  - ${invoked} init is an alias of ${invoked} setup.
   - Global installs need Y/N approval; GitHub CLI (gh) is required for PR automation.
-  - Target another repo: ${SHORT_TOOL_NAME} <cmd> --target <repo-path>.
+  - Target another repo: ${invoked} <cmd> --target <repo-path>.
   - On protected main, setup/install/fix/doctor auto-sandbox via agent branch + PR flow.
-  - Run '${SHORT_TOOL_NAME} cleanup' to prune merged agent branches/worktrees.
+  - Run '${invoked} cleanup' to prune merged agent branches/worktrees.
   - Legacy aliases: ${LEGACY_NAMES.join(', ')}.`);
 
   if (outsideGitRepo) {
     console.log(`
 [${TOOL_NAME}] No git repository detected in current directory.
 [${TOOL_NAME}] Start from a repo root, or pass an explicit target:
-  ${TOOL_NAME} setup --target <path-to-git-repo>
-  ${TOOL_NAME} doctor --target <path-to-git-repo>`);
+  ${invoked} setup --target <path-to-git-repo>
+  ${invoked} doctor --target <path-to-git-repo>`);
   }
 }
 
@@ -566,6 +588,7 @@ module.exports = {
   agentBotCatalogLines,
   repoToggleLines,
   printToolLogsSummary,
+  getInvokedCliName,
   usage,
   formatElapsedDuration,
   startTransientSpinner,
