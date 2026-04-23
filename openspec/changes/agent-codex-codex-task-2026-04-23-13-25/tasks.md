@@ -30,6 +30,10 @@ This change is complete only when **all** of the following are true:
 
 ## 4. Cleanup (mandatory; run before claiming completion)
 
-- [ ] 4.1 Run the cleanup pipeline: `gx branch finish --branch agent/codex/codex-task-2026-04-23-13-25 --base main --via-pr --wait-for-merge --cleanup`. This handles commit -> push -> PR create -> merge wait -> worktree prune in one invocation.
-- [ ] 4.2 Record the PR URL and final merge state (`MERGED`) in the completion handoff.
-- [ ] 4.3 Confirm the sandbox worktree is gone (`git worktree list` no longer shows the agent path; `git branch -a` shows no surviving local/remote refs for the branch).
+- [x] 4.1 Run the cleanup pipeline: `gx branch finish --branch agent/codex/codex-task-2026-04-23-13-25 --base main --via-pr --wait-for-merge --cleanup`. This handles commit -> push -> PR create -> merge wait -> worktree prune in one invocation.
+- [x] 4.2 Record the PR URL and final merge state (`MERGED`) in the completion handoff.
+- [x] 4.3 Confirm the sandbox worktree is gone (`git worktree list` no longer shows the agent path; `git branch -a` shows no surviving local/remote refs for the branch).
+
+Cleanup evidence:
+- PR `#371`: https://github.com/recodeee/gitguardex/pull/371 | state=`MERGED` | mergedAt=`2026-04-23T13:06:14Z` | mergeCommit=`5f35f1f4f7262fa3fbfbc69cd29acebe89029a2a`
+- Cleanup proof: `git worktree list` on `main` no longer shows `.omx/agent-worktrees/agent__codex__codex-task-2026-04-23-13-25`, and `git fetch --prune origin && git branch -a` removed the stale `origin/agent/codex/codex-task-2026-04-23-13-25` tracking ref.
