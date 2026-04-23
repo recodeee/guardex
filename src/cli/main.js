@@ -953,9 +953,9 @@ async function maybeAutoRunDoctorFromDefaultStatus(statusPayload) {
   }
 
   const target = statusPayload?.repo?.target || process.cwd();
-  console.log(`[${TOOL_NAME}] Auto-repair: repo safety is degraded. Running '${SHORT_TOOL_NAME} doctor' now.`);
+  console.log(`[${TOOL_NAME}] Auto-repair: repo safety is degraded. Running '${SHORT_TOOL_NAME} doctor --current' now.`);
   process.exitCode = await runCliSubprocessWithSpinner(
-    ['doctor', '--target', target],
+    ['doctor', '--target', target, '--current'],
     {
       cwd: target,
       spinnerPrefix: `[${TOOL_NAME}] Auto-repair:`,
