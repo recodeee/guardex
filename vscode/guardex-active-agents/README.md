@@ -4,7 +4,7 @@ Local VS Code companion for Guardex-managed repos.
 
 ## Quick Start
 
-Use the welcome view in Source Control to create or inspect Guardex sandboxes quickly.
+Use the dedicated Active Agents sidebar icon to create or inspect Guardex sandboxes quickly.
 
 1. Install from a Guardex-wired repo:
 
@@ -13,13 +13,13 @@ node scripts/install-vscode-active-agents-extension.js
 ```
 
 2. Reload the VS Code window.
-3. In Source Control -> `Active Agents`, use `Start agent` to enter a task + agent name and launch the repo Guardex agent runner. The companion prefers `bash scripts/codex-agent.sh` when present, falls back to `npm run agent:codex --`, and only uses `gx branch start` as a last resort.
+3. In the Activity Bar, open the `Active Agents` hive icon under Source Control. Use `Start agent` to enter a task + agent name and launch the repo Guardex agent runner. The companion prefers `bash scripts/codex-agent.sh` when present, falls back to `npm run agent:codex --`, and only uses `gx branch start` as a last resort.
 
 What it does:
 
 - Bundles a local GitGuardex icon so repo installs show branded extension metadata inside VS Code.
 - Bundles the optional `GitGuardex File Icons` theme for OpenSpec, agent worktree, and hook files in Explorer.
-- Adds an `Active Agents` view to the Source Control container.
+- Adds a dedicated `Active Agents` Activity Bar container with a hive icon and live badge count for active sessions.
 - Renders one repo node per live Guardex workspace with grouped `ACTIVE AGENTS` and `CHANGES` sections.
 - Splits live sessions inside `ACTIVE AGENTS` into `BLOCKED`, `WORKING NOW`, `THINKING`, `STALLED`, and `DEAD` groups so stuck, active, and inactive lanes stand out immediately.
 - Mirrors the same live state in the VS Code status bar so the selected session or active-agent count stays visible outside the tree.

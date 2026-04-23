@@ -331,7 +331,7 @@ function buildActiveAgentsStatusTooltip(selectedSession, summary) {
       sessionIdentityLabel(selectedSession),
       formatCountLabel(selectedSession.lockCount || 0, 'lock'),
       selectedSession.worktreePath,
-      'Click to open Source Control.',
+      'Click to open Active Agents.',
     ].filter(Boolean).join('\n');
   }
 
@@ -343,7 +343,7 @@ function buildActiveAgentsStatusTooltip(selectedSession, summary) {
     formatCountLabel(summary?.unassignedChangeCount || 0, 'unassigned change'),
     formatCountLabel(summary?.lockedFileCount || 0, 'locked file'),
     summary?.deadCount ? formatCountLabel(summary.deadCount, 'dead session') : '',
-    'Click to open Source Control.',
+    'Click to open Active Agents.',
   ].filter(Boolean).join('\n');
 }
 
@@ -2638,7 +2638,7 @@ function activate(context) {
     vscode.commands.registerCommand('gitguardex.activeAgents.startAgent', () => startAgentFromPrompt(refresh)),
     vscode.commands.registerCommand('gitguardex.activeAgents.refresh', refresh),
     vscode.commands.registerCommand('gitguardex.activeAgents.focus', async () => {
-      await vscode.commands.executeCommand('workbench.view.scm');
+      await vscode.commands.executeCommand('workbench.view.extension.gitguardex.activeAgentsContainer');
     }),
     vscode.commands.registerCommand('gitguardex.activeAgents.commitSelectedSession', commitSelectedSession),
     vscode.commands.registerCommand('gitguardex.activeAgents.openWorktree', async (session) => {

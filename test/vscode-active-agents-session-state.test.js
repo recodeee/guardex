@@ -1255,6 +1255,11 @@ test('active-agents extension edits require a higher manifest version than the b
     templateManifest.contributes.iconThemes,
     'Live and template Active Agents icon theme contributions must stay in sync.',
   );
+  assert.deepEqual(
+    liveManifest.contributes.viewsContainers,
+    templateManifest.contributes.viewsContainers,
+    'Live and template Active Agents view containers must stay in sync.',
+  );
   assert.equal(
     liveManifest.activationEvents.includes('onStartupFinished'),
     true,
@@ -1267,6 +1272,28 @@ test('active-agents extension edits require a higher manifest version than the b
       `but version ${liveManifest.version} did not increase above ${baseManifest.version}.`,
     ].join(' '),
   );
+});
+
+test('active-agents manifest uses a dedicated activity bar container with a hive icon', () => {
+  const manifest = readExtensionManifest();
+  const activitybarContainers = manifest.contributes.viewsContainers?.activitybar || [];
+  const activeAgentsContainer = activitybarContainers.find(
+    (entry) => entry.id === 'gitguardex.activeAgentsContainer',
+  );
+  assert.ok(activeAgentsContainer, 'Expected the Active Agents activity bar container.');
+  assert.equal(activeAgentsContainer.title, 'Active Agents');
+  assert.equal(activeAgentsContainer.icon, 'media/active-agents-hivemind.svg');
+
+  const activeAgentsViews = manifest.contributes.views?.['gitguardex.activeAgentsContainer'] || [];
+  assert.deepEqual(activeAgentsViews, [
+    {
+      id: 'gitguardex.activeAgents',
+      name: 'Active Agents',
+      contextualTitle: 'Active Agents',
+      icon: 'media/active-agents-hivemind.svg',
+      visibility: 'visible',
+    },
+  ]);
 });
 
 test('active-agents file icon theme maps Guardex workflow paths and ships referenced assets', () => {
@@ -1401,6 +1428,28 @@ test('active-agents extension registers tree and decoration providers', async ()
   assert.equal(rootItems[0].label, 'No active Guardex agents');
   assert.equal(registrations.treeViews[0].badge, undefined);
   assert.equal(registrations.treeViews[0].message, undefined);
+
+  for (const subscription of context.subscriptions) {
+    subscription.dispose?.();
+  }
+});
+
+test('active-agents focus command opens the dedicated sidebar container', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'guardex-vscode-focus-view-'));
+  const { registrations, vscode } = createMockVscode(tempRoot);
+  const extension = loadExtensionWithMockVscode(vscode);
+  const context = { subscriptions: [] };
+
+  extension.activate(context);
+  await flushAsyncWork();
+  await vscode.commands.executeCommand('gitguardex.activeAgents.focus');
+
+  assert.equal(
+    registrations.executedCommands.some((entry) => (
+      entry.command === 'workbench.view.extension.gitguardex.activeAgentsContainer'
+    )),
+    true,
+  );
 
   for (const subscription of context.subscriptions) {
     subscription.dispose?.();
