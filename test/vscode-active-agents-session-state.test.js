@@ -1354,6 +1354,34 @@ test('active-agents manifest contributes restart actions for extension managemen
   );
 });
 
+test('active-agents manifest contributes dismiss only for stalled and dead session rows', () => {
+  const manifest = readExtensionManifest();
+  const templateManifest = readExtensionManifest(templateExtensionManifestPath);
+
+  const dismissCommand = manifest.contributes.commands.find(
+    (entry) => entry.command === 'gitguardex.activeAgents.dismissSession',
+  );
+  assert.deepEqual(dismissCommand, {
+    command: 'gitguardex.activeAgents.dismissSession',
+    title: 'Dismiss',
+    icon: '$(trash)',
+  });
+
+  const dismissMenuAction = manifest.contributes.menus['view/item/context'].find(
+    (entry) => entry.command === 'gitguardex.activeAgents.dismissSession',
+  );
+  assert.deepEqual(dismissMenuAction, {
+    command: 'gitguardex.activeAgents.dismissSession',
+    when: 'view == gitguardex.activeAgents && viewItem =~ /^gitguardex\\.session\\.(stalled|dead)$/',
+    group: 'inline',
+  });
+
+  assert.deepEqual(
+    manifest.contributes.menus['view/item/context'],
+    templateManifest.contributes.menus['view/item/context'],
+  );
+});
+
 test('active-agents extension auto-installs a newer workspace build and offers reload', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'guardex-vscode-autoupdate-'));
   const repoManifest = {
@@ -2836,12 +2864,15 @@ test('active-agents extension groups blocked, working, idle, stalled, and dead s
   assert.equal(blockedItem.iconPath.id, 'warning');
   assert.match(workingItem.description, /^Working: codex · via OpenAI · 1 changed file/);
   assert.equal(workingItem.iconPath.id, 'loading~spin');
+  assert.equal(workingItem.contextValue, 'gitguardex.session.working');
   assert.match(idleItem.description, /^Idle: codex · via OpenAI/);
   assert.equal(idleItem.iconPath.id, 'comment-discussion');
   assert.match(stalledItem.description, /^Stale: codex · via OpenAI/);
   assert.equal(stalledItem.iconPath.id, 'clock');
+  assert.equal(stalledItem.contextValue, 'gitguardex.session.stalled');
   assert.match(deadItem.description, /^Dead: codex · via OpenAI/);
   assert.equal(deadItem.iconPath.id, 'error');
+  assert.equal(deadItem.contextValue, 'gitguardex.session.dead');
   assert.deepEqual(registrations.treeViews[0].badge, {
     value: 5,
     tooltip: repoItem.description,
@@ -3509,6 +3540,53 @@ test('active-agents extension confirms stop and routes through gx agents stop --
   assert.match(registrations.warningMessages[0][1].detail, /--pid/);
   assert.match(registrations.warningMessages[0][1].detail, /4242/);
   assert.match(registrations.warningMessages[0][1].detail, /--target/);
+
+  for (const subscription of context.subscriptions) {
+    subscription.dispose?.();
+  }
+});
+
+test('active-agents extension dismisses stalled session rows by deleting the matching active-session record', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'guardex-vscode-dismiss-session-'));
+  const worktreePath = fs.mkdtempSync(path.join(os.tmpdir(), 'guardex-vscode-dismiss-worktree-'));
+  const sessionPath = writeSessionRecord(tempRoot, sessionSchema.buildSessionRecord({
+    repoRoot: tempRoot,
+    branch: 'agent/codex/stalled-task',
+    taskName: 'stalled-task',
+    agentName: 'codex',
+    worktreePath,
+    pid: 4242,
+    cliName: 'codex',
+  }));
+  const { registrations, vscode } = createMockVscode(tempRoot);
+  const extension = loadExtensionWithMockVscode(vscode);
+  const context = { subscriptions: [] };
+
+  vscode.window.showWarningMessage = async (...args) => {
+    registrations.warningMessages.push(args);
+    return 'Dismiss';
+  };
+
+  extension.activate(context);
+  const provider = registrations.providers[0].provider;
+  await flushAsyncWork();
+  provider.onDidChangeTreeDataEmitter.fireCount = 0;
+
+  await registrations.commands.get('gitguardex.activeAgents.dismissSession')({
+    label: 'stalled-task',
+    branch: 'agent/codex/stalled-task',
+    activityKind: 'stalled',
+    repoRoot: tempRoot,
+    worktreePath,
+  });
+  await flushAsyncWork();
+
+  assert.equal(fs.existsSync(sessionPath), false);
+  assert.ok(registrations.providers[0].provider.onDidChangeTreeDataEmitter.fireCount >= 1);
+  assert.equal(registrations.warningMessages.length, 1);
+  assert.match(registrations.warningMessages[0][0], /Dismiss stalled-task\?/);
+  assert.match(registrations.warningMessages[0][1].detail, /\.omx[\/\\]state[\/\\]active-sessions/);
+  assert.match(registrations.warningMessages[0][1].detail, /stale sidebar row only/);
 
   for (const subscription of context.subscriptions) {
     subscription.dispose?.();

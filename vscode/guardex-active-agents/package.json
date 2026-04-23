@@ -3,7 +3,7 @@
   "displayName": "GitGuardex Active Agents",
   "description": "Shows live Guardex sandbox sessions and repo changes in a dedicated VS Code Active Agents sidebar.",
   "publisher": "recodeee",
-  "version": "0.0.17",
+  "version": "0.0.18",
   "license": "MIT",
   "icon": "icon.png",
   "engines": {
@@ -66,6 +66,11 @@
         "icon": "$(debug-stop)"
       },
       {
+        "command": "gitguardex.activeAgents.dismissSession",
+        "title": "Dismiss",
+        "icon": "$(trash)"
+      },
+      {
         "command": "gitguardex.activeAgents.showSessionTerminal",
         "title": "Show Terminal",
         "icon": "$(terminal)"
@@ -125,32 +130,37 @@
       "view/item/context": [
         {
           "command": "gitguardex.activeAgents.openWorktree",
-          "when": "view == gitguardex.activeAgents && viewItem == gitguardex.session",
+          "when": "view == gitguardex.activeAgents && viewItem =~ /^gitguardex\\.session(\\.|$)/",
           "group": "inline"
         },
         {
           "command": "gitguardex.activeAgents.inspect",
-          "when": "view == gitguardex.activeAgents && viewItem == gitguardex.session",
+          "when": "view == gitguardex.activeAgents && viewItem =~ /^gitguardex\\.session(\\.|$)/",
           "group": "inline"
         },
         {
           "command": "gitguardex.activeAgents.showSessionTerminal",
-          "when": "view == gitguardex.activeAgents && viewItem == gitguardex.session",
+          "when": "view == gitguardex.activeAgents && viewItem =~ /^gitguardex\\.session(\\.|$)/",
           "group": "inline"
         },
         {
           "command": "gitguardex.activeAgents.finishSession",
-          "when": "view == gitguardex.activeAgents && viewItem == gitguardex.session",
+          "when": "view == gitguardex.activeAgents && viewItem =~ /^gitguardex\\.session(\\.|$)/",
           "group": "inline"
         },
         {
           "command": "gitguardex.activeAgents.syncSession",
-          "when": "view == gitguardex.activeAgents && viewItem == gitguardex.session",
+          "when": "view == gitguardex.activeAgents && viewItem =~ /^gitguardex\\.session(\\.|$)/",
           "group": "inline"
         },
         {
           "command": "gitguardex.activeAgents.stopSession",
-          "when": "view == gitguardex.activeAgents && viewItem == gitguardex.session",
+          "when": "view == gitguardex.activeAgents && viewItem =~ /^gitguardex\\.session(\\.|$)/",
+          "group": "inline"
+        },
+        {
+          "command": "gitguardex.activeAgents.dismissSession",
+          "when": "view == gitguardex.activeAgents && viewItem =~ /^gitguardex\\.session\\.(stalled|dead)$/",
           "group": "inline"
         }
       ]

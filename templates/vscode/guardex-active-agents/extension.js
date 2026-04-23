@@ -3,11 +3,13 @@ const path = require('node:path');
 const cp = require('node:child_process');
 const vscode = require('vscode');
 const {
+  clearWorktreeActivityCache,
   formatElapsedFrom,
   readActiveSessions,
   readRepoChanges,
   readSessionInspectData,
   sanitizeBranchForFile,
+  sessionFilePathForBranch,
 } = require('./session-schema.js');
 
 const SESSION_DECORATION_SCHEME = 'gitguardex-agent';
@@ -65,6 +67,7 @@ const SESSION_ACTIVITY_ICON_IDS = {
   stalled: 'clock',
   dead: 'error',
 };
+const DISMISSABLE_SESSION_ACTIVITY_KINDS = new Set(['stalled', 'dead']);
 const SESSION_PROVIDER_BRANDS = {
   openai: {
     id: 'openai',
@@ -1289,13 +1292,42 @@ class SessionItem extends vscode.TreeItem {
       : buildSessionCardDescription(session);
     this.tooltip = buildSessionTooltip(session, this.description);
     this.iconPath = themeIcon(resolveSessionActivityIconId(session.activityKind));
-    this.contextValue = 'gitguardex.session';
+    this.contextValue = sessionContextValue(session);
     this.command = {
       command: 'gitguardex.activeAgents.openWorktree',
       title: 'Open Agent Worktree',
       arguments: [session],
     };
   }
+}
+
+function sessionContextValue(session) {
+  const activityKind = typeof session?.activityKind === 'string' ? session.activityKind.trim() : '';
+  return activityKind
+    ? `gitguardex.session.${activityKind}`
+    : 'gitguardex.session';
+}
+
+function canDismissSession(session) {
+  return DISMISSABLE_SESSION_ACTIVITY_KINDS.has(session?.activityKind);
+}
+
+function buildDismissSessionDetail(session, statePath) {
+  const repoRoot = typeof session?.repoRoot === 'string' ? session.repoRoot.trim() : '';
+  const relativeStatePath = repoRoot
+    ? path.relative(repoRoot, statePath) || path.basename(statePath)
+    : path.basename(statePath);
+  const detailParts = [
+    `Remove ${relativeStatePath} and hide this session from Active Agents.`,
+  ];
+
+  if (session?.activityKind === 'stalled') {
+    detailParts.push('This dismisses the stale sidebar row only; use Stop if you want to interrupt a live agent.');
+  } else {
+    detailParts.push('This clears the stale session record from the sidebar.');
+  }
+
+  return detailParts.join(' ');
 }
 
 class FolderItem extends vscode.TreeItem {
@@ -1842,6 +1874,51 @@ async function stopSession(session, refresh) {
     showSessionMessage(
       `Failed to stop session ${sessionDisplayLabel(session)}: ${formatGitCommandFailure(error)}`,
     );
+  }
+}
+
+async function dismissSession(session, refresh) {
+  if (!canDismissSession(session)) {
+    showSessionMessage('Only stalled or dead sessions can be dismissed.');
+    return;
+  }
+
+  const repoRoot = typeof session?.repoRoot === 'string' ? session.repoRoot.trim() : '';
+  if (!repoRoot) {
+    showSessionMessage('Cannot dismiss session: missing repo root.');
+    return;
+  }
+  if (!session?.branch) {
+    showSessionMessage('Cannot dismiss session: missing branch name.');
+    return;
+  }
+
+  const statePath = sessionFilePathForBranch(repoRoot, session.branch);
+  if (!fs.existsSync(statePath)) {
+    clearWorktreeActivityCache(session.worktreePath);
+    refresh();
+    showSessionMessage(`Session record already gone for ${sessionDisplayLabel(session)}.`);
+    return;
+  }
+
+  const confirmed = await vscode.window.showWarningMessage(
+    `Dismiss ${sessionDisplayLabel(session)}?`,
+    {
+      modal: true,
+      detail: buildDismissSessionDetail(session, statePath),
+    },
+    'Dismiss',
+  );
+  if (confirmed !== 'Dismiss') {
+    return;
+  }
+
+  try {
+    fs.unlinkSync(statePath);
+    clearWorktreeActivityCache(session.worktreePath);
+    refresh();
+  } catch (error) {
+    showSessionMessage(`Failed to dismiss session ${sessionDisplayLabel(session)}: ${error.message}`);
   }
 }
 
@@ -3358,6 +3435,7 @@ function activate(context) {
     vscode.commands.registerCommand('gitguardex.activeAgents.finishSession', finishSession),
     vscode.commands.registerCommand('gitguardex.activeAgents.syncSession', syncSession),
     vscode.commands.registerCommand('gitguardex.activeAgents.stopSession', (session) => stopSession(session, refresh)),
+    vscode.commands.registerCommand('gitguardex.activeAgents.dismissSession', (session) => dismissSession(session, refresh)),
     vscode.workspace.onDidChangeWorkspaceFolders(handleWorkspaceFoldersChanged),
     activeSessionsWatcher,
     lockWatcher,
