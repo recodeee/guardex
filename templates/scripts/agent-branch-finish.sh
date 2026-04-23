@@ -516,6 +516,9 @@ maybe_auto_commit_parent_gitlink() {
   local super_root=""
   local subrepo_rel=""
   local gitlink_mode=""
+  local gitlink_index_sha=""
+  local gitlink_parent_head_sha=""
+  local subrepo_head_sha=""
   local add_output=""
   local commit_output=""
   local commit_message=""
@@ -557,8 +560,10 @@ maybe_auto_commit_parent_gitlink() {
   if [[ "$gitlink_mode" != "160000" ]]; then
     return 0
   fi
-  if git -C "$super_root" diff --quiet -- "$subrepo_rel" \
-    && git -C "$super_root" diff --cached --quiet -- "$subrepo_rel"; then
+  gitlink_index_sha="$(git -C "$super_root" ls-files -s -- "$subrepo_rel" | awk 'NR == 1 { print $2 }')"
+  gitlink_parent_head_sha="$(git -C "$super_root" ls-tree HEAD -- "$subrepo_rel" | awk 'NR == 1 { print $3 }')"
+  subrepo_head_sha="$(git -C "$repo_common_root" rev-parse HEAD 2>/dev/null || true)"
+  if [[ -n "$gitlink_index_sha" && "$gitlink_index_sha" == "$gitlink_parent_head_sha" && "$gitlink_index_sha" == "$subrepo_head_sha" ]]; then
     return 0
   fi
 
@@ -568,7 +573,11 @@ maybe_auto_commit_parent_gitlink() {
     return 0
   fi
   if git -C "$super_root" diff --cached --quiet -- "$subrepo_rel"; then
-    return 0
+    gitlink_index_sha="$(git -C "$super_root" ls-files -s -- "$subrepo_rel" | awk 'NR == 1 { print $2 }')"
+    gitlink_parent_head_sha="$(git -C "$super_root" ls-tree HEAD -- "$subrepo_rel" | awk 'NR == 1 { print $3 }')"
+    if [[ "$gitlink_index_sha" == "$gitlink_parent_head_sha" ]]; then
+      return 0
+    fi
   fi
 
   commit_message="Update ${subrepo_rel} subrepo pointer"

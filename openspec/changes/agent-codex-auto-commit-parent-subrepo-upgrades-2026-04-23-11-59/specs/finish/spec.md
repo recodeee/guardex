@@ -10,6 +10,7 @@ After a successful nested repository finish, Guardex SHALL detect when the finis
 - **WHEN** `gx branch finish` merges the nested agent branch and fast-forwards the nested base worktree
 - **THEN** Guardex commits the parent repo gitlink path with a message naming that subrepo pointer
 - **AND** unrelated parent staged paths are not included in that commit
+- **AND** parent `diff.ignoreSubmodules=all` settings do not hide the gitlink pointer update from this detection
 
 #### Scenario: Parent auto-commit is disabled
 
