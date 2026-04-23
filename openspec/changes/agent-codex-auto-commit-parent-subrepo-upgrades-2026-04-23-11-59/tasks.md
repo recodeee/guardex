@@ -18,7 +18,7 @@
 ## 4. Cleanup
 
 - [x] Run focused verification.
-- [ ] Commit and finish via PR with merge + cleanup evidence.
+- [x] Commit and finish via PR with merge + cleanup evidence.
 
 Verification:
 - `bash -n scripts/agent-branch-finish.sh`
@@ -27,3 +27,11 @@ Verification:
 - `openspec validate agent-codex-auto-commit-parent-subrepo-upgrades-2026-04-23-11-59 --strict`
 - `git diff --check`
 - `npm test`
+
+Finish evidence:
+- PR #359 `https://github.com/recodeee/gitguardex/pull/359` merged at `2026-04-23T10:10:42Z`.
+- PR #361 `https://github.com/recodeee/gitguardex/pull/361` merged at `2026-04-23T10:14:01Z`.
+- PR #362 `https://github.com/recodeee/gitguardex/pull/362` merged at `2026-04-23T10:16:57Z`.
+- Source worktrees and local branches for the three implementation PRs were removed manually after `/tmp` worktree root metadata prevented automatic branch deletion.
+- `git fetch origin --prune` removed stale remote-tracking refs for all three implementation branches; no matching local or remote-tracking refs remain.
+- Parent `recodee` gitlink auto-commit attempted after PR #361 and #362; protected-branch hook blocked direct parent `dev` commits, leaving `gitguardex` staged to nested HEAD for a parent agent-branch commit.
