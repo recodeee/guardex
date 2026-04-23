@@ -1803,17 +1803,7 @@ function deriveNextStepHint({ scanResult, worktreeCount, invoked, inGitRepo }) {
   return `${invoked} branch start "<task>" "<agent-name>"   # start a sandboxed agent task`;
 }
 
-function status(rawArgs) {
-  const { found: verboseFlag, remaining: afterVerbose } = extractFlag(rawArgs, '--verbose');
-  const options = parseCommonArgs(afterVerbose, {
-    target: process.cwd(),
-    json: false,
-  });
-  const forceCompact = envFlagIsTruthy(process.env.GUARDEX_COMPACT_STATUS);
-  const forceExpand = envFlagIsTruthy(process.env.GUARDEX_VERBOSE_STATUS) || verboseFlag;
-  const interactive = Boolean(process.stdout.isTTY);
-  const invokedBasename = getInvokedCliName();
-
+function collectServicesSnapshot() {
   const toolchain = toolchainModule.detectGlobalToolchainPackages();
   const npmServices = GLOBAL_TOOLCHAIN_PACKAGES.map((pkg) => {
     const service = toolchainModule.getGlobalToolchainService(pkg);
@@ -1837,18 +1827,103 @@ function status(rawArgs) {
   const localCompanionServices = toolchainModule.detectOptionalLocalCompanionTools().map((tool) => ({
     name: tool.name,
     displayName: tool.displayName || tool.name,
+    installCommand: tool.installCommand,
+    installArgs: Array.isArray(tool.installArgs) ? [...tool.installArgs] : [],
     status: tool.status,
   }));
   const requiredSystemTools = toolchainModule.detectRequiredSystemTools();
   const services = [
     ...npmServices,
-    ...localCompanionServices,
+    ...localCompanionServices.map((tool) => ({
+      name: tool.name,
+      displayName: tool.displayName,
+      status: tool.status,
+    })),
     ...requiredSystemTools.map((tool) => ({
       name: tool.name,
       displayName: tool.displayName || tool.name,
       status: tool.status,
     })),
   ];
+  return { toolchain, npmServices, localCompanionServices, requiredSystemTools, services };
+}
+
+function maybePromptInstallMissingCompanions(snapshot) {
+  if (envFlagIsTruthy(process.env.GUARDEX_SKIP_COMPANION_PROMPT)) {
+    return { handled: false, installed: false };
+  }
+  const interactive = Boolean(process.stdout.isTTY) && Boolean(process.stdin.isTTY);
+  const autoApproval = toolchainModule.parseAutoApproval('GUARDEX_AUTO_COMPANION_APPROVAL');
+  if (!interactive && autoApproval == null) {
+    return { handled: false, installed: false };
+  }
+  if (!snapshot.toolchain.ok) {
+    return { handled: false, installed: false };
+  }
+
+  const missingPackages = snapshot.npmServices
+    .filter((service) => service.status !== 'active')
+    .map((service) => service.packageName);
+  const missingLocalTools = snapshot.localCompanionServices.filter((tool) => tool.status !== 'active');
+  if (missingPackages.length === 0 && missingLocalTools.length === 0) {
+    return { handled: false, installed: false };
+  }
+
+  const missingNames = [
+    ...missingPackages.map((pkg) => toolchainModule.formatGlobalToolchainServiceName(pkg)),
+    ...missingLocalTools.map((tool) => tool.displayName || tool.name),
+  ];
+  console.log(`[${TOOL_NAME}] Missing companion tools: ${missingNames.join(', ')}.`);
+
+  const promptText = toolchainModule.buildMissingCompanionInstallPrompt(missingPackages, missingLocalTools);
+  const approved = interactive
+    ? toolchainModule.promptYesNoStrict(promptText)
+    : autoApproval;
+
+  if (!approved) {
+    console.log(
+      `[${TOOL_NAME}] Skipped companion install. Set GUARDEX_SKIP_COMPANION_PROMPT=1 to silence this prompt, ` +
+      `or run '${getInvokedCliName()} setup --install-only' later to install manually.`,
+    );
+    return { handled: true, installed: false };
+  }
+
+  const result = toolchainModule.performCompanionInstall(missingPackages, missingLocalTools);
+  if (result.status === 'installed') {
+    console.log(
+      `[${TOOL_NAME}] ✅ Companion tools installed (${(result.packages || []).join(', ')}).`,
+    );
+    return { handled: true, installed: true };
+  }
+  if (result.status === 'failed') {
+    console.log(
+      `[${TOOL_NAME}] ⚠️ Companion install failed: ${result.reason}. ` +
+      `Retry with '${getInvokedCliName()} setup --install-only'.`,
+    );
+    return { handled: true, installed: false };
+  }
+  return { handled: true, installed: false };
+}
+
+function status(rawArgs) {
+  const { found: verboseFlag, remaining: afterVerbose } = extractFlag(rawArgs, '--verbose');
+  const options = parseCommonArgs(afterVerbose, {
+    target: process.cwd(),
+    json: false,
+  });
+  const forceCompact = envFlagIsTruthy(process.env.GUARDEX_COMPACT_STATUS);
+  const forceExpand = envFlagIsTruthy(process.env.GUARDEX_VERBOSE_STATUS) || verboseFlag;
+  const interactive = Boolean(process.stdout.isTTY);
+  const invokedBasename = getInvokedCliName();
+
+  let snapshot = collectServicesSnapshot();
+  if (!options.json) {
+    const result = maybePromptInstallMissingCompanions(snapshot);
+    if (result.installed) {
+      snapshot = collectServicesSnapshot();
+    }
+  }
+  let { toolchain, npmServices, localCompanionServices, requiredSystemTools, services } = snapshot;
 
   const targetPath = path.resolve(options.target);
   const inGitRepo = isGitRepo(targetPath);

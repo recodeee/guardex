@@ -228,7 +228,7 @@ test('default invocation can auto-run doctor when GUARDEX_AUTO_DOCTOR=yes', () =
     GUARDEX_AUTO_DOCTOR: 'yes',
   });
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.match(result.stdout, /Auto-repair: repo safety is degraded\. Running 'gx doctor' now\./);
+  assert.match(result.stdout, /Auto-repair: repo safety is degraded\. Running 'gx doctor --current' now\./);
   assert.match(result.stdout, /Doctor\/fix:/);
   assert.match(result.stdout, /Repo is fully safe\./);
 

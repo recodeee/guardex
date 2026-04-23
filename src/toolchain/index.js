@@ -545,6 +545,10 @@ function installGlobalToolchain(options) {
     };
   }
 
+  return performCompanionInstall(missingPackages, missingLocalTools);
+}
+
+function performCompanionInstall(missingPackages, missingLocalTools) {
   const installed = [];
   if (missingPackages.length > 0) {
     console.log(
@@ -593,6 +597,7 @@ module.exports = {
   formatGlobalToolchainServiceName,
   describeMissingGlobalDependencyWarnings,
   describeCompanionInstallCommands,
+  buildMissingCompanionInstallPrompt,
   detectGlobalToolchainPackages,
   detectRequiredSystemTools,
   detectOptionalLocalCompanionTools,
@@ -600,4 +605,5 @@ module.exports = {
   maybeSelfUpdateBeforeStatus,
   maybeOpenSpecUpdateBeforeStatus,
   installGlobalToolchain,
+  performCompanionInstall,
 };
