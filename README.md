@@ -689,6 +689,11 @@ npm pack --dry-run
 <details>
 <summary><strong>v7.x</strong></summary>
 
+### v7.0.26
+- Bumped `@imdeadpool/guardex` from `7.0.25` to `7.0.26` so npm can publish a fresh version after `v7.0.25` reached GitHub Releases while the registry stayed on `7.0.24`.
+- README now documents both `npx skills add recodeee/` and `npx skills add recodeee/gitguardex`, and explains why the picker shows `gitguardex` instead of a separate `guardex` skill.
+- Keep the release scoped to version metadata plus the already-merged README installer guidance on `main`; no additional CLI/runtime behavior changed in this lane.
+
 ### v7.0.25
 - Bumped `@imdeadpool/guardex` from `7.0.24` to `7.0.25` so npm and GitHub Releases can ship the current `main` payload.
 - The bundled `GitGuardex Active Agents` VS Code companion now self-heals stale repo-scan ignore settings in older repos, keeps plain managed sandboxes visible in Source Control, and preserves cleanup truth so the tree matches actual sandbox state.
