@@ -9,6 +9,7 @@ This change is complete only when **all** of the following are true:
 ## Handoff
 
 - Handoff: change=`agent-codex-show-subproject-active-agents-2026-04-23-16-04`; branch=`agent/codex/show-subproject-active-agents-2026-04-23-16-04`; scope=`VS Code Active Agents nested subproject discovery, labels, watchers, template parity, and focused regression`; action=`show nested gitguardex-style managed worktrees at top level as workspace -> subproject, verify, then finish via PR merge cleanup`.
+- Completion: PR=`https://github.com/recodeee/gitguardex/pull/378`; state=`MERGED`; merge_commit=`4b070696b1ca39a5d30d826b7224ef982c66eb51`; cleanup_evidence=`source worktree absent from git worktree list; local and remote source refs absent after git fetch --prune origin`.
 
 ## 1. Specification
 
@@ -33,6 +34,6 @@ This change is complete only when **all** of the following are true:
 
 ## 4. Cleanup (mandatory; run before claiming completion)
 
-- [ ] 4.1 Run `gx branch finish --branch agent/codex/show-subproject-active-agents-2026-04-23-16-04 --base main --via-pr --wait-for-merge --cleanup`.
-- [ ] 4.2 Record the PR URL and final merge state (`MERGED`) in the completion handoff.
-- [ ] 4.3 Confirm the sandbox worktree is gone (`git worktree list` no longer shows the agent path; `git branch -a` shows no surviving local/remote refs for the branch).
+- [x] 4.1 Run `gx branch finish --branch agent/codex/show-subproject-active-agents-2026-04-23-16-04 --base main --via-pr --wait-for-merge --cleanup`.
+- [x] 4.2 Record the PR URL and final merge state (`MERGED`) in the completion handoff.
+- [x] 4.3 Confirm the sandbox worktree is gone (`git worktree list` no longer shows the agent path; `git branch -a` shows no surviving local/remote refs for the branch).
