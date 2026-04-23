@@ -25,12 +25,17 @@
   <a href="#04--daily-workflow">Workflow</a> ·
   <a href="#05--what-gx-shows-first">gx status</a> ·
   <a href="#07--commands">Commands</a> ·
-  <a href="#08--v6--v7-migration">Migration</a>
+  <a href="#08--v6--v7-migration">Migration</a> ·
+  <a href="#10--companion-tools">Companions</a>
 </p>
 
 ---
 
 ## `01` &nbsp;Install in one line
+
+<p align="center">
+  <img alt="Install GitGuardex" src="https://raw.githubusercontent.com/recodeee/gitguardex/main/docs/images/install-hero.svg" width="680">
+</p>
 
 ```bash
 npm i -g @imdeadpool/guardex
@@ -53,6 +58,8 @@ gx setup   # hooks, state, OMX / OpenSpec / caveman wiring — one shot
 ---
 
 ## `02` &nbsp;The problem
+
+![Parallel agents colliding in the same files](https://raw.githubusercontent.com/recodeee/gitguardex/main/docs/images/problem-agent-collision.svg)
 
 I was running ~30 Codex agents in parallel and hit a wall: they kept
 working on the same files at the same time — especially tests — and
@@ -118,6 +125,8 @@ gx branch finish --branch "$(git rev-parse --abbrev-ref HEAD)" \
 > Launching Codex through Guardex runs **finish automatically** when the
 > session exits — auto-commits, retries once if the base moved mid-run,
 > then pushes and opens the PR.
+
+![Guarded VS Code Source Control example](https://raw.githubusercontent.com/recodeee/gitguardex/main/docs/images/workflow-source-control-grouped.png)
 
 ---
 
@@ -237,6 +246,25 @@ Being honest about where this still has issues:
   conflicts.
 - **Windows.** Most of the hook surface assumes a POSIX shell. Use WSL
   or symlink-enabled git.
+
+---
+
+## `10` &nbsp;Companion tools
+
+All optional — but if you're running many agents, you probably want them.
+`gx status` auto-detects each one and reports it in the `Global services`
+block.
+
+| Tool | What it does | Stars |
+| --- | --- | --- |
+| [**oh-my-codex**](https://github.com/Yeachan-Heo/oh-my-codex) — `npm i -g oh-my-codex` | Codex config + skills framework. Merged into every agent worktree so each spawned Codex starts with the same tuned config. | [![stars](https://img.shields.io/github/stars/Yeachan-Heo/oh-my-codex?style=social)](https://github.com/Yeachan-Heo/oh-my-codex) |
+| [**oh-my-claudecode**](https://github.com/Yeachan-Heo/oh-my-claudecode) — `npm i -g oh-my-claude-sisyphus@latest` | Claude-side mirror of oh-my-codex. Skills, commands, and defaults for every Claude Code session. | [![stars](https://img.shields.io/github/stars/Yeachan-Heo/oh-my-claudecode?style=social)](https://github.com/Yeachan-Heo/oh-my-claudecode) |
+| [**OpenSpec**](https://github.com/Fission-AI/OpenSpec) — `npm i -g @fission-ai/openspec` | Structured plan / change / apply / archive flow so long agent runs don't drift off-task. | [![stars](https://img.shields.io/github/stars/Fission-AI/OpenSpec?style=social)](https://github.com/Fission-AI/OpenSpec) |
+| [**cavemem**](https://github.com/JuliusBrussee/cavemem) — `npm i -g cavemem` | Local persistent memory for agents via SQLite + MCP. Retains compressed history across runs. | [![stars](https://img.shields.io/github/stars/JuliusBrussee/cavemem?style=social)](https://github.com/JuliusBrussee/cavemem) |
+| [**cavekit**](https://github.com/JuliusBrussee/cavekit) — `npx skills add JuliusBrussee/cavekit` | Spec-driven build loop with `spec`, `build`, `check`, `caveman`, `backprop` skills bundled in. | [![stars](https://img.shields.io/github/stars/JuliusBrussee/cavekit?style=social)](https://github.com/JuliusBrussee/cavekit) |
+| [**caveman**](https://github.com/JuliusBrussee/caveman) — `npx skills add JuliusBrussee/caveman` | Ultra-compressed response mode for Claude / Codex. Less output-token churn on long reviews and debug loops. | [![stars](https://img.shields.io/github/stars/JuliusBrussee/caveman?style=social)](https://github.com/JuliusBrussee/caveman) |
+| [**codex-account-switcher**](https://github.com/recodeecom/codex-account-switcher-cli) — `npm i -g @imdeadpool/codex-account-switcher` | Multi-identity Codex account switcher. Auto-registers accounts on `codex login`; switch with one command. | [![stars](https://img.shields.io/github/stars/recodeecom/codex-account-switcher-cli?style=social)](https://github.com/recodeecom/codex-account-switcher-cli) |
+| [**GitHub CLI (`gh`)**](https://github.com/cli/cli) — see [cli.github.com](https://cli.github.com/) | Required for PR / merge automation. `gx branch finish --via-pr --wait-for-merge` depends on it. | [![stars](https://img.shields.io/github/stars/cli/cli?style=social)](https://github.com/cli/cli) |
 
 ---
 
