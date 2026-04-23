@@ -140,7 +140,7 @@ That's it. Install and update via `@imdeadpool/guardex`. Setup installs the mini
 </div>
 
 > [!NOTE]
-> In this repo, `CLAUDE.md` is a symlink to `AGENTS.md`, so Claude reads the same contract. Optional Codex/Claude companion files are installed at the user level with `gx install-agent-skills`, not copied into each repo.
+> In this repo, `CLAUDE.md` is a symlink to `AGENTS.md`, so Claude reads the same contract. Optional Codex/Claude companion files still install at the user level with `gx install-agent-skills`, while the generic repo skill catalog is available through `npx skills add recodeee/gitguardex`.
 
 ### Decision flow
 
@@ -459,6 +459,19 @@ npm i -g oh-my-claude-sisyphus@latest
 Repo: <https://github.com/Yeachan-Heo/oh-my-claudecode>
 [![GitHub stars](https://img.shields.io/github/stars/Yeachan-Heo/oh-my-claudecode?style=social)](https://github.com/Yeachan-Heo/oh-my-claudecode)
 
+### GitGuardex skills - install the repo skill catalog through `npx skills`
+
+For agents that already support the generic `skills` installer flow, GitGuardex now exposes its repo skill catalog directly. That lets the installer show the available Guardex skills first, then install only the one you want.
+
+```sh
+npx skills add recodeee/gitguardex
+```
+
+This repo currently exposes `gitguardex` and `guardex-merge-skills-to-dev` through that flow. Use `gx install-agent-skills` when you want the Codex/Claude user-home startup files instead of the generic `skills` catalog.
+
+Repo: <https://github.com/recodeee/gitguardex>
+[![GitHub stars](https://img.shields.io/github/stars/recodeee/gitguardex?style=social)](https://github.com/recodeee/gitguardex)
+
 ### Caveman — output compression for long agent runs
 
 Ultra-compressed response mode for Claude/Codex-style agents. Useful when you want less output-token churn during long reviews, debug loops, or multi-agent sessions.
@@ -609,7 +622,7 @@ vscode/guardex-active-agents/README.md
 
 Legacy compatibility note: older repos may still contain repo-local workflow scripts under `scripts/`. Direct `gx branch ...`, `gx locks ...`, `gx finish`, `gx cleanup`, `gx merge`, and `gx migrate` do not require them. `gx migrate` removes those leftover workflow shims by default. The CLI still honors repo-local `scripts/review-bot-watch.sh` and `scripts/codex-agent.sh` when they are already present so older repos can keep working during migration.
 
-Optional Codex/Claude user-level companions still install with `gx install-agent-skills`; they are not copied into each repo.
+Optional Codex/Claude user-level companions still install with `gx install-agent-skills`; the generic repo skill catalog is available with `npx skills add recodeee/gitguardex`. Neither path copies those user-home files into each repo.
 
 ---
 

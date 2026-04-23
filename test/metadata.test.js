@@ -71,6 +71,26 @@ test('README documents gx release as README-driven GitHub release writer', () =>
   assert.match(readme, /finds the last published GitHub release, and writes one grouped GitHub release body/);
 });
 
+test('README advertises the repo skills installer path and root skills stay in sync with shipped templates', () => {
+  const readme = fs.readFileSync(readmePath, 'utf8');
+  assert.match(readme, /npx skills add recodeee\/gitguardex/);
+
+  const pairs = [
+    ['templates/codex/skills/gitguardex/SKILL.md', 'skills/gitguardex/SKILL.md'],
+    ['templates/codex/skills/guardex-merge-skills-to-dev/SKILL.md', 'skills/guardex-merge-skills-to-dev/SKILL.md'],
+  ];
+
+  for (const [templatePath, rootSkillPath] of pairs) {
+    const template = fs.readFileSync(path.join(repoRoot, templatePath), 'utf8');
+    const rootSkill = fs.readFileSync(path.join(repoRoot, rootSkillPath), 'utf8');
+    assert.equal(
+      rootSkill,
+      template,
+      `${rootSkillPath} diverged from ${templatePath}; keep the repo-root skills catalog aligned with shipped templates`,
+    );
+  }
+});
+
 test('README keeps canonical About copy and problem-solution visuals aligned', () => {
   const readme = fs.readFileSync(readmePath, 'utf8');
   const aboutDescription = fs.readFileSync(aboutDescriptionPath, 'utf8').trim();
