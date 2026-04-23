@@ -1215,7 +1215,7 @@ test('install-vscode-active-agents-extension installs the current extension into
   assert.equal(installedManifest.icon, 'icon.png');
   assert.equal(installedManifest.version, manifest.version);
   assert.deepEqual(installedManifest.activationEvents, manifest.activationEvents);
-  assert.deepEqual(installedManifest.contributes.iconThemes, manifest.contributes.iconThemes);
+  assert.equal(installedManifest.contributes.iconThemes, undefined);
   assert.equal(installedManifest.activationEvents.includes('onStartupFinished'), true);
   assert.equal(fs.existsSync(path.join(canonicalDir, 'icon.png')), true);
   assert.equal(fs.existsSync(path.join(canonicalDir, 'fileicons', 'gitguardex-fileicons.json')), true);
@@ -1251,7 +1251,7 @@ test('active-agents extension edits require a higher manifest version than the b
     templateManifest.activationEvents,
     'Live and template Active Agents activation events must stay in sync.',
   );
-  assert.deepEqual(
+  assert.equal(
     liveManifest.contributes.iconThemes,
     templateManifest.contributes.iconThemes,
     'Live and template Active Agents icon theme contributions must stay in sync.',
@@ -1297,29 +1297,9 @@ test('active-agents manifest uses a dedicated activity bar container with a hive
   ]);
 });
 
-test('active-agents file icon theme maps Guardex workflow paths and ships referenced assets', () => {
+test('active-agents manifest does not contribute a file icon theme', () => {
   const manifest = readExtensionManifest();
-  const themeContribution = manifest.contributes.iconThemes.find((entry) => entry.id === 'gitguardex-file-icons');
-  assert.ok(themeContribution, 'Expected the GitGuardex file icon theme contribution.');
-  assert.equal(themeContribution.path, './fileicons/gitguardex-fileicons.json');
-
-  const themePath = path.join(path.dirname(extensionManifestPath), themeContribution.path);
-  const theme = readJson(themePath);
-  assert.equal(theme.folderNames.changes, '_gitguardex_openspec');
-  assert.equal(theme.folderNames.plan, '_gitguardex_plan');
-  assert.equal(theme.folderNames.specs, '_gitguardex_spec');
-  assert.equal(theme.folderNames['agent-worktrees'], '_gitguardex_branch');
-  assert.equal(theme.folderNames['.githooks'], '_gitguardex_hook');
-  assert.equal(theme.fileNames['AGENTS.md'], '_gitguardex_agent');
-  assert.equal(theme.fileNames['proposal.md'], '_gitguardex_openspec');
-  assert.equal(theme.fileNames['tasks.md'], '_gitguardex_plan');
-  assert.equal(theme.fileNames['spec.md'], '_gitguardex_spec');
-  assert.equal(theme.fileNames['pre-commit'], '_gitguardex_hook');
-
-  for (const definition of Object.values(theme.iconDefinitions)) {
-    assert.equal(typeof definition.iconPath, 'string');
-    assert.equal(fs.existsSync(path.join(path.dirname(themePath), definition.iconPath)), true);
-  }
+  assert.equal(manifest.contributes.iconThemes, undefined);
 });
 
 test('active-agents extension auto-installs a newer workspace build and offers reload', async () => {
