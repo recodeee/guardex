@@ -382,9 +382,13 @@ Default: less word, same proof.
 - Auto-clarity wins: switch back to `lite` or normal wording for security warnings, irreversible actions, privacy/compliance notes, ordered instructions where fragments may confuse, or when the user is confused and needs more detail.
 - Boundaries stay normal/exact for code, commits, PR text, specs, logs, and blocker evidence.
 
-**Isolation.** Every task runs on a dedicated `agent/*` branch + worktree. Start with `gx branch start "<task>" "<agent-name>"`. Treat the base branch (`main`/`dev`) as read-only while an agent branch is active. Never `git checkout <branch>` on a primary working tree (including nested repos); use `git worktree add` instead. The `.githooks/post-checkout` hook auto-reverts primary-branch switches during agent sessions - bypass only with `GUARDEX_ALLOW_PRIMARY_BRANCH_SWITCH=1`.
+**Isolation.** Every task runs on a dedicated `agent/*` branch + worktree. Start with `gx branch start "<task>" "<agent-name>"`. Treat the base branch (`main`/`dev`) as read-only while an agent branch is active. The `.githooks/post-checkout` hook auto-reverts primary-branch switches during agent sessions and auto-stashes a dirty tree before reverting - bypass only with `GUARDEX_ALLOW_PRIMARY_BRANCH_SWITCH=1`.
 For every new task, including follow-up work in the same chat/session, if an assigned agent sub-branch/worktree is already open, continue in that sub-branch instead of creating a fresh lane unless the user explicitly redirects scope.
 Never implement directly on the local/base branch checkout; keep it unchanged and perform all edits in the agent sub-branch/worktree.
+
+**Primary-tree lock (blocking).** On the primary checkout, do NOT run any of: `git checkout <ref>`, `git switch <ref>`, `git switch -c ...`, `git checkout -b ...`, or `git worktree add <path> <existing-agent-branch>`. The only branch-changing commands allowed on primary are `git fetch` and `git pull --ff-only` against the protected branch itself. To work on any `agent/*` branch, run `gx branch start ...` first, then `cd` into the printed `.omc/agent-worktrees/...` path and run every subsequent git command from inside that worktree. If you find yourself typing `git checkout agent/...` or `git switch agent/...` from the primary cwd, stop - that is the mistake that flips primary onto an agent branch.
+
+**Dirty-tree rule.** Finish or stash edits inside the worktree they belong to before any branch switch on primary. The post-checkout guard auto-stashes a dirty primary tree as `guardex-auto-revert <ts> <prev>-><new>` before reverting, but that is a safety net, not a workflow; do not rely on it routinely. Recover stashed changes with `git stash list | grep 'guardex-auto-revert'`.
 
 **Ownership.** Before editing, claim files: `gx locks claim --branch "<agent-branch>" <file...>`. Before deleting, confirm the path is in your claim. Don't edit outside your scope unless reassigned.
 

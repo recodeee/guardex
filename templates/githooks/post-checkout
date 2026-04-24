@@ -73,8 +73,14 @@ if [[ "$is_agent" == "1" ]]; then
     GUARDEX_ALLOW_PRIMARY_BRANCH_SWITCH=1 git checkout "$prev_branch" >/dev/null 2>&1 || true
     echo "[agent-primary-branch-guard] Reverted to '$prev_branch'." >&2
   else
-    echo "[agent-primary-branch-guard] Working tree dirty — auto-revert skipped." >&2
-    echo "[agent-primary-branch-guard] Fix manually: git stash && git checkout $prev_branch" >&2
+    stash_msg="guardex-auto-revert $(date +%s) ${prev_branch}->${new_branch}"
+    if git stash push --include-untracked -m "$stash_msg" >/dev/null 2>&1; then
+      GUARDEX_ALLOW_PRIMARY_BRANCH_SWITCH=1 git checkout "$prev_branch" >/dev/null 2>&1 || true
+      echo "[agent-primary-branch-guard] Dirty tree auto-stashed as '$stash_msg'; primary reverted to '$prev_branch'." >&2
+      echo "[agent-primary-branch-guard] Restore later with: git stash list | grep 'guardex-auto-revert'" >&2
+    else
+      echo "[agent-primary-branch-guard] Auto-stash failed; working tree left on '$new_branch'. Fix manually: git stash -u && git checkout $prev_branch" >&2
+    fi
   fi
 else
   echo "[agent-primary-branch-guard] Bypass with GUARDEX_ALLOW_PRIMARY_BRANCH_SWITCH=1 if intentional." >&2
