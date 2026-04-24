@@ -830,13 +830,24 @@ if [[ "$CLEANUP_AFTER_MERGE" -eq 1 ]]; then
   if [[ "$DELETE_REMOTE_BRANCH" -eq 1 ]]; then
     prune_args+=(--delete-remote-branches)
   fi
+
+  # Pivot out of the agent worktree before the prune may remove it. The prune
+  # subprocess inherits cwd=repo_root from the CLI caller, so its own active
+  # cwd check can't see that our shell is sitting in the worktree it is about
+  # to delete. Without this pivot the directory disappears mid-call, every
+  # subsequent subprocess spawn fails with ENOENT uv_cwd, and `set -e` flips
+  # the script exit code to 1 even though the merge succeeded.
+  if [[ "$current_worktree" == "$source_worktree" && "$source_worktree" == "${agent_worktree_root}"/* ]]; then
+    cd "$repo_root" 2>/dev/null || true
+  fi
+
   if ! run_guardex_cli worktree prune "${prune_args[@]}"; then
     echo "[agent-branch-finish] Warning: automatic worktree prune failed." >&2
     echo "[agent-branch-finish] You can run manual cleanup: gx cleanup --base ${BASE_BRANCH}" >&2
   fi
 
   echo "[agent-branch-finish] Merged '${SOURCE_BRANCH}' into '${BASE_BRANCH}' via ${merge_status} flow and cleaned source branch/worktree."
-  if [[ "$source_worktree" == "$current_worktree" && "$source_worktree" == "${agent_worktree_root}"/* ]]; then
+  if [[ "$source_worktree" == "$current_worktree" && "$source_worktree" == "${agent_worktree_root}"/* && -d "$source_worktree" ]]; then
     echo "[agent-branch-finish] Current worktree '${source_worktree}' still exists because it is the active shell cwd." >&2
     echo "[agent-branch-finish] Leave this directory, then run: gx cleanup --base ${BASE_BRANCH}" >&2
   fi
