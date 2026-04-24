@@ -1345,7 +1345,7 @@ test('active-agents manifest contributes restart actions for extension managemen
   );
   assert.deepEqual(restartExtensionAction, {
     command: 'gitguardex.activeAgents.restart',
-    when: 'extension == recodeee.gitguardex-active-agents && extensionStatus == installed',
+    when: 'extension == Recodee.gitguardex-active-agents && extensionStatus == installed',
     group: '2_configure@2',
   });
 
@@ -1507,7 +1507,7 @@ test('active-agents restart command restarts the extension host for this extensi
   extension.activate(context);
   await flushAsyncWork();
 
-  await registrations.commands.get('gitguardex.activeAgents.restart')('recodeee.gitguardex-active-agents');
+  await registrations.commands.get('gitguardex.activeAgents.restart')('Recodee.gitguardex-active-agents');
   await registrations.commands.get('gitguardex.activeAgents.restart')('someone.else');
 
   const restartCalls = registrations.executedCommands.filter(

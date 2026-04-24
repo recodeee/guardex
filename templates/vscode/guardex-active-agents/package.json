@@ -2,7 +2,7 @@
   "name": "gitguardex-active-agents",
   "displayName": "GitGuardex Active Agents",
   "description": "Shows live Guardex sandbox sessions and repo changes in a dedicated VS Code Active Agents sidebar.",
-  "publisher": "recodeee",
+  "publisher": "Recodee",
   "version": "0.0.19",
   "license": "MIT",
   "icon": "icon.png",
@@ -123,7 +123,7 @@
       "extension/context": [
         {
           "command": "gitguardex.activeAgents.restart",
-          "when": "extension == recodeee.gitguardex-active-agents && extensionStatus == installed",
+          "when": "extension == Recodee.gitguardex-active-agents && extensionStatus == installed",
           "group": "2_configure@2"
         }
       ],
