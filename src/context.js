@@ -338,6 +338,8 @@ const SUGGESTIBLE_COMMANDS = [
   'setup',
   'doctor',
   'branch',
+  'pivot',
+  'ship',
   'locks',
   'worktree',
   'hook',
@@ -383,7 +385,9 @@ const CLI_COMMAND_GROUPS = [
     label: 'Branch workflow',
     description: 'The sandbox → commit → PR → merge loop for agent-owned branches.',
     commands: [
+      ['pivot', 'Auto-pivot from a protected branch into a fresh agent worktree (single tool call for AI agents)'],
       ['branch', 'CLI-owned branch workflow surface (start/finish/merge)'],
+      ['ship', 'Stage + commit + push + PR + auto-merge + cleanup (alias for `finish --via-pr --wait-for-merge --cleanup`)'],
       ['finish', 'Commit + PR + merge completed agent branches (--all, --branch)'],
       ['merge', 'Create/reuse an integration lane and merge overlapping agent branches'],
       ['sync', 'Sync agent branches with origin/<base>'],

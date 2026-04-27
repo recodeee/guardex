@@ -34,16 +34,24 @@ PATCH_FILE_HEADER_RE = re.compile(
 SHELL_ENV_PREFIX_RE = re.compile(r"^(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)+")
 SHELL_ALLOWED_SEGMENTS = (
     re.compile(r"^(?:cd|pwd|true|false|echo|printf|export|unset|set(?:\s+-[A-Za-z-]+)?)\b"),
-    re.compile(r"^git\s+(?:status|rev-parse|symbolic-ref|branch|log|show|diff|fetch|remote|config\s+--get|worktree\s+list|ls-files|submodule\s+status)\b"),
+    re.compile(r"^git\s+(?:status|rev-parse|symbolic-ref|branch|log|show|diff|fetch|remote|config\s+--get|worktree\s+list|ls-files|submodule\s+status|stash\s+(?:list|show))\b"),
+    # Safe sync: fast-forward / rebase pulls cannot move primary onto a divergent state.
+    re.compile(r"^git\s+pull(?:\s+--ff-only|\s+--rebase|\s+origin\s+\S+)?\s*$"),
+    re.compile(r"^git\s+pull\s+--ff-only(?:\s+\S+){0,2}\s*$"),
+    re.compile(r"^git\s+pull\s+--rebase(?:\s+\S+){0,2}\s*$"),
+    # Pushing agent/* branches from any cwd is safe — guarded branch namespace.
+    re.compile(r"^git\s+push(?:\s+(?:-u|--set-upstream))?\s+\S+\s+agent/[^\s]+(?:\s|$)"),
+    re.compile(r"^git\s+push(?:\s+(?:-u|--set-upstream))?\s+\S+\s+HEAD:agent/[^\s]+(?:\s|$)"),
     re.compile(
-        r"^gh\s+(?:auth\s+status|repo\s+view|pr\s+(?:list|view|checks|status)|issue\s+(?:list|view|status)|run\s+(?:list|view))\b"
+        r"^gh\s+(?:auth\s+status|repo\s+view|pr\s+(?:list|view|checks|status|create|edit|comment|review|ready|reopen|merge)|issue\s+(?:list|view|status|create|comment)|run\s+(?:list|view|watch)|workflow\s+(?:list|view|run))\b"
     ),
     re.compile(r"^git\s+(?:checkout|switch)\s+agent/[^\s]+(?:\s|$)"),
     re.compile(r"^(?:ls|cat|head|tail|wc|nl|sed\s+-n|rg|find|stat|du|df|ps|ss|which|command\s+-v)\b"),
-    re.compile(r"^(?:guardex|guardex)\s+(?:status|scan)\b"),
+    # All gitguardex CLI subcommands are themselves safety-aware; trust them on protected branches.
+    re.compile(r"^(?:gx|guardex|gitguardex|multiagent-safety)\s+\S+\b"),
     re.compile(r"^python3?\s+scripts/(?:agent-file-locks\.py|main_rs_lock\.py)\s+(?:status|list|validate)\b"),
     re.compile(
-        r"^(?:bash\s+)?(?:(?:\.{1,2}/)?scripts|(?:/|~)[^\s]*/scripts)/(?:agent-branch-start\.sh|codex-agent\.sh|install-agent-git-hooks\.sh)\b"
+        r"^(?:bash\s+)?(?:(?:\.{1,2}/)?scripts|(?:/|~)[^\s]*/scripts)/(?:agent-branch-start\.sh|agent-branch-finish\.sh|agent-pivot\.sh|codex-agent\.sh|install-agent-git-hooks\.sh)\b"
     ),
 )
 
@@ -288,11 +296,13 @@ def ensure_protected_branch_edit_allowed(file_path: str) -> str | None:
 
     return (
         f"BLOCKED: Agent edit attempted on {blocked_scope}.\n"
-        "Agent edits must run from isolated agent/* branches.\n"
-        "Create a sandbox branch/worktree first:\n"
+        "Auto-pivot to an isolated agent worktree (single command, dirty tree migrates with you):\n"
+        '  gx pivot "<task>" "<agent-name>"\n'
+        "Then `cd` into the printed WORKTREE_PATH and retry the edit.\n"
+        "Equivalent legacy form:\n"
         '  bash scripts/agent-branch-start.sh "<task>" "<agent-name>"\n'
-        "If you intentionally need a one-off protected-branch edit, set:\n"
-        f"  {PROTECTED_BRANCH_EDIT_OVERRIDE_ENV}=1"
+        "Override (must be exported in the harness env, not as a command prefix):\n"
+        f"  export {PROTECTED_BRANCH_EDIT_OVERRIDE_ENV}=1"
     )
 
 
@@ -392,11 +402,14 @@ def ensure_non_agent_shell_command_allowed(repo_root: Path, command: str) -> str
     preview = command.strip().splitlines()[0][:180]
     return (
         f"BLOCKED: Shell command may mutate files on {blocked_scope}.\n"
-        "Start isolated agent work first:\n"
+        "Auto-pivot to an isolated agent worktree (single command, dirty tree migrates with you):\n"
+        '  gx pivot "<task>" "<agent-name>"\n'
+        "Then `cd` into the printed WORKTREE_PATH and retry from there.\n"
+        "Equivalent legacy form:\n"
         '  bash scripts/agent-branch-start.sh "<task>" "<agent-name>"\n'
         f"Command preview: {preview}\n"
-        "Temporary bypass (not recommended):\n"
-        f"  {SHELL_GUARD_OVERRIDE_ENV}=1"
+        "Override (must be exported in the harness env, not as a command prefix):\n"
+        f"  export {SHELL_GUARD_OVERRIDE_ENV}=1"
     )
 
 
