@@ -142,9 +142,11 @@ test('setup provisions workflow files and repo config', () => {
     agentsContent,
     /For every new task, including follow-up work in the same chat\/session, if an assigned agent sub-branch\/worktree is already open, continue in that sub-branch/,
   );
-  assert.match(agentsContent, /## Token \/ Context Budget/);
+  assert.match(agentsContent, /### Colony coordination loop/);
+  assert.match(agentsContent, /Use Colony as the primary coordination surface\./);
+  assert.match(agentsContent, /### Token \/ context budget/);
   assert.match(agentsContent, /Default: less word, same proof\./);
-  assert.match(agentsContent, /## OMX Caveman Style/);
+  assert.match(agentsContent, /### Caveman style/);
   assert.match(agentsContent, /Answer order stays fixed: answer first, cause next, fix or next step last\./);
 
   const gitignoreContent = fs.readFileSync(path.join(repoDir, '.gitignore'), 'utf8');
@@ -390,9 +392,9 @@ test('setup refreshes existing managed AGENTS block by default', () => {
   assert.match(currentAgents, /Guardex is enabled by default/);
   assert.match(currentAgents, /GUARDEX_ON=0/);
   assert.match(currentAgents, /GUARDEX_ON=1/);
-  assert.match(currentAgents, /Small tasks stay in direct caveman-only mode\./);
-  assert.match(currentAgents, /Promote to OMX orchestration only when the task is medium\/large/);
-  assert.match(currentAgents, /explicit final completion\/cleanup section/);
+  assert.match(currentAgents, /Small tasks stay direct and caveman-only\./);
+  assert.match(currentAgents, /Promote to full Guardex \/ OMX orchestration only when scope grows into/);
+  assert.match(currentAgents, /final completion\/cleanup section/);
   assert.match(currentAgents, /PR URL \+ final `MERGED` evidence/);
   assert.doesNotMatch(currentAgents, /legacy managed clause/);
   assert.match(result.stdout, /refreshed gitguardex-managed block/);
@@ -862,13 +864,14 @@ test('install configures AGENTS managed policy block with GX contract wording', 
 
   const agentsContent = fs.readFileSync(path.join(repoDir, 'AGENTS.md'), 'utf8');
   assert.match(agentsContent, /<!-- multiagent-safety:START -->/);
-  assert.match(agentsContent, /## Multi-Agent Execution Contract \(GX\)/);
+  assert.match(agentsContent, /## Multi-Agent Execution Contract: Guardex \+ Colony/);
   assert.match(
     agentsContent,
     /OMX completion policy: when a task is done, the agent must commit the task changes, push the agent branch, and create\/update a PR/,
   );
-  assert.match(agentsContent, /## Token \/ Context Budget/);
-  assert.match(agentsContent, /## OMX Caveman Style/);
+  assert.match(agentsContent, /### Colony coordination loop/);
+  assert.match(agentsContent, /### Token \/ context budget/);
+  assert.match(agentsContent, /### Caveman style/);
 });
 
 

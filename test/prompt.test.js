@@ -150,12 +150,13 @@ test('prompt --snippet prints the managed AGENTS template with token budget and 
   const result = runNode(['prompt', '--snippet'], repoDir);
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.match(result.stdout, /<!-- multiagent-safety:START -->/);
-  assert.match(result.stdout, /## Token \/ Context Budget/);
+  assert.match(result.stdout, /### Colony coordination loop/);
+  assert.match(result.stdout, /Use Colony as the primary coordination surface\./);
+  assert.match(result.stdout, /### Token \/ context budget/);
   assert.match(result.stdout, /Default: less word, same proof\./);
   assert.match(result.stdout, /Keep raw terminal interaction out of long-lived context/);
   assert.match(result.stdout, /Keep execution log separate from reasoning context/);
-  assert.match(result.stdout, /Use a fixed checkpoint shape when compacting: `Task`, `Done`, `Current status`, and `Next`\./);
-  assert.match(result.stdout, /## OMX Caveman Style/);
+  assert.match(result.stdout, /### Caveman style/);
   assert.match(result.stdout, /Answer order stays fixed: answer first, cause next, fix or next step last\./);
 });
 
