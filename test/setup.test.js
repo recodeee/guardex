@@ -445,6 +445,40 @@ test('repo hook settings reference real local hook directories', () => {
 });
 
 
+test('repo skill guard blocks shell output redirect bypasses', () => {
+  const repoRoot = path.resolve(__dirname, '..');
+  const script = String.raw`
+import importlib.util
+import pathlib
+import sys
+
+repo = pathlib.Path(sys.argv[1])
+hook_paths = [
+    ".codex/hooks/skill_guard.py",
+    ".claude/hooks/skill_guard.py",
+    ".agents/hooks/skill_guard.py",
+]
+mutating_command = "cat > apps/frontend/src/features/scraper/components/scraping-agents-page.tsx <<'EOF'\nexport {}\nEOF"
+
+for index, hook_path in enumerate(hook_paths):
+    spec = importlib.util.spec_from_file_location(f"skill_guard_{index}", repo / hook_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert module.is_allowed_non_agent_shell_command("git status 2>&1 | cat") is True
+    assert module.is_allowed_non_agent_shell_command("git rev-parse HEAD 2>/dev/null") is True
+    assert module.is_allowed_non_agent_shell_command(mutating_command) is False
+    module.current_branch = lambda _repo_root: "main"
+    module.resolve_protected_branches = lambda _repo_root: {"main", "dev"}
+    error = module.ensure_non_agent_shell_command_allowed(repo, mutating_command)
+    assert error is not None
+    assert "protected branch 'main'" in error
+`;
+
+  const result = runCmd('python3', ['-c', script, repoRoot], repoRoot);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});
+
+
 test('setup and doctor preserve existing agent scripts in package.json by default', () => {
   const repoDir = initRepo();
   const packagePath = path.join(repoDir, 'package.json');

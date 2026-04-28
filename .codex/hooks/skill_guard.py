@@ -32,6 +32,10 @@ PATCH_FILE_HEADER_RE = re.compile(
 )
 
 SHELL_ENV_PREFIX_RE = re.compile(r"^(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)+")
+SHELL_OUTPUT_REDIRECT_TOKENS = {">", ">>", ">|", "&>", "&>>", ">&", ">>&"}
+SHELL_OUTPUT_REDIRECT_FALLBACK_RE = re.compile(
+    r"(^|\s)(?:&>>|&>|[0-9]*(?:>\||>>|>|>&|>>&))"
+)
 SHELL_ALLOWED_SEGMENTS = (
     re.compile(r"^(?:cd|pwd|true|false|echo|printf|export|unset|set(?:\s+-[A-Za-z-]+)?)\b"),
     re.compile(r"^git\s+(?:status|rev-parse|symbolic-ref|branch|log|show|diff|fetch|remote|config\s+--get|worktree\s+list|ls-files|submodule\s+status|stash\s+(?:list|show))\b"),
@@ -362,6 +366,34 @@ def split_shell_segments(command: str) -> list[str]:
     return segments
 
 
+def shell_segment_tokens(segment: str) -> list[str]:
+    try:
+        lexer = shlex.shlex(segment, posix=True, punctuation_chars="|&;<>")
+        lexer.whitespace_split = True
+        lexer.commenters = ""
+        return list(lexer)
+    except ValueError:
+        return []
+
+
+def shell_segment_has_output_redirection(segment: str) -> bool:
+    tokens = shell_segment_tokens(segment)
+    if not tokens:
+        return bool(SHELL_OUTPUT_REDIRECT_FALLBACK_RE.search(segment))
+    for index, token in enumerate(tokens):
+        if token not in SHELL_OUTPUT_REDIRECT_TOKENS:
+            continue
+        target = tokens[index + 1] if index + 1 < len(tokens) else ""
+        if target == "&" and index + 2 < len(tokens) and tokens[index + 2].isdigit():
+            continue
+        if token in {">&", ">>&"} and target.isdigit():
+            continue
+        if target == "/dev/null":
+            continue
+        return True
+    return False
+
+
 def is_allowed_non_agent_shell_command(command: str) -> bool:
     normalized = command.strip()
     if not normalized:
@@ -370,6 +402,8 @@ def is_allowed_non_agent_shell_command(command: str) -> bool:
     if not segments:
         return True
     for raw_segment in segments:
+        if shell_segment_has_output_redirection(raw_segment):
+            return False
         segment = normalize_shell_segment(raw_segment)
         if not segment:
             continue
