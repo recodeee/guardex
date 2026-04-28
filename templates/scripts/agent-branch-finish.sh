@@ -831,7 +831,7 @@ if [[ "$PUSH_ENABLED" -eq 1 ]]; then
           echo "[agent-branch-finish] Merge did not complete within wait window; keeping branch open." >&2
           exit 1
         fi
-        echo "[agent-branch-finish] Merge pending review/check policy. Branch cleanup skipped for now." >&2
+        echo "[agent-branch-finish] PR pending review/check policy. Worktree retained for now; the autofinish watcher (or 'gx worktree prune --include-pr-merged --delete-branches') will prune it after merge. Verify with 'git worktree list' before claiming the worktree is still on disk." >&2
         exit 0
       fi
       echo "[agent-branch-finish] PR flow failed." >&2

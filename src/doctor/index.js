@@ -310,7 +310,7 @@ function extractAgentBranchFinishPrUrl(output) {
 function doctorFinishFlowIsPending(output) {
   return (
     /\[agent-branch-finish\] PR merge not completed yet; leaving PR open\./.test(output) ||
-    /\[agent-branch-finish\] Merge pending review\/check policy\. Branch cleanup skipped for now\./.test(output) ||
+    /\[agent-branch-finish\] PR pending review\/check policy\./.test(output) ||
     /\[agent-branch-finish\] PR auto-merge enabled; waiting for required checks\/reviews\./.test(output)
   );
 }
