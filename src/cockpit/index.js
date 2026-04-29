@@ -1,5 +1,6 @@
 const { readCockpitState } = require('./state');
 const { renderCockpit } = require('./render');
+const actions = require('./actions');
 const {
   ensureTmuxAvailable,
   sessionExists,
@@ -138,4 +139,6 @@ module.exports = {
   openCockpit,
   render,
   startCockpit,
+  ...actions,
+  actions,
 };
