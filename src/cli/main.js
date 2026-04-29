@@ -6,6 +6,7 @@ const toolchainModule = require('../toolchain');
 const finishCommands = require('../finish');
 const doctorModule = require('../doctor');
 const agentInspect = require('../agents/inspect');
+const agentStatus = require('../agents/status');
 const { finishAgentSession } = require('../agents/finish');
 const sessionSeverityReport = require('../report/session-severity');
 const cockpitModule = require('../cockpit');
@@ -2815,18 +2816,7 @@ function agents(rawArgs) {
     return;
   }
 
-  const existingState = readAgentsState(repoRoot);
-  if (!existingState) {
-    console.log(`[${TOOL_NAME}] Repo agents status: inactive (${repoRoot})`);
-    process.exitCode = 0;
-    return;
-  }
-
-  const reviewPid = Number.parseInt(String(existingState?.review?.pid || ''), 10);
-  const cleanupPid = Number.parseInt(String(existingState?.cleanup?.pid || ''), 10);
-  console.log(
-    `[${TOOL_NAME}] Repo agents status: review=${processAlive(reviewPid) ? 'running' : 'stopped'}(pid=${reviewPid || 0}), cleanup=${processAlive(cleanupPid) ? 'running' : 'stopped'}(pid=${cleanupPid || 0})`,
-  );
+  process.stdout.write(agentStatus.runStatusCommand(repoRoot, options));
   process.exitCode = 0;
 }
 

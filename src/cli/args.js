@@ -447,8 +447,8 @@ function parseAgentsArgs(rawArgs) {
   if (options.branch && !['files', 'diff', 'locks', 'finish'].includes(options.subcommand)) {
     throw new Error('--branch is only supported with `gx agents files|diff|locks|finish`');
   }
-  if (options.json && !['files', 'diff', 'locks'].includes(options.subcommand)) {
-    throw new Error('--json is only supported with `gx agents files|diff|locks`');
+  if (options.json && !['status', 'files', 'diff', 'locks'].includes(options.subcommand)) {
+    throw new Error('--json is only supported with `gx agents status|files|diff|locks`');
   }
 
   return options;
