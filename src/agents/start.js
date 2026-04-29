@@ -10,7 +10,6 @@ const { resolveAgent } = require('./registry');
 const {
   createAgentSession,
   listAgentSessions,
-  sessionFilePath,
   updateAgentSession,
 } = require('./sessions');
 
@@ -157,7 +156,7 @@ function writeAgentSession(repoRoot, options, metadata, status, extra = {}) {
 }
 
 function writeClaimFailedSession(repoRoot, options, metadata, claimResult) {
-  const session = writeAgentSession(repoRoot, options, metadata, 'claim-failed', {
+  return writeAgentSession(repoRoot, options, metadata, 'claim-failed', {
     claimFailure: {
       claims: options.claims,
       exitCode: typeof claimResult.status === 'number' ? claimResult.status : 1,
@@ -165,7 +164,11 @@ function writeClaimFailedSession(repoRoot, options, metadata, claimResult) {
       stdout: String(claimResult.stdout || '').trim(),
     },
   });
-  return session ? sessionFilePath(repoRoot, session.id) : '';
+}
+
+function appendSessionId(stdout, session) {
+  if (!session?.id) return stdout;
+  return `${stdout}[${TOOL_NAME}] Agent session id: ${session.id}\n`;
 }
 
 function buildBranchStartArgs(options) {
@@ -176,14 +179,14 @@ function buildBranchStartArgs(options) {
   return args;
 }
 
-function buildRecoveryLines(metadata, claims, sessionPath) {
+function buildRecoveryLines(metadata, claims, session) {
   const quotedClaims = claims.map((claim) => JSON.stringify(claim)).join(' ');
   const lines = [
     `[${TOOL_NAME}] Claim failed after branch/worktree creation.`,
     `[${TOOL_NAME}] Session status: claim-failed`,
   ];
-  if (sessionPath) {
-    lines.push(`[${TOOL_NAME}] Session record: ${sessionPath}`);
+  if (session?.id) {
+    lines.push(`[${TOOL_NAME}] Agent session id: ${session.id}`);
   }
   if (metadata.worktreePath) {
     lines.push(`[${TOOL_NAME}] Recovery: cd ${JSON.stringify(metadata.worktreePath)}`);
@@ -215,8 +218,9 @@ function startAgentLane(repoRoot, options) {
   }
 
   const metadata = extractAgentBranchStartMetadata(stdout);
+  const session = writeAgentSession(repoRoot, options, metadata, 'active');
+  stdout = appendSessionId(stdout, session);
   if (options.claims.length === 0) {
-    writeAgentSession(repoRoot, options, metadata, 'active');
     return { status: 0, stdout, stderr };
   }
 
@@ -236,15 +240,14 @@ function startAgentLane(repoRoot, options) {
   stdout += String(claimResult.stdout || '');
   stderr += String(claimResult.stderr || '');
   if (!isSpawnFailure(claimResult) && claimResult.status === 0) {
-    writeAgentSession(repoRoot, options, metadata, 'active');
     return { status: 0, stdout, stderr };
   }
 
   if (isSpawnFailure(claimResult)) {
     stderr += `${claimResult.error.message}\n`;
   }
-  const sessionPath = writeClaimFailedSession(repoRoot, options, metadata, claimResult);
-  stdout += buildRecoveryLines(metadata, options.claims, sessionPath);
+  const failedSession = writeClaimFailedSession(repoRoot, options, metadata, claimResult);
+  stdout += buildRecoveryLines(metadata, options.claims, failedSession);
   return {
     status: typeof claimResult.status === 'number' ? claimResult.status : 1,
     stdout,

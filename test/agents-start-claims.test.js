@@ -99,6 +99,7 @@ defineSpawnSuite('agents start claim suite', () => {
     assert.notEqual(result.status, 0, 'claim failure should fail the command');
     assert.match(result.stderr, /Path is outside repository/);
     assert.match(result.stdout, /Session status: claim-failed/);
+    assert.match(result.stdout, /Agent session id: /);
     assert.match(result.stdout, /Recovery: cd /);
     assert.match(result.stdout, /Recovery: gx locks claim --branch /);
 
