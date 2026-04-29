@@ -645,11 +645,11 @@ Trailing project notes after managed block.
   );
   assert.match(
     nextAgents,
-    /Never implement directly on the local\/base branch checkout; keep it unchanged and perform all edits in the agent sub-branch\/worktree\./,
+    /Never implement directly on the local\/base branch checkout\. Keep it unchanged and perform all edits in the agent sub-branch\/worktree\./,
   );
-  assert.match(nextAgents, /Small tasks stay in direct caveman-only mode\./);
-  assert.match(nextAgents, /Promote to OMX orchestration only when the task is medium\/large/);
-  assert.match(nextAgents, /explicit final completion\/cleanup section/);
+  assert.match(nextAgents, /Small tasks stay direct and caveman-only\./);
+  assert.match(nextAgents, /Promote to full Guardex \/ OMX orchestration only when scope grows into:/);
+  assert.match(nextAgents, /final completion\/cleanup section/);
   assert.match(nextAgents, /PR URL \+ final `MERGED` evidence/);
   assert.doesNotMatch(nextAgents, /legacy managed clause/);
 });

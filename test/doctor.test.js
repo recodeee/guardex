@@ -116,9 +116,9 @@ Trailing project notes after managed block.
   assert.match(currentAgents, /Guardex is enabled by default/);
   assert.match(currentAgents, /GUARDEX_ON=0/);
   assert.match(currentAgents, /GUARDEX_ON=1/);
-  assert.match(currentAgents, /Small tasks stay in direct caveman-only mode\./);
-  assert.match(currentAgents, /Promote to OMX orchestration only when the task is medium\/large/);
-  assert.match(currentAgents, /explicit final completion\/cleanup section/);
+  assert.match(currentAgents, /Small tasks stay direct and caveman-only\./);
+  assert.match(currentAgents, /Promote to full Guardex \/ OMX orchestration only when scope grows into:/);
+  assert.match(currentAgents, /final completion\/cleanup section/);
   assert.match(currentAgents, /PR URL \+ final `MERGED` evidence/);
   assert.doesNotMatch(currentAgents, /legacy managed clause/);
   assert.match(result.stdout, /refreshed gitguardex-managed block/);

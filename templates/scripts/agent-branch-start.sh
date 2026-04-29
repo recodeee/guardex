@@ -419,7 +419,7 @@ meaningful_slug_tokens() {
     | awk '
       length($0) < 4 { next }
       $0 ~ /^[0-9]+$/ { next }
-      $0 ~ /^(agent|agents|branch|codex|claude|continue|dirty|existing|fix|from|implement|make|matching|reuse|start|task|that|this|update|with|worktree|worktrees)$/ { next }
+      $0 ~ /^(agent|agents|branch|codex|claude|continue|dirty|existing|fix|from|implement|make|matching|openspec|reuse|start|task|that|this|update|with|worktree|worktrees)$/ { next }
       !seen[$0]++ { print }
     '
 }
