@@ -36,13 +36,14 @@ function withMockedDetection({ registry, run }, fn) {
   }
 }
 
-test('detectAgent reports an available registered agent without launching it', () => {
+test('detectAgent uses getAgentDefinition for codex registry entries', () => {
   const calls = [];
   const registry = {
-    agents: [
-      { id: 'codex', label: 'Codex', detectCommand: ['codex', '--version'] },
-      { id: 'claude', label: 'Claude', detectCommand: ['claude', '--version'] },
-    ],
+    getAgentDefinition: (agentId) => (
+      agentId === 'codex'
+        ? { id: 'codex', label: 'Codex', detectCommand: ['codex', '--version'] }
+        : null
+    ),
   };
 
   withMockedDetection(
@@ -69,11 +70,41 @@ test('detectAgent reports an available registered agent without launching it', (
   ]);
 });
 
+test('detectAgent uses resolveAgent for claude registry entries', () => {
+  const registry = {
+    getAgentDefinition: () => null,
+    resolveAgent: (agentId) => {
+      if (agentId === 'claude') {
+        return { id: 'claude', label: 'Claude Code', detectCommand: 'claude --version' };
+      }
+      throw new Error(`Unknown agent id: ${agentId}`);
+    },
+  };
+
+  withMockedDetection(
+    {
+      registry,
+      run: () => ({ status: 0, stdout: 'claude 1.2.3\n', stderr: '' }),
+    },
+    ({ detectAgent }) => {
+      assert.deepEqual(detectAgent('claude'), {
+        id: 'claude',
+        label: 'Claude Code',
+        available: true,
+        command: 'claude --version',
+        error: null,
+      });
+    },
+  );
+});
+
 test('detectAgent reports command failures as unavailable with error text', () => {
   const registry = {
-    agents: [
-      { id: 'claude', label: 'Claude', detectCommand: { command: 'claude', args: ['--version'] } },
-    ],
+    getAgentDefinition: (agentId) => (
+      agentId === 'claude'
+        ? { id: 'claude', label: 'Claude', detectCommand: { command: 'claude', args: ['--version'] } }
+        : null
+    ),
   };
 
   withMockedDetection(
@@ -93,20 +124,24 @@ test('detectAgent reports command failures as unavailable with error text', () =
   );
 });
 
-test('detectAgents preserves requested order and supports registry maps', () => {
+test('detectAgents with no args returns all registry agents', () => {
   const registry = {
-    codex: { label: 'Codex', detectCommand: 'codex --version' },
-    gemini: { label: 'Gemini', detectCommand: ['gemini', '--version'] },
+    AGENT_IDS: ['codex', 'claude', 'gemini'],
+    getAgentDefinition: (agentId) => ({
+      codex: { id: 'codex', label: 'Codex', detectCommand: 'codex --version' },
+      claude: { id: 'claude', label: 'Claude', detectCommand: 'claude --version' },
+      gemini: { id: 'gemini', label: 'Gemini', detectCommand: 'gemini --version' },
+    }[agentId]),
   };
 
   withMockedDetection(
     {
       registry,
-      run: (cmd) => ({ status: cmd === 'gemini' ? 1 : 0, stdout: '', stderr: '' }),
+      run: () => ({ status: 0, stdout: '', stderr: '' }),
     },
     ({ detectAgents }) => {
-      assert.deepEqual(detectAgents(['gemini', 'codex']).map((agent) => agent.id), ['gemini', 'codex']);
-      assert.deepEqual(detectAgents(['gemini', 'codex']).map((agent) => agent.available), [false, true]);
+      assert.deepEqual(detectAgents().map((agent) => agent.id), ['codex', 'claude', 'gemini']);
+      assert.deepEqual(detectAgents().map((agent) => agent.available), [true, true, true]);
     },
   );
 });
@@ -144,7 +179,13 @@ test('detectAgent reports unknown agents without running commands', () => {
 
   withMockedDetection(
     {
-      registry: { agents: [] },
+      registry: {
+        AGENT_IDS: ['codex', 'claude'],
+        getAgentDefinition: () => null,
+        resolveAgent: () => {
+          throw new Error('unknown');
+        },
+      },
       run: () => {
         callCount += 1;
         return { status: 0, stdout: '', stderr: '' };
@@ -156,10 +197,30 @@ test('detectAgent reports unknown agents without running commands', () => {
         label: 'ghost',
         available: false,
         command: null,
-        error: 'unknown agent: ghost',
+        error: 'unknown agent: ghost (known agents: codex, claude)',
       });
     },
   );
 
   assert.equal(callCount, 0);
+});
+
+test('detectAgent reports successful mocked commands as available', () => {
+  const registry = {
+    getAgentDefinition: (agentId) => (
+      agentId === 'codex'
+        ? { id: 'codex', label: 'Codex', detectCommand: 'codex --version' }
+        : null
+    ),
+  };
+
+  withMockedDetection(
+    {
+      registry,
+      run: () => ({ status: 0, stdout: 'codex 1.2.3\n', stderr: '' }),
+    },
+    ({ detectAgent }) => {
+      assert.equal(detectAgent('codex').available, true);
+    },
+  );
 });

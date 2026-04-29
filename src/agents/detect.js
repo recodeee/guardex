@@ -2,6 +2,19 @@ const registry = require('./registry');
 const { run } = require('../core/runtime');
 
 function registryEntries() {
+  if (typeof registry.getAgentDefinitions === 'function') {
+    const definitions = registry.getAgentDefinitions();
+    if (Array.isArray(definitions)) {
+      return definitions;
+    }
+  }
+
+  if (Array.isArray(registry.AGENT_IDS) && typeof registry.getAgentDefinition === 'function') {
+    return registry.AGENT_IDS
+      .map((agentId) => registry.getAgentDefinition(agentId))
+      .filter((entry) => entry && typeof entry === 'object');
+  }
+
   const source =
     registry.agents ||
     registry.AGENTS ||
@@ -24,12 +37,41 @@ function registryEntries() {
 }
 
 function findAgent(agentId) {
+  if (typeof registry.getAgentDefinition === 'function') {
+    const entry = registry.getAgentDefinition(agentId);
+    if (entry) return entry;
+  }
+
+  if (typeof registry.resolveAgent === 'function') {
+    try {
+      const entry = registry.resolveAgent(agentId);
+      if (entry) return entry;
+    } catch (_error) {
+      return null;
+    }
+  }
+
   if (typeof registry.getAgent === 'function') {
     const entry = registry.getAgent(agentId);
     if (entry) return entry;
   }
 
   return registryEntries().find((entry) => entry.id === agentId);
+}
+
+function registryAgentIds() {
+  if (Array.isArray(registry.AGENT_IDS)) {
+    return [...registry.AGENT_IDS];
+  }
+
+  if (typeof registry.getAgentDefinitions === 'function') {
+    const definitions = registry.getAgentDefinitions();
+    if (Array.isArray(definitions)) {
+      return definitions.map((entry) => entry && entry.id).filter(Boolean);
+    }
+  }
+
+  return registryEntries().map((entry) => entry.id).filter(Boolean);
 }
 
 function normalizeDetectCommand(detectCommand) {
@@ -84,7 +126,9 @@ function detectionResult(entry, available, command, error = null) {
 function detectAgent(agentId) {
   const entry = findAgent(agentId);
   if (!entry) {
-    return detectionResult({ id: agentId, label: agentId }, false, null, `unknown agent: ${agentId}`);
+    const known = registryAgentIds();
+    const suffix = known.length > 0 ? ` (known agents: ${known.join(', ')})` : '';
+    return detectionResult({ id: agentId, label: agentId }, false, null, `unknown agent: ${agentId}${suffix}`);
   }
 
   const { cmd, args, command } = normalizeDetectCommand(entry.detectCommand);
@@ -101,7 +145,7 @@ function detectAgent(agentId) {
 }
 
 function detectAgents(agentIds) {
-  const ids = Array.isArray(agentIds) ? agentIds : registryEntries().map((entry) => entry.id);
+  const ids = Array.isArray(agentIds) ? agentIds : registryAgentIds();
   return ids.map((agentId) => detectAgent(agentId));
 }
 
