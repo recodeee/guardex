@@ -25,10 +25,11 @@ Package summary ([about_description.txt](./about_description.txt)): Guardian T-R
   <a href="#01--install-in-one-line">Install</a> ·
   <a href="#03--what-it-does">What it does</a> ·
   <a href="#04--daily-workflow">Workflow</a> ·
-  <a href="#05--what-gx-shows-first">gx status</a> ·
-  <a href="#07--commands">Commands</a> ·
-  <a href="#08--v6--v7-migration">Migration</a> ·
-  <a href="#10--companion-tools">Companions</a>
+  <a href="#05--dmux-style-multi-agent-cockpit">Cockpit</a> ·
+  <a href="#06--what-gx-shows-first">gx status</a> ·
+  <a href="#08--commands">Commands</a> ·
+  <a href="#09--v6--v7-migration">Migration</a> ·
+  <a href="#11--companion-tools">Companions</a>
 </p>
 
 ---
@@ -136,7 +137,29 @@ gx branch finish --branch "$(git rev-parse --abbrev-ref HEAD)" \
 
 ---
 
-## `05` &nbsp;What `gx` shows first
+## `05` &nbsp;dmux-style multi-agent cockpit
+
+GitGuardex now has a dmux-style cockpit for starting, inspecting, and
+finishing isolated agent lanes from one terminal workspace. It is not a
+dmux clone: GitGuardex keeps safety as the core and adds orchestration
+on top of isolated worktrees, file locks, protected base branches, and
+PR-only finish.
+
+```bash
+gx cockpit
+gx agents start "fix auth tests" --agent codex --base main --claim test/auth.test.js
+gx agents start "update setup docs" --agent claude --base main --claim README.md
+gx agents status
+gx agents files --branch agent/codex/fix-auth-tests-2026-04-29-21-30
+gx agents diff --branch agent/claude/update-setup-docs-2026-04-29-21-31
+gx agents finish --branch agent/codex/fix-auth-tests-2026-04-29-21-30
+```
+
+Long-form guide: [docs/agents-cockpit.md](./docs/agents-cockpit.md).
+
+---
+
+## `06` &nbsp;What `gx` shows first
 
 Before you branch, repair, or start agents, run plain `gx`. It gives you
 a one-screen status for the CLI, global helpers, repo safety service,
@@ -171,7 +194,7 @@ the compact layout everywhere.
 
 ---
 
-## `06` &nbsp;How `AGENTS.md` is handled
+## `07` &nbsp;How `AGENTS.md` is handled
 
 > [!IMPORTANT]
 > **GitGuardex never overwrites your guidance.** Only content between
@@ -188,7 +211,7 @@ the compact layout everywhere.
 
 ---
 
-## `07` &nbsp;Commands
+## `08` &nbsp;Commands
 
 ### Core
 
@@ -210,6 +233,18 @@ the compact layout everywhere.
 | `gx sync` | Sync current agent branch against base. |
 | `gx release` | Update the GitHub release from README notes. |
 
+### Multi-agent cockpit
+
+| command | does |
+| --- | --- |
+| `gx cockpit` | Create or attach to a repo tmux cockpit session with a status pane. |
+| `gx agents start "<task>" --agent codex` | Start an isolated Codex lane for a task. |
+| `gx agents start "<task>" --agent claude` | Start an isolated Claude Code lane for a task. |
+| `gx agents status` | Show repo agent service status. |
+| `gx agents files --branch <agent/...>` | List files changed by one agent lane. |
+| `gx agents diff --branch <agent/...>` | Show the diff for one agent lane. |
+| `gx agents finish --branch <agent/...>` | Finish one agent session through the existing PR flow. |
+
 ```bash
 gx release  # create/update the current GitHub release from README notes
 ```
@@ -228,7 +263,7 @@ gx protect reset   # back to: dev · main · master
 
 ---
 
-## `08` &nbsp;v6 → v7 migration
+## `09` &nbsp;v6 → v7 migration
 
 Five commands were consolidated into flags. Old names still work and
 print a deprecation notice; they'll be removed in v8.
@@ -246,7 +281,7 @@ print a deprecation notice; they'll be removed in v8.
 
 ---
 
-## `09` &nbsp;Known rough edges
+## `10` &nbsp;Known rough edges
 
 Being honest about where this still has issues:
 
@@ -317,7 +352,7 @@ Being honest about where this still has issues:
 
 ---
 
-## `10` &nbsp;Companion tools
+## `11` &nbsp;Companion tools
 
 All optional — but if you're running many agents, you probably want them.
 `gx status` auto-detects each one and reports it in the `Global services`
