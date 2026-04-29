@@ -271,6 +271,7 @@ function parseAgentsArgs(rawArgs) {
     task: '',
     agent: '',
     base: '',
+    claims: [],
     dryRun: false,
     reviewIntervalSeconds: 30,
     cleanupIntervalSeconds: 60,
@@ -354,6 +355,15 @@ function parseAgentsArgs(rawArgs) {
       options.dryRun = true;
       continue;
     }
+    if (arg === '--claim') {
+      const next = rest[index + 1];
+      if (!next || next.startsWith('-')) {
+        throw new Error('--claim requires a file path');
+      }
+      options.claims.push(next);
+      index += 1;
+      continue;
+    }
     if (!arg.startsWith('-') && options.subcommand === 'start' && !options.task) {
       options.task = arg;
       continue;
@@ -367,14 +377,14 @@ function parseAgentsArgs(rawArgs) {
   if (options.pid !== null && options.subcommand !== 'stop') {
     throw new Error('--pid is only supported with `gx agents stop`');
   }
-  if ((options.task || options.agent || options.base || options.dryRun) && options.subcommand !== 'start') {
-    throw new Error('--task, --agent, --base, and --dry-run are only supported with `gx agents start`');
-  }
-  if (options.task && !options.dryRun) {
-    throw new Error('gx agents start <task> is currently supported only with --dry-run');
+  if ((options.task || options.agent || options.base || options.dryRun || options.claims.length > 0) && options.subcommand !== 'start') {
+    throw new Error('--task, --agent, --base, --dry-run, and --claim are only supported with `gx agents start`');
   }
   if (options.dryRun && !options.task) {
     throw new Error('gx agents start --dry-run requires a task');
+  }
+  if (options.claims.length > 0 && !options.task) {
+    throw new Error('gx agents start --claim requires a task');
   }
 
   return options;

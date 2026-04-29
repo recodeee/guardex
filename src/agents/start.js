@@ -1,7 +1,15 @@
-const { path } = require('../context');
+const {
+  fs,
+  path,
+  TOOL_NAME,
+  SHORT_TOOL_NAME,
+} = require('../context');
+const { runPackageAsset } = require('../core/runtime');
 const { currentBranchName } = require('../git');
 const { buildAgentLaunchCommand } = require('./launch');
 const { resolveAgent } = require('./registry');
+
+const ACTIVE_SESSIONS_RELATIVE_DIR = path.join('.omx', 'state', 'active-sessions');
 
 function sanitizeSlug(value, fallback = 'task') {
   const slug = String(value || '')
@@ -86,9 +94,154 @@ function dryRunStart(options, repoRoot) {
   return renderDryRunPlan(buildStartPlan(options, repoRoot));
 }
 
+function isSpawnFailure(result) {
+  return Boolean(result?.error) && typeof result?.status !== 'number';
+}
+
+function extractAgentBranchStartMetadata(output) {
+  const outputText = String(output || '');
+  const branchMatch = outputText.match(/^\[agent-branch-start\] (?:Created branch|Reusing existing branch): (.+)$/m);
+  const worktreeMatch = outputText.match(/^\[agent-branch-start\] Worktree: (.+)$/m);
+  return {
+    branch: branchMatch ? branchMatch[1].trim() : '',
+    worktreePath: worktreeMatch ? worktreeMatch[1].trim() : '',
+  };
+}
+
+function sanitizeBranchForFile(branch) {
+  return String(branch || 'session')
+    .replace(/[^a-zA-Z0-9._-]+/g, '__')
+    .replace(/^_+|_+$/g, '') || 'session';
+}
+
+function sessionFilePathForBranch(repoRoot, branch) {
+  return path.join(
+    path.resolve(repoRoot),
+    ACTIVE_SESSIONS_RELATIVE_DIR,
+    `${sanitizeBranchForFile(branch)}.json`,
+  );
+}
+
+function writeClaimFailedSession(repoRoot, options, metadata, claimResult) {
+  if (!metadata.branch || !metadata.worktreePath) {
+    return '';
+  }
+  const targetPath = sessionFilePathForBranch(repoRoot, metadata.branch);
+  const now = new Date().toISOString();
+  const record = {
+    schemaVersion: 1,
+    repoRoot: path.resolve(repoRoot),
+    branch: metadata.branch,
+    taskName: options.task,
+    agentName: options.agent || 'codex',
+    worktreePath: path.resolve(metadata.worktreePath),
+    pid: process.pid,
+    cliName: SHORT_TOOL_NAME,
+    startedAt: now,
+    lastHeartbeatAt: now,
+    state: 'claim-failed',
+    claimFailure: {
+      claims: options.claims,
+      exitCode: typeof claimResult.status === 'number' ? claimResult.status : 1,
+      stderr: String(claimResult.stderr || '').trim(),
+      stdout: String(claimResult.stdout || '').trim(),
+    },
+  };
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+  fs.writeFileSync(targetPath, `${JSON.stringify(record, null, 2)}\n`, 'utf8');
+  return targetPath;
+}
+
+function buildBranchStartArgs(options) {
+  const args = ['--task', options.task, '--agent', options.agent || 'codex'];
+  if (options.base) {
+    args.push('--base', options.base);
+  }
+  return args;
+}
+
+function buildRecoveryLines(metadata, claims, sessionPath) {
+  const quotedClaims = claims.map((claim) => JSON.stringify(claim)).join(' ');
+  const lines = [
+    `[${TOOL_NAME}] Claim failed after branch/worktree creation.`,
+    `[${TOOL_NAME}] Session status: claim-failed`,
+  ];
+  if (sessionPath) {
+    lines.push(`[${TOOL_NAME}] Session record: ${sessionPath}`);
+  }
+  if (metadata.worktreePath) {
+    lines.push(`[${TOOL_NAME}] Recovery: cd ${JSON.stringify(metadata.worktreePath)}`);
+  }
+  if (metadata.branch) {
+    lines.push(`[${TOOL_NAME}] Recovery: ${SHORT_TOOL_NAME} locks claim --branch ${JSON.stringify(metadata.branch)} ${quotedClaims}`);
+  }
+  lines.push(`[${TOOL_NAME}] Recovery: resolve the lock conflict or invalid path, then rerun the claim command above.`);
+  return `${lines.join('\n')}\n`;
+}
+
+function startAgentLane(repoRoot, options) {
+  const startResult = runPackageAsset('branchStart', buildBranchStartArgs(options), { cwd: repoRoot });
+  let stdout = String(startResult.stdout || '');
+  let stderr = String(startResult.stderr || '');
+  if (isSpawnFailure(startResult)) {
+    return {
+      status: 1,
+      stdout,
+      stderr: `${stderr}${startResult.error.message}\n`,
+    };
+  }
+  if (startResult.status !== 0) {
+    return {
+      status: typeof startResult.status === 'number' ? startResult.status : 1,
+      stdout,
+      stderr,
+    };
+  }
+
+  const metadata = extractAgentBranchStartMetadata(stdout);
+  if (options.claims.length === 0) {
+    return { status: 0, stdout, stderr };
+  }
+
+  if (!metadata.branch || !metadata.worktreePath) {
+    return {
+      status: 1,
+      stdout,
+      stderr: `${stderr}[${TOOL_NAME}] Unable to claim files: branch start output did not include branch/worktree metadata.\n`,
+    };
+  }
+
+  const claimResult = runPackageAsset(
+    'lockTool',
+    ['claim', '--branch', metadata.branch, ...options.claims],
+    { cwd: metadata.worktreePath },
+  );
+  stdout += String(claimResult.stdout || '');
+  stderr += String(claimResult.stderr || '');
+  if (!isSpawnFailure(claimResult) && claimResult.status === 0) {
+    return { status: 0, stdout, stderr };
+  }
+
+  if (isSpawnFailure(claimResult)) {
+    stderr += `${claimResult.error.message}\n`;
+  }
+  const sessionPath = writeClaimFailedSession(repoRoot, options, metadata, claimResult);
+  stdout += buildRecoveryLines(metadata, options.claims, sessionPath);
+  return {
+    status: typeof claimResult.status === 'number' ? claimResult.status : 1,
+    stdout,
+    stderr,
+  };
+}
+
 module.exports = {
+  buildBranchStartArgs,
   buildStartPlan,
+  buildRecoveryLines,
   dryRunStart,
+  extractAgentBranchStartMetadata,
   renderDryRunPlan,
   sanitizeSlug,
+  sessionFilePathForBranch,
+  startAgentLane,
 };

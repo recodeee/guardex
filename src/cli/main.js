@@ -2653,6 +2653,13 @@ function agents(rawArgs) {
       process.exitCode = 0;
       return;
     }
+    if (options.task) {
+      const result = agentsStart.startAgentLane(repoRoot, options);
+      if (result.stdout) process.stdout.write(result.stdout);
+      if (result.stderr) process.stderr.write(result.stderr);
+      process.exitCode = result.status;
+      return;
+    }
 
     const existingState = readAgentsState(repoRoot);
     const existingReviewPid = Number.parseInt(String(existingState?.review?.pid || ''), 10);
