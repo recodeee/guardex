@@ -277,10 +277,57 @@ function parseAgentsArgs(rawArgs) {
     cleanupIntervalSeconds: 60,
     idleMinutes: DEFAULT_SHADOW_CLEANUP_IDLE_MINUTES,
     pid: null,
+    branch: '',
+    json: false,
+    sessionId: '',
+    finishArgs: [],
   };
 
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index];
+    if (subcommand === 'finish') {
+      if (arg === '--session') {
+        const next = rest[index + 1];
+        if (!next) {
+          throw new Error('--session requires an agent session id');
+        }
+        options.sessionId = next;
+        index += 1;
+        continue;
+      }
+      if (arg === '--branch') {
+        const next = rest[index + 1];
+        if (!next) {
+          throw new Error('--branch requires an agent branch name');
+        }
+        options.branch = next;
+        index += 1;
+        continue;
+      }
+      options.finishArgs.push(arg);
+      if (
+        ['--base', '--commit-message', '--mode'].includes(arg) &&
+        rest[index + 1] &&
+        !rest[index + 1].startsWith('-')
+      ) {
+        options.finishArgs.push(rest[index + 1]);
+        index += 1;
+      }
+      continue;
+    }
+    if (arg === '--branch') {
+      const next = rest[index + 1];
+      if (!next) {
+        throw new Error('--branch requires an agent branch name');
+      }
+      options.branch = next;
+      index += 1;
+      continue;
+    }
+    if (arg === '--json') {
+      options.json = true;
+      continue;
+    }
     if (arg === '--review-interval') {
       const next = rest[index + 1];
       if (!next) {
@@ -371,7 +418,7 @@ function parseAgentsArgs(rawArgs) {
     throw new Error(`Unknown option: ${arg}`);
   }
 
-  if (!['start', 'stop', 'status'].includes(options.subcommand)) {
+  if (!['start', 'stop', 'status', 'files', 'diff', 'locks', 'finish'].includes(options.subcommand)) {
     throw new Error(`Unknown agents subcommand: ${options.subcommand}`);
   }
   if (options.pid !== null && options.subcommand !== 'stop') {
@@ -385,6 +432,23 @@ function parseAgentsArgs(rawArgs) {
   }
   if (options.claims.length > 0 && !options.task) {
     throw new Error('gx agents start --claim requires a task');
+  }
+  if (['files', 'diff', 'locks'].includes(options.subcommand) && !options.branch) {
+    throw new Error('--branch requires an agent branch name');
+  }
+  if (options.subcommand === 'finish') {
+    if (!options.sessionId && !options.branch) {
+      throw new Error('agents finish requires --session <id> or --branch <agent/...>');
+    }
+    if (options.sessionId && options.branch) {
+      throw new Error('agents finish accepts only one of --session or --branch');
+    }
+  }
+  if (options.branch && !['files', 'diff', 'locks', 'finish'].includes(options.subcommand)) {
+    throw new Error('--branch is only supported with `gx agents files|diff|locks|finish`');
+  }
+  if (options.json && !['files', 'diff', 'locks'].includes(options.subcommand)) {
+    throw new Error('--json is only supported with `gx agents files|diff|locks`');
   }
 
   return options;

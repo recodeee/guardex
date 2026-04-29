@@ -5,6 +5,8 @@ const sandboxModule = require('../sandbox');
 const toolchainModule = require('../toolchain');
 const finishCommands = require('../finish');
 const doctorModule = require('../doctor');
+const agentInspect = require('../agents/inspect');
+const { finishAgentSession } = require('../agents/finish');
 const sessionSeverityReport = require('../report/session-severity');
 const cockpitModule = require('../cockpit');
 const agentsStart = require('../agents/start');
@@ -2644,8 +2646,20 @@ function spawnDetachedAgentProcess({ command, args, cwd, logPath }) {
 
 function agents(rawArgs) {
   const options = parseAgentsArgs(rawArgs);
+  if (['files', 'diff', 'locks'].includes(options.subcommand)) {
+    process.stdout.write(agentInspect.runInspectCommand(options));
+    process.exitCode = 0;
+    return;
+  }
+
   const repoRoot = resolveRepoRoot(options.target);
   const statePath = agentsStatePathForRepo(repoRoot);
+
+  if (options.subcommand === 'finish') {
+    finishAgentSession(repoRoot, options);
+    process.exitCode = 0;
+    return;
+  }
 
   if (options.subcommand === 'start') {
     if (options.dryRun) {
