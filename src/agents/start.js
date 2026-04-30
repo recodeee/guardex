@@ -511,7 +511,23 @@ function startSingleAgentLane(repoRoot, options, deps = {}) {
 function startAgentLane(repoRoot, options, deps = {}) {
   const launchOptions = buildLaunchOptions(options);
   if (launchOptions.length === 1) {
-    return startSingleAgentLane(repoRoot, launchOptions[0], deps);
+    const result = startSingleAgentLane(repoRoot, launchOptions[0], deps);
+    if (result.status !== 0 || !result.session || !options.panel) {
+      return result;
+    }
+
+    const terminalResult = launchAgentTerminal(repoRoot, [result.session], {
+      terminal: options.terminal,
+      runner: deps.terminalRunner,
+      kittyBin: deps.kittyBin,
+    });
+
+    return {
+      ...result,
+      stdout: `${String(result.stdout || '')}${String(terminalResult.stdout || '')}`,
+      stderr: `${String(result.stderr || '')}${String(terminalResult.stderr || '')}`,
+      terminal: terminalResult,
+    };
   }
 
   let stdout = renderAgentSelectionPanel({
