@@ -10,7 +10,7 @@ const {
   createPaneMenuState,
   normalizePaneMenuKey,
   renderPaneMenu,
-} = require('./pane-menu');
+} = require('./menu');
 
 const DEFAULT_REFRESH_MS = 2000;
 const DEFAULT_SETTINGS = {
@@ -35,7 +35,7 @@ const SETTINGS_FIELDS = [
 
 const MENU_ITEMS = PANE_MENU_ITEMS;
 const PANE_ACTION_IDS = new Set(PANE_MENU_ITEMS.map((item) => item.id));
-const DIRECT_DETAIL_PANE_KEYS = new Set(['x', 'b', 'f', 'h', 'P', 'a', 'A', 'r']);
+const DIRECT_DETAIL_PANE_KEYS = new Set(['v', 'h', 'x', 'p', 'r', 'c', 'o', 'a', 'b', 'f', 'T', 'A']);
 
 function text(value, fallback = '') {
   if (typeof value === 'string') return value.trim() || fallback;
@@ -449,6 +449,35 @@ function padAnsi(value, width) {
   return visible >= width ? raw : `${raw}${' '.repeat(width - visible)}`;
 }
 
+function visibleWidth(value) {
+  return stripAnsi(value).length;
+}
+
+function centerLine(value, width) {
+  const raw = String(value || '');
+  const left = Math.max(0, Math.floor((width - visibleWidth(raw)) / 2));
+  return `${' '.repeat(left)}${raw}`;
+}
+
+function overlayCenteredBox(baseLines, overlayText) {
+  const overlay = splitLines(overlayText);
+  const width = Math.max(
+    ...baseLines.map((line) => visibleWidth(line)),
+    ...overlay.map((line) => visibleWidth(line)),
+  );
+  const height = Math.max(baseLines.length, overlay.length + 2);
+  const lines = [...baseLines];
+
+  while (lines.length < height) lines.push('');
+
+  const top = Math.max(0, Math.floor((height - overlay.length) / 2));
+  for (let index = 0; index < overlay.length; index += 1) {
+    lines[top + index] = centerLine(overlay[index], width);
+  }
+
+  return lines;
+}
+
 function selectedField(state) {
   const current = normalizeControlState(state);
   return SETTINGS_FIELDS[current.settingsIndex] || SETTINGS_FIELDS[0];
@@ -480,7 +509,7 @@ function renderDetailsPanel(state) {
     lines.push(`locks: ${Number.isFinite(session.lockCount) ? session.lockCount : 0}`);
   }
 
-  lines.push('', 'keys: up/down select  m/Alt+Shift+M menu  x/b/f/h/P/a/A/r pane actions  s settings  q quit');
+  lines.push('', 'keys: up/down select  m/Alt+Shift+M menu  v/h/x/p/r/c/o/a/b/f/T/A pane actions  s settings  q quit');
   if (current.error) {
     lines.push('', `error: ${text(current.error)}`);
   }
@@ -513,7 +542,10 @@ function renderControlFrame(state) {
   const current = normalizeControlState(state);
   const width = number(current.settings.sidebarWidth, DEFAULT_SETTINGS.sidebarWidth);
   const sidebar = splitLines(renderSidebar(current, { width, noColor: true }));
-  const panel = splitLines(renderPanel(current));
+  const framePanelState = current.mode === 'menu'
+    ? normalizeControlState({ ...current, mode: 'details' })
+    : current;
+  const panel = splitLines(renderPanel(framePanelState));
   const leftWidth = Math.max(width, ...sidebar.map((line) => stripAnsi(line).length));
   const max = Math.max(sidebar.length, panel.length);
   const lines = [];
@@ -522,7 +554,11 @@ function renderControlFrame(state) {
     lines.push(`${padAnsi(sidebar[index] || '', leftWidth)}  ${panel[index] || ''}`.trimEnd());
   }
 
-  return `${lines.join('\n')}\n`;
+  const rendered = current.mode === 'menu'
+    ? overlayCenteredBox(lines, renderMenuPanel(current))
+    : lines;
+
+  return `${rendered.join('\n')}\n`;
 }
 
 function optionalSettingsModule() {

@@ -163,7 +163,7 @@ test('cockpit pane menu opens and selects a lane terminal action', () => {
   state = applyCockpitAction(state, { type: 'key', key: 'm' });
   assert.equal(state.mode, 'menu');
 
-  state = applyCockpitAction(state, { type: 'key', key: 'A' });
+  state = applyCockpitAction(state, { type: 'key', key: 'T' });
 
   assert.deepEqual(state.lastIntent, {
     type: 'add-terminal',
