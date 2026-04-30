@@ -148,6 +148,7 @@ PR-only finish.
 ```bash
 gx cockpit
 gx agents start "fix auth tests" --agent codex --base main --claim test/auth.test.js
+gx agents start "fix auth tests" --panel --codex-accounts 3 --base main
 gx agents start "update setup docs" --agent claude --base main --claim README.md
 gx agents status
 gx agents files --branch agent/codex/fix-auth-tests-2026-04-29-21-30

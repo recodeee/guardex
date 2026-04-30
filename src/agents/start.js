@@ -8,6 +8,11 @@ const { currentBranchName } = require('../git');
 const { buildAgentLaunchCommand } = require('./launch');
 const { resolveAgent } = require('./registry');
 const {
+  normalizeAgentSelections,
+  renderAgentSelectionPanel,
+  selectedAgentCount,
+} = require('./selection-panel');
+const {
   createAgentSession,
   listAgentSessions,
   updateAgentSession,
@@ -55,12 +60,13 @@ function worktreeLeaf(repoRoot, branchName) {
 }
 
 function buildStartPlan(options, repoRoot, env = process.env) {
-  const task = String(options.task || '').trim();
-  if (!task) {
+  const requestedTask = String(options.task || '').trim();
+  const branchTask = String(options.branchTask || requestedTask).trim();
+  if (!requestedTask || !branchTask) {
     throw new Error('gx agents start --dry-run requires a task');
   }
   const agent = resolveAgent(options.agent || 'codex');
-  const taskSlug = sanitizeSlug(task, 'task');
+  const taskSlug = sanitizeSlug(branchTask, 'task');
   const taskSlugMax = normalizePositiveInt(env.GUARDEX_BRANCH_TASK_SLUG_MAX, 40);
   const branchDescriptor = `${shortenSlug(taskSlug, taskSlugMax)}-${branchTimestamp(env)}`;
   const branchName = `agent/${agent.id}/${branchDescriptor}`;
@@ -68,20 +74,51 @@ function buildStartPlan(options, repoRoot, env = process.env) {
   const worktreePath = path.join(repoRoot, worktreeRoot, worktreeLeaf(repoRoot, branchName));
   const base = options.base || currentBranchName(repoRoot) || 'main';
   return {
-    task,
+    task: branchTask,
+    requestedTask,
     taskSlug,
     agent,
     base,
     branchName,
     worktreePath,
-    launchCommand: buildAgentLaunchCommand({ agentId: agent.id, prompt: task, worktreePath }),
+    launchCommand: buildAgentLaunchCommand({ agentId: agent.id, prompt: requestedTask, worktreePath }),
   };
+}
+
+function launchTaskLabel(task, agentId, index, count) {
+  if (count <= 1) return task;
+  return `${task} ${agentId} ${String(index).padStart(2, '0')}`;
+}
+
+function buildLaunchOptions(options) {
+  const selections = normalizeAgentSelections(options);
+  const total = selectedAgentCount(selections);
+  const launchOptions = [];
+  let launchIndex = 0;
+
+  for (const selection of selections) {
+    for (let index = 1; index <= selection.count; index += 1) {
+      launchIndex += 1;
+      launchOptions.push({
+        ...options,
+        agent: selection.agent.id,
+        branchTask: launchTaskLabel(options.task, selection.agent.id, index, selection.count),
+        launchIndex,
+        launchTotal: total,
+        agentAccountIndex: index,
+        agentAccountCount: selection.count,
+      });
+    }
+  }
+
+  return launchOptions;
 }
 
 function renderDryRunPlan(plan) {
   return [
     '[gitguardex] Agents start dry-run:',
     `  task: ${plan.task}`,
+    plan.requestedTask && plan.requestedTask !== plan.task ? `  prompt: ${plan.requestedTask}` : null,
     `  agent: ${plan.agent.id}`,
     `  base: ${plan.base}`,
     `  task slug: ${plan.taskSlug}`,
@@ -89,11 +126,25 @@ function renderDryRunPlan(plan) {
     `  worktree: ${plan.worktreePath}`,
     `  launch: ${plan.launchCommand}`,
     '[gitguardex] No branch, worktree, session metadata, or agent process was created.',
-  ].join('\n');
+  ].filter(Boolean).join('\n');
 }
 
 function dryRunStart(options, repoRoot) {
-  return renderDryRunPlan(buildStartPlan(options, repoRoot));
+  const launchOptions = buildLaunchOptions(options);
+  const plans = launchOptions.map((launchOption) => buildStartPlan(launchOption, repoRoot));
+  if (plans.length === 1 && !options.panel) {
+    return renderDryRunPlan(plans[0]);
+  }
+
+  return [
+    renderAgentSelectionPanel({
+      task: options.task,
+      base: options.base,
+      claims: options.claims,
+      selections: normalizeAgentSelections(options),
+    }).trimEnd(),
+    ...plans.map(renderDryRunPlan),
+  ].join('\n\n');
 }
 
 function isSpawnFailure(result) {
@@ -172,7 +223,7 @@ function appendSessionId(stdout, session) {
 }
 
 function buildBranchStartArgs(options) {
-  const args = ['--task', options.task, '--agent', options.agent || 'codex'];
+  const args = ['--task', options.branchTask || options.task, '--agent', options.agent || 'codex'];
   if (options.base) {
     args.push('--base', options.base);
   }
@@ -198,7 +249,7 @@ function buildRecoveryLines(metadata, claims, session) {
   return `${lines.join('\n')}\n`;
 }
 
-function startAgentLane(repoRoot, options, deps = {}) {
+function startSingleAgentLane(repoRoot, options, deps = {}) {
   const packageAssetRunner = deps.packageAssetRunner || runPackageAsset;
   const startResult = packageAssetRunner('branchStart', buildBranchStartArgs(options), { cwd: repoRoot });
   let stdout = String(startResult.stdout || '');
@@ -256,8 +307,43 @@ function startAgentLane(repoRoot, options, deps = {}) {
   };
 }
 
+function startAgentLane(repoRoot, options, deps = {}) {
+  const launchOptions = buildLaunchOptions(options);
+  if (launchOptions.length === 1) {
+    return startSingleAgentLane(repoRoot, launchOptions[0], deps);
+  }
+
+  let stdout = renderAgentSelectionPanel({
+    task: options.task,
+    base: options.base,
+    claims: options.claims,
+    selections: normalizeAgentSelections(options),
+  });
+  let stderr = '';
+
+  for (const launchOption of launchOptions) {
+    const result = startSingleAgentLane(repoRoot, launchOption, deps);
+    stdout += String(result.stdout || '');
+    stderr += String(result.stderr || '');
+    if (result.status !== 0) {
+      return {
+        status: result.status,
+        stdout,
+        stderr,
+      };
+    }
+  }
+
+  return {
+    status: 0,
+    stdout,
+    stderr,
+  };
+}
+
 module.exports = {
   buildBranchStartArgs,
+  buildLaunchOptions,
   buildStartPlan,
   buildRecoveryLines,
   dryRunStart,
@@ -265,6 +351,7 @@ module.exports = {
   agentSessionIdForBranch,
   renderDryRunPlan,
   sanitizeSlug,
+  startSingleAgentLane,
   writeAgentSession,
   startAgentLane,
 };

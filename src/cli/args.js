@@ -272,6 +272,9 @@ function parseAgentsArgs(rawArgs) {
     agent: '',
     base: '',
     claims: [],
+    count: 1,
+    agentSelectionSpecs: [],
+    panel: false,
     dryRun: false,
     reviewIntervalSeconds: 30,
     cleanupIntervalSeconds: 60,
@@ -403,6 +406,46 @@ function parseAgentsArgs(rawArgs) {
       index += 1;
       continue;
     }
+    if (arg === '--agents') {
+      const next = rest[index + 1];
+      if (!next || next.startsWith('-')) {
+        throw new Error('--agents requires a comma-separated agent list');
+      }
+      options.agentSelectionSpecs.push(next);
+      index += 1;
+      continue;
+    }
+    if (arg === '--count') {
+      const next = rest[index + 1];
+      if (!next || next.startsWith('-')) {
+        throw new Error('--count requires a positive integer');
+      }
+      const parsedValue = Number.parseInt(next, 10);
+      if (!Number.isInteger(parsedValue) || parsedValue < 1) {
+        throw new Error('--count requires a positive integer');
+      }
+      options.count = parsedValue;
+      index += 1;
+      continue;
+    }
+    if (arg === '--codex-count' || arg === '--codex-accounts') {
+      const next = rest[index + 1];
+      if (!next || next.startsWith('-')) {
+        throw new Error(`${arg} requires a positive integer`);
+      }
+      const parsedValue = Number.parseInt(next, 10);
+      if (!Number.isInteger(parsedValue) || parsedValue < 1) {
+        throw new Error(`${arg} requires a positive integer`);
+      }
+      options.agent = 'codex';
+      options.count = parsedValue;
+      index += 1;
+      continue;
+    }
+    if (arg === '--panel') {
+      options.panel = true;
+      continue;
+    }
     if (arg === '--base') {
       const next = rest[index + 1];
       if (!next || next.startsWith('-')) {
@@ -439,13 +482,26 @@ function parseAgentsArgs(rawArgs) {
     throw new Error('--pid is only supported with `gx agents stop`');
   }
   if ((options.task || options.agent || options.base || options.claims.length > 0) && options.subcommand !== 'start') {
-    throw new Error('--task, --agent, --base, and --claim are only supported with `gx agents start`');
+    throw new Error('--task, --agent, --agents, --count, --base, --claim, and --panel are only supported with `gx agents start`');
+  }
+  if (
+    (options.agentSelectionSpecs.length > 0 || options.count !== 1 || options.panel) &&
+    options.subcommand !== 'start'
+  ) {
+    throw new Error('--agents, --count, and --panel are only supported with `gx agents start`');
   }
   if (options.dryRun && !['start', 'cleanup-sessions'].includes(options.subcommand)) {
     throw new Error('--dry-run is only supported with `gx agents start|cleanup-sessions`');
   }
   if (options.subcommand === 'start' && options.dryRun && !options.task) {
     throw new Error('gx agents start --dry-run requires a task');
+  }
+  if (
+    options.subcommand === 'start' &&
+    !options.task &&
+    (options.agentSelectionSpecs.length > 0 || options.count !== 1 || options.panel)
+  ) {
+    throw new Error('gx agents start --agents|--count|--panel requires a task');
   }
   if (options.claims.length > 0 && !options.task) {
     throw new Error('gx agents start --claim requires a task');

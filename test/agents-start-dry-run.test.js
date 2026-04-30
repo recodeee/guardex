@@ -70,3 +70,32 @@ test('gx agents start dry-run supports claude worktree planning and rejects unkn
   assert.notEqual(invalidResult.status, 0);
   assert.match(invalidResult.stderr, /Unknown agent id: bogus/);
 });
+
+test('gx agents start dry-run renders a terminal panel for multiple codex accounts', () => {
+  const repoDir = initRepo();
+  seedCommit(repoDir);
+
+  const result = runNodeWithEnv(
+    ['agents', 'start', 'fix auth tests', '--agent', 'codex', '--count', '3', '--panel', '--base', 'main', '--dry-run'],
+    repoDir,
+    { GUARDEX_BRANCH_TIMESTAMP: '2026-04-29-21-32' },
+  );
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /Select Agent\(s\)/);
+  assert.match(result.stdout, /Selected: 3\/10/);
+  assert.match(result.stdout, /Codex cx x3/);
+  assert.match(result.stdout, /Codex accounts: 3/);
+  assert.match(result.stdout, /task: fix auth tests/);
+  assert.match(result.stdout, /branch: agent\/codex\/fix-auth-tests-codex-01-2026-04-29-21-32/);
+  assert.match(result.stdout, /branch: agent\/codex\/fix-auth-tests-codex-02-2026-04-29-21-32/);
+  assert.match(result.stdout, /branch: agent\/codex\/fix-auth-tests-codex-03-2026-04-29-21-32/);
+  assert.match(result.stdout, /prompt: fix auth tests/);
+
+  const branchCheck = runCmd(
+    'git',
+    ['show-ref', '--verify', '--quiet', 'refs/heads/agent/codex/fix-auth-tests-codex-01-2026-04-29-21-32'],
+    repoDir,
+  );
+  assert.notEqual(branchCheck.status, 0, 'dry-run must not create multi-account branches');
+});

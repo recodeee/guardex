@@ -214,3 +214,47 @@ test('agents start output includes canonical session id', () => {
 
   assert.match(result.stdout, /\[gitguardex\] Agent session id: agent__codex__fix-auth/);
 });
+
+test('agents start launches repeated codex accounts with unique branch tasks', () => {
+  const runCalls = [];
+  const created = [];
+  const branches = [
+    ['agent/codex/fix-auth-codex-01', '/repo/.omx/agent-worktrees/repo__codex__fix-auth-codex-01'],
+    ['agent/codex/fix-auth-codex-02', '/repo/.omx/agent-worktrees/repo__codex__fix-auth-codex-02'],
+  ];
+  const start = loadStartWithMocks({
+    runPackageAsset(assetKey, args, options) {
+      runCalls.push({ assetKey, args, options });
+      const branchIndex = runCalls.filter((call) => call.assetKey === 'branchStart').length - 1;
+      return { status: 0, stdout: branchStartOutput(branches[branchIndex][0], branches[branchIndex][1]), stderr: '' };
+    },
+    createAgentSession(repoRoot, payload) {
+      created.push({ repoRoot, payload });
+      return payload;
+    },
+    updateAgentSession() {
+      throw new Error('unexpected update');
+    },
+    currentBranchName: () => 'main',
+  });
+
+  const result = start.startAgentLane('/repo', {
+    task: 'fix auth',
+    agent: 'codex',
+    count: 2,
+    base: 'main',
+    claims: [],
+  });
+
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /Selected: 2\/10/);
+  assert.deepEqual(runCalls.map((call) => call.args), [
+    ['--task', 'fix auth codex 01', '--agent', 'codex', '--base', 'main'],
+    ['--task', 'fix auth codex 02', '--agent', 'codex', '--base', 'main'],
+  ]);
+  assert.deepEqual(created.map((entry) => entry.payload.task), ['fix auth', 'fix auth']);
+  assert.deepEqual(created.map((entry) => entry.payload.branch), [
+    'agent/codex/fix-auth-codex-01',
+    'agent/codex/fix-auth-codex-02',
+  ]);
+});

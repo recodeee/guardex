@@ -109,6 +109,9 @@ test('parseAgentsArgs applies interval overrides and validates the subcommand', 
     agent: '',
     base: '',
     claims: [],
+    count: 1,
+    agentSelectionSpecs: [],
+    panel: false,
     dryRun: false,
     reviewIntervalSeconds: 15,
     cleanupIntervalSeconds: 45,
@@ -151,6 +154,22 @@ test('parseAgentsArgs applies interval overrides and validates the subcommand', 
   assert.equal(claimOptions.agent, 'codex');
   assert.deepEqual(claimOptions.claims, ['src/auth.js', 'test/auth.test.js']);
   assert.equal(claimOptions.dryRun, false);
+
+  const panelOptions = parseAgentsArgs([
+    'start',
+    'fix auth tests',
+    '--panel',
+    '--codex-accounts',
+    '3',
+    '--agents',
+    'codex:2,claude',
+  ]);
+
+  assert.equal(panelOptions.task, 'fix auth tests');
+  assert.equal(panelOptions.panel, true);
+  assert.equal(panelOptions.agent, 'codex');
+  assert.equal(panelOptions.count, 3);
+  assert.deepEqual(panelOptions.agentSelectionSpecs, ['codex:2,claude']);
 });
 
 test('parseReportArgs accepts the session-severity flag set', () => {
