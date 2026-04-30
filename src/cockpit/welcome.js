@@ -1,20 +1,14 @@
 'use strict';
 
 const path = require('node:path');
+const { WELCOME_SHORTCUTS } = require('./shortcuts');
+const { colorize, getCockpitTheme } = require('./theme');
 
 const DEFAULT_WIDTH = 76;
 const MIN_WIDTH = 48;
 const MAX_WIDTH = 88;
 
 const DEFAULT_AGENTS = ['codex', 'claude', 'opencode', 'cursor', 'gemini'];
-const SHORTCUTS = [
-  ['n', 'new agent'],
-  ['t', 'terminal'],
-  ['s', 'settings'],
-  ['?', 'shortcuts'],
-  ['q', 'quit'],
-];
-
 const GUARD_MOTIF = [
   '      __',
   '     / _)',
@@ -213,43 +207,48 @@ function emptyLine(width) {
   return boxedLine('', width);
 }
 
+function themedBoxedLine(value, width, token, theme) {
+  return colorize(boxedLine(value, width), token, theme);
+}
+
 function renderWelcomePage(state = {}, settings = {}) {
   const width = boundedWidth(settings);
+  const theme = getCockpitTheme(settings.theme || state.theme, settings);
   const hooks = hooksStatus(state);
   const lines = [
-    divider(width),
-    boxedLine('gitguardex | gx cockpit', width),
-    boxedLine('Guardian cockpit ready. No active agent lanes.', width),
+    colorize(divider(width), 'border', theme),
+    themedBoxedLine('gitguardex | gx cockpit', width, 'title', theme),
+    themedBoxedLine('Guardian cockpit ready. No active agent lanes.', width, 'secondary', theme),
     emptyLine(width),
   ];
 
   GUARD_MOTIF.forEach((motifLine) => {
-    lines.push(boxedLine(motifLine, width));
+    lines.push(themedBoxedLine(motifLine, width, 'accent', theme));
   });
 
   lines.push(
     emptyLine(width),
-    boxedLine(row('Repo:', repoName(state, settings)), width),
-    boxedLine(row('Branch:', `${currentBranch(state)} (base ${baseBranch(state, settings)})`), width),
-    boxedLine(row('Safety:', safetyStatus(state)), width),
+    themedBoxedLine(row('Repo:', repoName(state, settings)), width, 'secondary', theme),
+    themedBoxedLine(row('Branch:', `${currentBranch(state)} (base ${baseBranch(state, settings)})`), width, 'secondary', theme),
+    themedBoxedLine(row('Safety:', safetyStatus(state)), width, 'success', theme),
   );
 
   if (hooks) {
-    lines.push(boxedLine(row('Hooks:', hooks), width));
+    lines.push(themedBoxedLine(row('Hooks:', hooks), width, 'secondary', theme));
   }
 
   lines.push(
-    boxedLine(row('Locks:', String(totalLockCount(state))), width),
-    boxedLine(row('Agents:', availableAgents(state, settings)), width),
+    themedBoxedLine(row('Locks:', String(totalLockCount(state))), width, 'accent', theme),
+    themedBoxedLine(row('Agents:', availableAgents(state, settings)), width, 'secondary', theme),
     emptyLine(width),
-    boxedLine('Shortcuts', width),
-    ...SHORTCUTS.map(([key, label]) => boxedLine(`  ${key} ${label}`, width)),
+    themedBoxedLine('Shortcuts', width, 'heading', theme),
+    ...WELCOME_SHORTCUTS.map(([key, label]) => themedBoxedLine(`  ${key} ${label}`, width, 'secondary', theme)),
     emptyLine(width),
-    boxedLine('Next actions', width),
-    boxedLine('  n new agent  - start a guarded agent lane', width),
-    boxedLine('  t terminal   - open a repo terminal', width),
-    boxedLine('  s settings   - tune cockpit defaults', width),
-    divider(width),
+    themedBoxedLine('Next actions', width, 'heading', theme),
+    themedBoxedLine('  n new agent  - start a guarded agent lane', width, 'secondary', theme),
+    themedBoxedLine('  t terminal   - open a repo terminal', width, 'secondary', theme),
+    themedBoxedLine('  s settings   - tune cockpit defaults', width, 'secondary', theme),
+    colorize(divider(width), 'border', theme),
   );
 
   return `${lines.join('\n')}\n`;

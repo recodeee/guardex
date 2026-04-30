@@ -1,6 +1,7 @@
 'use strict';
 
 const paneMenu = require('./pane-menu');
+const { colorize, getCockpitTheme, stripAnsi } = require('./theme');
 
 const {
   PANE_MENU_ACTIONS,
@@ -141,11 +142,44 @@ function applyPaneMenuKey(state = {}, rawKey) {
   return paneMenu.applyPaneMenuKey(createPaneMenuState(state), rawKey);
 }
 
+function themeMenuLine(line, state, theme) {
+  const plain = stripAnsi(line);
+  if (/^[┌├└+]/.test(plain)) {
+    return colorize(line, 'border', theme);
+  }
+  if (plain.includes('Menu:')) {
+    return colorize(line, 'title', theme);
+  }
+  if (plain.includes('status:')) {
+    return colorize(line, 'warning', theme);
+  }
+  if (plain.includes('Close')) {
+    return colorize(line, plain.includes('>') ? 'selected' : 'danger', theme);
+  }
+  if (plain.includes('>')) {
+    return colorize(line, 'selected', theme);
+  }
+  if (plain.includes(PANE_MENU_FOOTER)) {
+    return colorize(line, 'secondary', theme);
+  }
+  return line;
+}
+
+function applyMenuTheme(output, state, options) {
+  const theme = getCockpitTheme(options.theme || state.theme || (state.settings && state.settings.theme), options);
+  if (!theme.color) {
+    return output;
+  }
+  return `${String(output).replace(/\n$/, '').split('\n').map((line) => themeMenuLine(line, state, theme)).join('\n')}\n`;
+}
+
 function renderPaneMenu(state = {}, options = {}) {
   const selectedIndex = Number.isInteger(options.selectedIndex)
     ? options.selectedIndex
     : state.selectedIndex;
-  return paneMenu.renderPaneMenu(createPaneMenuState({ ...state, selectedIndex }), options).replace(/\u25b6/g, '>');
+  const current = createPaneMenuState({ ...state, selectedIndex });
+  const output = paneMenu.renderPaneMenu(current, options).replace(/\u25b6/g, '>');
+  return applyMenuTheme(output, current, options);
 }
 
 function buildLaneMenu(session, context = {}) {

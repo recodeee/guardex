@@ -1,4 +1,5 @@
 const path = require('node:path');
+const { colorize, getCockpitTheme } = require('./theme');
 
 const DEFAULT_WIDTH = 36;
 const MIN_WIDTH = 12;
@@ -21,16 +22,6 @@ const STATUS_STATES = new Map([
   ['stalled', 'stalled'],
   ['dead', 'stalled'],
 ]);
-
-const ANSI = {
-  reset: '\x1b[0m',
-  dim: '\x1b[2m',
-  green: '\x1b[32m',
-  red: '\x1b[31m',
-  yellow: '\x1b[33m',
-  cyan: '\x1b[36m',
-  inverse: '\x1b[7m',
-};
 
 const AGENT_LABELS = new Map([
   ['codex', 'cx'],
@@ -166,33 +157,20 @@ function isSelected(session, index, state = {}, options = {}) {
   return Number.isInteger(selectedIndex) && selectedIndex === index;
 }
 
-function colorEnabled(options = {}) {
-  const env = options.env && typeof options.env === 'object' ? options.env : process.env;
-  return options.color === true && !options.noColor && !env.NO_COLOR;
-}
-
-function colorize(value, color, options = {}) {
-  if (!colorEnabled(options)) {
-    return value;
-  }
-  const code = ANSI[color];
-  return code ? `${code}${value}${ANSI.reset}` : value;
-}
-
-function statusColor(status) {
+function statusToken(status) {
   if (status === 'active' || status === 'done') {
-    return 'green';
+    return 'success';
   }
   if (status === 'waiting') {
-    return 'yellow';
+    return 'warning';
   }
   if (status === 'blocked' || status === 'failed' || status === 'stalled' || status === 'missing') {
-    return 'red';
+    return status === 'stalled' ? 'warning' : 'danger';
   }
   if (status === 'hidden' || status === 'closed') {
-    return 'dim';
+    return 'secondary';
   }
-  return 'cyan';
+  return 'accent';
 }
 
 function laneName(session = {}) {
@@ -222,15 +200,17 @@ function fitRow(left, right, width) {
 }
 
 function renderShortcutRows(width, options) {
+  const theme = getCockpitTheme(options.theme, options);
   const rows = [
     '  [n]ew agent  [t]erminal',
     '  [s]ettings   [?] shortcuts',
   ];
-  return rows.map((row) => colorize(boundLine(row, width), 'dim', options));
+  return rows.map((row) => colorize(boundLine(row, width), 'secondary', theme));
 }
 
 function renderSessionRow(session, index, state, options) {
   const width = sidebarWidth(options);
+  const theme = getCockpitTheme(options.theme || state.theme || (state.settings && state.settings.theme), options);
   const selected = isSelected(session, index, state, options);
   const marker = selected ? '>' : ' ';
   const status = laneState(session);
@@ -238,19 +218,20 @@ function renderSessionRow(session, index, state, options) {
   const row = fitRow(`${marker} ${laneName(session)}`, ` ${badge}`, width);
 
   return selected
-    ? colorize(row, 'inverse', options)
-    : colorize(row, statusColor(status), options);
+    ? colorize(row, 'selected', theme)
+    : colorize(row, statusToken(status), theme);
 }
 
 function renderSidebar(state = {}, options = {}) {
   const width = sidebarWidth(options);
+  const theme = getCockpitTheme(options.theme || state.theme || (state.settings && state.settings.theme), options);
   const title = text(options.title || state.title, 'gx cockpit').toLowerCase() === 'gitguardex'
     ? 'gitguardex'
     : text(options.title || state.title, 'gx cockpit');
   const sessions = Array.isArray(state.sessions) ? state.sessions : [];
   const lines = [
-    colorize(boundLine(title, width), 'cyan', options),
-    colorize(boundLine(repoName(state, options), width), 'dim', options),
+    colorize(boundLine(title, width), 'title', theme),
+    colorize(boundLine(repoName(state, options), width), 'secondary', theme),
   ];
 
   if (sessions.length === 0) {

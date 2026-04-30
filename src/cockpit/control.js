@@ -3,6 +3,8 @@
 const { readCockpitState } = require('./state');
 const { renderSidebar } = require('./sidebar');
 const { renderSettingsScreen } = require('./settings-render');
+const { CONTROL_KEY_HELP } = require('./shortcuts');
+const { stripAnsi } = require('./theme');
 const { runCockpitAction } = require('./action-runner');
 const {
   PANE_MENU_ITEMS,
@@ -435,10 +437,6 @@ function applyCockpitAction(state, action = {}) {
   return current;
 }
 
-function stripAnsi(value) {
-  return String(value || '').replace(/\x1b\[[0-9;]*m/g, '');
-}
-
 function splitLines(value) {
   return String(value || '').replace(/\n$/, '').split('\n');
 }
@@ -509,7 +507,7 @@ function renderDetailsPanel(state) {
     lines.push(`locks: ${Number.isFinite(session.lockCount) ? session.lockCount : 0}`);
   }
 
-  lines.push('', 'keys: up/down select  m/Alt+Shift+M menu  v/h/x/p/r/c/o/a/b/f/T/A pane actions  s settings  q quit');
+  lines.push('', CONTROL_KEY_HELP);
   if (current.error) {
     lines.push('', `error: ${text(current.error)}`);
   }
@@ -521,13 +519,14 @@ function renderDetailsPanel(state) {
 
 function renderMenuPanel(state) {
   const current = normalizeControlState(state);
-  return renderPaneMenu(paneMenuStateFromControl(current), { width: 72 });
+  return renderPaneMenu(paneMenuStateFromControl(current), { width: 72, theme: current.settings.theme });
 }
 
 function renderSettingsPanel(state) {
   const current = normalizeControlState(state);
   return renderSettingsScreen(current.settings, {
     selectedField: selectedField(current),
+    theme: current.settings.theme,
   });
 }
 
@@ -541,7 +540,7 @@ function renderPanel(state) {
 function renderControlFrame(state) {
   const current = normalizeControlState(state);
   const width = number(current.settings.sidebarWidth, DEFAULT_SETTINGS.sidebarWidth);
-  const sidebar = splitLines(renderSidebar(current, { width, noColor: true }));
+  const sidebar = splitLines(renderSidebar(current, { width, theme: current.settings.theme }));
   const framePanelState = current.mode === 'menu'
     ? normalizeControlState({ ...current, mode: 'details' })
     : current;
