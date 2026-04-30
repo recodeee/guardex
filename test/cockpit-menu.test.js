@@ -34,9 +34,8 @@ test('buildLaneMenu returns the expected dmux-style pane actions', () => {
       'View',
       'Hide Pane',
       'Close',
-      'Merge',
+      'Merge / Finish',
       'Create GitHub PR',
-      'Project Focus',
       'Rename',
       'Copy Path',
       'Open in Editor',
@@ -45,7 +44,6 @@ test('buildLaneMenu returns the expected dmux-style pane actions', () => {
       'Browse Files',
       'Add Terminal to Worktree',
       'Add Agent to Worktree',
-      'Reopen Closed Worktree',
     ],
   );
   assert.deepEqual(enabledIds(menu), [
@@ -54,7 +52,6 @@ test('buildLaneMenu returns the expected dmux-style pane actions', () => {
     PANE_MENU_ACTION_IDS.CLOSE,
     PANE_MENU_ACTION_IDS.MERGE,
     PANE_MENU_ACTION_IDS.CREATE_PR,
-    PANE_MENU_ACTION_IDS.PROJECT_FOCUS,
     PANE_MENU_ACTION_IDS.RENAME,
     PANE_MENU_ACTION_IDS.COPY_PATH,
     PANE_MENU_ACTION_IDS.OPEN_EDITOR,
@@ -63,10 +60,12 @@ test('buildLaneMenu returns the expected dmux-style pane actions', () => {
     PANE_MENU_ACTION_IDS.BROWSE_FILES,
     PANE_MENU_ACTION_IDS.ADD_TERMINAL,
     PANE_MENU_ACTION_IDS.ADD_AGENT,
-    PANE_MENU_ACTION_IDS.REOPEN_CLOSED_WORKTREE,
   ]);
   assert.equal(itemById(menu, PANE_MENU_ACTION_IDS.CLOSE).danger, true);
-  assert.equal(itemById(menu, PANE_MENU_ACTION_IDS.PROJECT_FOCUS).shortcut, 'P');
+  assert.equal(itemById(menu, PANE_MENU_ACTION_IDS.VIEW).shortcut, 'v');
+  assert.equal(itemById(menu, PANE_MENU_ACTION_IDS.CREATE_PR).shortcut, 'p');
+  assert.equal(itemById(menu, PANE_MENU_ACTION_IDS.ADD_TERMINAL).shortcut, 'T');
+  assert.equal(itemById(menu, PANE_MENU_ACTION_IDS.ADD_AGENT).shortcut, 'A');
 });
 
 test('buildLaneMenu disables every lane action when no session is selected', () => {
@@ -92,9 +91,7 @@ test('buildLaneMenu disables worktree actions when the worktree is missing', () 
   assert.equal(itemById(menu, 'view').enabled, true);
   assert.equal(itemById(menu, 'hide-pane').enabled, true);
   assert.equal(itemById(menu, 'close').enabled, true);
-  assert.equal(itemById(menu, 'project-focus').enabled, true);
   assert.equal(itemById(menu, 'rename').enabled, true);
-  assert.equal(itemById(menu, 'reopen-closed-worktree').enabled, true);
 
   for (const id of ['merge', 'create-pr', 'copy-path', 'open-editor', 'toggle-autopilot', 'create-child-worktree', 'browse-files', 'add-terminal', 'add-agent']) {
     const item = itemById(menu, id);
@@ -113,12 +110,12 @@ test('buildLaneMenu disables branch actions when the branch is missing', () => {
 
   assert.equal(itemById(menu, 'view').enabled, true);
   assert.equal(itemById(menu, 'hide-pane').enabled, true);
-  assert.equal(itemById(menu, 'project-focus').enabled, true);
+  assert.equal(itemById(menu, 'close').enabled, true);
+  assert.equal(itemById(menu, 'rename').enabled, true);
   assert.equal(itemById(menu, 'copy-path').enabled, true);
   assert.equal(itemById(menu, 'open-editor').enabled, true);
   assert.equal(itemById(menu, 'browse-files').enabled, true);
   assert.equal(itemById(menu, 'add-terminal').enabled, true);
-  assert.equal(itemById(menu, 'reopen-closed-worktree').enabled, true);
 
   for (const id of ['merge', 'create-pr', 'toggle-autopilot', 'create-child-worktree', 'add-agent']) {
     const item = itemById(menu, id);
@@ -138,8 +135,9 @@ test('renderLaneMenu renders a boxed menu with an ASCII fallback', () => {
   const unicodeOutput = renderLaneMenu(menu, { selectedIndex: 2 });
   assert.match(unicodeOutput, /^┌/);
   assert.match(unicodeOutput, /Menu: codex/);
+  assert.match(unicodeOutput, /> Close\s+\[x\]/);
   assert.match(unicodeOutput, /Close\s+\[x\]/);
-  assert.match(unicodeOutput, /Project Focus\s+\[P\]/);
+  assert.match(unicodeOutput, /Merge \/ Finish\s+\[m\]/);
   assert.match(unicodeOutput, /Create GitHub PR/);
 
   const asciiOutput = renderLaneMenu(menu, { unicode: false });

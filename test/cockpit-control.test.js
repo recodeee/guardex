@@ -204,11 +204,17 @@ test('applyCockpitAction routes pane menu hotkeys to pane action intents', () =>
     worktreePath: '/tmp/one',
   });
 
-  state = applyCockpitAction(state, { type: 'key', key: 'P' });
-  assert.equal(state.lastIntent.type, 'project-focus');
+  state = applyCockpitAction(state, { type: 'key', key: 'p' });
+  assert.equal(state.lastIntent.type, 'create-pr');
 
   state = applyCockpitAction(state, { type: 'key', key: 'r' });
-  assert.equal(state.lastIntent.type, 'reopen-closed-worktree');
+  assert.equal(state.lastIntent.type, 'rename');
+
+  state = applyCockpitAction(state, { type: 'key', key: 'T' });
+  assert.equal(state.lastIntent.type, 'add-terminal');
+
+  state = applyCockpitAction(state, { type: 'key', key: 'A' });
+  assert.equal(state.lastIntent.type, 'add-agent');
 });
 
 test('renderControlFrame renders sidebar with details, menu, and settings modes', () => {
@@ -224,9 +230,12 @@ test('renderControlFrame renders sidebar with details, menu, and settings modes'
   assert.match(details, /session: one/);
 
   const menu = renderControlFrame(applyCockpitAction(baseState, { type: 'key', key: 'm' }));
+  assert.match(menu, /^ {2,}┌/m);
   assert.match(menu, /Menu: codex/);
-  assert.match(menu, /View\s+\[j\]/);
-  assert.match(menu, /Project Focus\s+\[P\]/);
+  assert.match(menu, /> View\s+\[v\]/);
+  assert.match(menu, /Merge \/ Finish\s+\[m\]/);
+  assert.match(menu, /Add Terminal to Worktree\s+\[T\]/);
+  assert.doesNotMatch(menu, /Project Focus/);
 
   const settings = renderControlFrame(applyCockpitAction(baseState, { type: 'key', key: 's' }));
   assert.match(settings, /gx cockpit settings/);
