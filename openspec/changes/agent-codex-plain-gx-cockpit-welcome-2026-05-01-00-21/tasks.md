@@ -30,5 +30,7 @@
 
 ## 5. Cleanup
 
-- [ ] 5.1 Run the finish pipeline: `gx branch finish --branch agent/codex/plain-gx-cockpit-welcome-2026-05-01-00-21 --base main --via-pr --wait-for-merge --cleanup`.
-- [ ] 5.2 Record PR URL, final `MERGED` state, and sandbox cleanup evidence.
+- [x] 5.1 Run the finish pipeline: `gx branch finish --branch agent/codex/plain-gx-cockpit-welcome-2026-05-01-00-21 --base main --via-pr --wait-for-merge --cleanup`.
+  - Evidence: PR #512 merged as https://github.com/recodeee/gitguardex/pull/512 (`MERGED`, merge commit `b9e247b5b970264252900449969142acf75ad1f7`).
+- [x] 5.2 Record PR URL, final `MERGED` state, and sandbox cleanup evidence.
+  - Evidence: original worktree `/home/deadpool/Documents/recodee/gitguardex/.omx/agent-worktrees/gitguardex__codex__plain-gx-cockpit-welcome-2026-05-01-00-21` is absent; local and remote `agent/codex/plain-gx-cockpit-welcome-2026-05-01-00-21` refs are absent; `git worktree prune` completed.
