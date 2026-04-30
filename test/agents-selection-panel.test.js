@@ -63,6 +63,34 @@ test('renderAgentSelectionPanel shows a dmux-style GitGuardex shell', () => {
   assert.match(blueOutput, /\x1b\[94m/);
 });
 
+test('empty interactive panel captures a task before launch', () => {
+  let state = createAgentSelectionPanelState({
+    task: '',
+    base: 'main',
+    agentSelectionSpecs: ['codex'],
+  });
+
+  assert.equal(state.taskInputActive, true);
+  assert.match(renderInteractiveAgentSelectionPanel(state), /Type task, then press Enter/);
+  assert.match(renderInteractiveAgentSelectionPanel(state), /task: _/);
+
+  let next = applyAgentSelectionKey(state, 'n');
+  assert.equal(next.action, 'render');
+  assert.equal(next.state.task, 'n');
+  state = next.state;
+
+  state = applyAgentSelectionKey(state, 'e').state;
+  state = applyAgentSelectionKey(state, 'q').state;
+  state = applyAgentSelectionKey(state, '\u007f').state;
+  state = applyAgentSelectionKey(state, 'w').state;
+  assert.equal(state.task, 'new');
+
+  next = applyAgentSelectionKey(state, '\r');
+  assert.equal(next.action, 'launch');
+  assert.equal(next.state.task, 'new');
+  assert.equal(next.state.taskInputActive, false);
+});
+
 test('interactive panel keys move focus, toggle agents, and adjust codex accounts', () => {
   let state = createAgentSelectionPanelState({
     task: 'repair auth',

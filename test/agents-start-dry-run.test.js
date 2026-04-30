@@ -106,6 +106,23 @@ test('gx agents start dry-run renders a terminal panel for multiple codex accoun
   assert.notEqual(branchCheck.status, 0, 'dry-run must not create multi-account branches');
 });
 
+test('gx agents start --panel --dry-run can render the home panel before a task exists', () => {
+  const repoDir = initRepo();
+  seedCommit(repoDir);
+
+  const result = runNode(
+    ['agents', 'start', '--panel', '--dry-run'],
+    repoDir,
+  );
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /Select Agent\(s\)/);
+  assert.match(result.stdout, /gitguardex/);
+  assert.match(result.stdout, /Type task, then press Enter/);
+  assert.match(result.stdout, /task: _/);
+  assert.doesNotMatch(result.stdout, /Agents start dry-run:/);
+});
+
 test('gx agents start --dry-run --json emits Colony-ready launch plan', () => {
   const repoDir = initRepo();
   seedCommit(repoDir);
@@ -227,4 +244,57 @@ test('interactive launcher panel handles keys before emitting dry-run plans', ()
   assert.match(output, /Codex cx x2/);
   assert.match(output, /branch: agent\/codex\/fix-auth-tests-codex-01-/);
   assert.match(output, /branch: agent\/codex\/fix-auth-tests-codex-02-/);
+});
+
+test('interactive launcher panel asks for a task when opened empty', () => {
+  const input = new FakeInput();
+  const stdout = {
+    isTTY: true,
+    columns: 120,
+    rows: 32,
+    chunks: [],
+    write(chunk) {
+      this.chunks.push(String(chunk));
+    },
+  };
+  const stderr = {
+    chunks: [],
+    write(chunk) {
+      this.chunks.push(String(chunk));
+    },
+  };
+  let done = null;
+
+  const controller = startInteractiveAgentPanel('/repo', {
+    task: '',
+    agent: 'codex',
+    base: 'main',
+    count: 1,
+    panel: true,
+    dryRun: true,
+    claims: [],
+  }, {
+    stdin: input,
+    stdout,
+    stderr,
+    onDone(result) {
+      done = result;
+    },
+  });
+
+  assert.equal(input.resumed, true);
+  assert.match(stdout.chunks.join(''), /Type task, then press Enter/);
+
+  for (const key of ['f', 'i', 'x', ' ', 'a', 'u', 't', 'h']) {
+    controller.dispatch(key);
+  }
+  controller.dispatch('\r');
+
+  assert.deepEqual(input.rawModes, [true, false]);
+  assert.equal(done.status, 0);
+  assert.equal(stderr.chunks.join(''), '');
+  const output = stdout.chunks.join('');
+  assert.match(output, /task: fix auth/);
+  assert.match(output, /branch: agent\/codex\/fix-auth-/);
+  assert.match(output, /launch: cd '.*' && 'codex' 'fix auth'/);
 });
