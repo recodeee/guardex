@@ -99,3 +99,51 @@ test('gx agents start dry-run renders a terminal panel for multiple codex accoun
   );
   assert.notEqual(branchCheck.status, 0, 'dry-run must not create multi-account branches');
 });
+
+test('gx agents start --dry-run --json emits Colony-ready launch plan', () => {
+  const repoDir = initRepo();
+  seedCommit(repoDir);
+
+  const result = runNodeWithEnv(
+    [
+      'agents',
+      'start',
+      'colony dry run',
+      '--agent',
+      'codex',
+      '--base',
+      'main',
+      '--claim',
+      'README.md',
+      '--meta',
+      'colony.plan=queen-plan',
+      '--meta',
+      'colony.subtask=2',
+      '--meta',
+      'colony.task_id=42',
+      '--dry-run',
+      '--json',
+    ],
+    repoDir,
+    { GUARDEX_BRANCH_TIMESTAMP: '2026-04-30-00-05' },
+  );
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.schemaVersion, 1);
+  assert.equal(payload.dryRun, true);
+  assert.equal(payload.task, 'colony dry run');
+  assert.equal(payload.agent, 'codex');
+  assert.equal(payload.base, 'main');
+  assert.equal(payload.branch, 'agent/codex/colony-dry-run-2026-04-30-00-05');
+  assert.match(payload.worktree, /\.omx\/agent-worktrees\/repo__codex__colony-dry-run-2026-04-30-00-05$/);
+  assert.deepEqual(payload.claimedFiles, ['README.md']);
+  assert.match(payload.launchCommand, /cd '.*' && 'codex' 'colony dry run'/);
+  assert.equal(payload.tmuxSession, null);
+  assert.equal(payload.tmuxTarget, null);
+  assert.deepEqual(payload.metadata, {
+    'colony.plan': 'queen-plan',
+    'colony.subtask': '2',
+    'colony.task_id': '42',
+  });
+});

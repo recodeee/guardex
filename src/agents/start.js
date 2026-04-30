@@ -81,6 +81,9 @@ function buildStartPlan(options, repoRoot, env = process.env) {
     base,
     branchName,
     worktreePath,
+    claimedFiles: Array.isArray(options.claims) ? [...options.claims] : [],
+    metadata: options.metadata && typeof options.metadata === 'object' ? { ...options.metadata } : {},
+    tmux: options.tmux && typeof options.tmux === 'object' ? { ...options.tmux } : null,
     launchCommand: buildAgentLaunchCommand({ agentId: agent.id, prompt: requestedTask, worktreePath }),
   };
 }
@@ -114,6 +117,26 @@ function buildLaunchOptions(options) {
   return launchOptions;
 }
 
+function buildDryRunPayload(plan) {
+  const tmux = plan.tmux || {};
+  return {
+    schemaVersion: 1,
+    dryRun: true,
+    task: plan.task,
+    prompt: plan.requestedTask,
+    agent: plan.agent.id,
+    base: plan.base,
+    branch: plan.branchName,
+    worktree: plan.worktreePath,
+    worktreePath: plan.worktreePath,
+    claimedFiles: plan.claimedFiles,
+    launchCommand: plan.launchCommand,
+    tmuxSession: tmux.session || null,
+    tmuxTarget: tmux.target || null,
+    metadata: plan.metadata,
+  };
+}
+
 function renderDryRunPlan(plan) {
   return [
     '[gitguardex] Agents start dry-run:',
@@ -132,6 +155,16 @@ function renderDryRunPlan(plan) {
 function dryRunStart(options, repoRoot) {
   const launchOptions = buildLaunchOptions(options);
   const plans = launchOptions.map((launchOption) => buildStartPlan(launchOption, repoRoot));
+  if (options.json) {
+    if (plans.length === 1) {
+      return `${JSON.stringify(buildDryRunPayload(plans[0]), null, 2)}\n`;
+    }
+    return `${JSON.stringify({
+      schemaVersion: 1,
+      dryRun: true,
+      launches: plans.map(buildDryRunPayload),
+    }, null, 2)}\n`;
+  }
   if (plans.length === 1 && !options.panel) {
     return renderDryRunPlan(plans[0]);
   }
@@ -183,6 +216,14 @@ function buildSessionPayload(options, metadata, status, extra = {}) {
     branch: metadata.branch,
     worktreePath: path.resolve(metadata.worktreePath),
     base: options.base || null,
+    claims: Array.isArray(options.claims) ? [...options.claims] : [],
+    metadata: options.metadata && typeof options.metadata === 'object' ? { ...options.metadata } : {},
+    launchCommand: buildAgentLaunchCommand({
+      agentId: options.agent || 'codex',
+      prompt: options.task,
+      worktreePath: path.resolve(metadata.worktreePath),
+    }),
+    tmux: options.tmux && typeof options.tmux === 'object' ? { ...options.tmux } : null,
     status,
     ...extra,
   };
@@ -343,6 +384,7 @@ function startAgentLane(repoRoot, options, deps = {}) {
 
 module.exports = {
   buildBranchStartArgs,
+  buildDryRunPayload,
   buildLaunchOptions,
   buildStartPlan,
   buildRecoveryLines,

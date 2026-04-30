@@ -20,6 +20,14 @@ function lockCountSummary(session) {
   return Number.isFinite(session.lockCount) ? String(session.lockCount) : 'none';
 }
 
+function metadataSummary(metadata) {
+  if (!metadata || typeof metadata !== 'object') return '';
+  return Object.entries(metadata)
+    .filter(([key, value]) => key.startsWith('colony.') && value !== null && value !== undefined && String(value) !== '')
+    .map(([key, value]) => `${key}=${value}`)
+    .join(' ');
+}
+
 function worktreeSummary(session) {
   const worktreePath = session.worktreePath || '-';
   if (session.worktreeExists === false) {
@@ -41,6 +49,13 @@ function renderSession(session, index) {
 
   if (session.task) {
     lines.push(`   task: ${session.task}`);
+  }
+  const meta = metadataSummary(session.metadata);
+  if (meta) {
+    lines.push(`   colony: ${meta}`);
+  }
+  if (session.prUrl || session.prState) {
+    lines.push(`   pr: ${session.prState || '-'} ${session.prUrl || '-'}`);
   }
   if (session.lastHeartbeatAt) {
     lines.push(`   heartbeat: ${session.lastHeartbeatAt}`);
@@ -78,5 +93,6 @@ module.exports = {
   renderSession,
   lockSummary,
   lockCountSummary,
+  metadataSummary,
   worktreeSummary,
 };

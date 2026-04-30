@@ -29,6 +29,10 @@ test('parseAgentsArgs accepts finish by session or branch', () => {
   assert.equal(byBranch.sessionId, '');
   assert.equal(byBranch.branch, 'agent/codex/demo');
   assert.deepEqual(byBranch.finishArgs, ['--base', 'main']);
+
+  const json = parseAgentsArgs(['finish', '--branch', 'agent/codex/demo', '--json']);
+  assert.equal(json.json, true);
+  assert.deepEqual(json.finishArgs, []);
 });
 
 test('agents finish resolves a session id and calls existing finish logic for its branch', () => {
@@ -76,4 +80,45 @@ test('agents finish marks the session failed when existing finish logic fails', 
     output: makeOutput().stream, finishRunner() { throw new Error('mock finish failure'); },
   }), /mock finish failure/);
   assert.equal(readAgentSession(repoRoot, 'session-finish-3').status, 'failed');
+});
+
+test('agents finish --json returns PR, merge, and cleanup evidence', () => {
+  const repoRoot = makeRepoRoot();
+  createAgentSession(repoRoot, {
+    id: 'session-finish-json',
+    task: 'Finish JSON',
+    agent: 'codex',
+    branch: 'agent/codex/json-finish',
+    worktreePath: path.join(repoRoot, 'worktree'),
+    base: 'main',
+    status: 'working',
+  });
+
+  const result = finishAgentSession(repoRoot, {
+    sessionId: 'session-finish-json',
+    branch: '',
+    finishArgs: ['--cleanup'],
+    json: true,
+  }, {
+    finishRunner() {
+      process.stdout.write('[agent-branch-finish] PR: https://github.com/example/repo/pull/12\n');
+      return { ok: true };
+    },
+  });
+
+  assert.deepEqual(result.evidence, {
+    schemaVersion: 1,
+    sessionId: 'session-finish-json',
+    branch: 'agent/codex/json-finish',
+    prUrl: 'https://github.com/example/repo/pull/12',
+    mergeState: 'MERGED',
+    cleanupResult: 'completed',
+    status: 'finished',
+  });
+  const session = readAgentSession(repoRoot, 'session-finish-json');
+  assert.deepEqual(session.pr, {
+    url: 'https://github.com/example/repo/pull/12',
+    state: 'MERGED',
+  });
+  assert.deepEqual(session.finishEvidence, result.evidence);
 });

@@ -43,10 +43,78 @@ function sessionStatusAfterFinish(finishArgs) {
   return finishArgs.includes('--no-wait-for-merge') && !directMode ? 'pr-opened' : 'finished';
 }
 
+function cleanupResultAfterFinish(finishArgs, status) {
+  if (status === 'failed') return 'failed';
+  if (finishArgs.includes('--no-cleanup')) return 'skipped';
+  if (finishArgs.includes('--cleanup')) return status === 'finished' ? 'completed' : 'pending';
+  return 'unknown';
+}
+
+function firstMatch(text, patterns) {
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match && match[1]) return match[1].trim();
+  }
+  return '';
+}
+
+function finishOutputText(result, captured = {}) {
+  return [
+    captured.stdout,
+    captured.stderr,
+    result?.stdout,
+    result?.stderr,
+  ].map((value) => String(value || '')).join('\n');
+}
+
+function buildFinishEvidence(session, finishArgs, status, result, captured = {}) {
+  const outputText = finishOutputText(result, captured);
+  const prUrl = firstMatch(outputText, [
+    /\[agent-branch-finish\] (?:Merged PR|PR):\s+(https?:\/\/\S+)/,
+    /\b(https?:\/\/\S+\/pull\/\d+)\b/,
+  ]);
+  const mergeState = status === 'finished' ? 'MERGED' : status === 'pr-opened' ? 'OPEN' : status.toUpperCase();
+  return {
+    schemaVersion: 1,
+    sessionId: session.id || '',
+    branch: session.branch || '',
+    prUrl,
+    mergeState,
+    cleanupResult: cleanupResultAfterFinish(finishArgs, status),
+    status,
+  };
+}
+
+function captureProcessOutput(fn) {
+  let stdout = '';
+  let stderr = '';
+  const originalStdoutWrite = process.stdout.write;
+  const originalStderrWrite = process.stderr.write;
+  process.stdout.write = function captureStdout(chunk, encoding, callback) {
+    stdout += Buffer.isBuffer(chunk) ? chunk.toString(encoding || 'utf8') : String(chunk || '');
+    if (typeof encoding === 'function') encoding();
+    if (typeof callback === 'function') callback();
+    return true;
+  };
+  process.stderr.write = function captureStderr(chunk, encoding, callback) {
+    stderr += Buffer.isBuffer(chunk) ? chunk.toString(encoding || 'utf8') : String(chunk || '');
+    if (typeof encoding === 'function') encoding();
+    if (typeof callback === 'function') callback();
+    return true;
+  };
+  try {
+    return { result: fn(), captured: { stdout, stderr } };
+  } finally {
+    process.stdout.write = originalStdoutWrite;
+    process.stderr.write = originalStderrWrite;
+  }
+}
+
 function finishAgentSession(repoRoot, options, deps = {}) {
   const finishRunner = deps.finishRunner || finishCommands.finish;
   const output = deps.output || process.stdout;
   const session = resolveAgentSessionForFinish(repoRoot, options);
+  const jsonMode = Boolean(options.json);
 
   if (!session.branch) {
     throw new Error(`Agent session '${session.id}' has no branch metadata.`);
@@ -62,24 +130,43 @@ function finishAgentSession(repoRoot, options, deps = {}) {
     ...options.finishArgs,
   ];
 
-  output.write(`[${TOOL_NAME}] Agent session: ${session.id}\n`);
-  output.write(`[${TOOL_NAME}] Branch: ${session.branch}\n`);
-  output.write(`[${TOOL_NAME}] Worktree: ${session.worktreePath || '(unknown)'}\n`);
+  if (!jsonMode) {
+    output.write(`[${TOOL_NAME}] Agent session: ${session.id}\n`);
+    output.write(`[${TOOL_NAME}] Branch: ${session.branch}\n`);
+    output.write(`[${TOOL_NAME}] Worktree: ${session.worktreePath || '(unknown)'}\n`);
+  }
 
   try {
-    const result = finishRunner(finishArgs);
+    const runnerResult = jsonMode
+      ? captureProcessOutput(() => finishRunner(finishArgs))
+      : { result: finishRunner(finishArgs), captured: {} };
+    const result = runnerResult.result;
     const status = sessionStatusAfterFinish(finishArgs);
-    updateAgentSession(repoRoot, session.id, { status });
-    output.write(`[${TOOL_NAME}] Finish result: ${status}\n`);
-    return { session, status, result, finishArgs };
+    const evidence = buildFinishEvidence(session, finishArgs, status, result, runnerResult.captured);
+    updateAgentSession(repoRoot, session.id, {
+      status,
+      pr: { url: evidence.prUrl, state: evidence.mergeState },
+      finishEvidence: evidence,
+    });
+    if (!jsonMode) {
+      output.write(`[${TOOL_NAME}] Finish result: ${status}\n`);
+    }
+    return { session, status, result, finishArgs, evidence };
   } catch (error) {
-    updateAgentSession(repoRoot, session.id, { status: 'failed' });
-    output.write(`[${TOOL_NAME}] Finish result: failed\n`);
+    const evidence = buildFinishEvidence(session, finishArgs, 'failed', null);
+    updateAgentSession(repoRoot, session.id, {
+      status: 'failed',
+      finishEvidence: evidence,
+    });
+    if (!jsonMode) {
+      output.write(`[${TOOL_NAME}] Finish result: failed\n`);
+    }
     throw error;
   }
 }
 
 module.exports = {
+  buildFinishEvidence,
   finishAgentSession,
   resolveAgentSessionForFinish,
 };

@@ -1,7 +1,12 @@
 const { fs, path, LOCK_FILE_RELATIVE, TOOL_NAME } = require('../context');
+const { changedFiles } = require('./inspect');
 const { listAgentSessions } = require('./sessions');
 
-function readLockCounts(repoRoot) {
+function uniqueSorted(values) {
+  return Array.from(new Set((values || []).filter(Boolean))).sort((left, right) => left.localeCompare(right));
+}
+
+function readLockDetails(repoRoot) {
   const lockPath = path.join(repoRoot, LOCK_FILE_RELATIVE);
   let parsed = null;
   try {
@@ -14,17 +19,48 @@ function readLockCounts(repoRoot) {
     ? parsed.locks
     : {};
   const counts = new Map();
+  const files = new Map();
   for (const entry of Object.values(locks)) {
     const branch = typeof entry?.branch === 'string' ? entry.branch : '';
     if (!branch) continue;
     counts.set(branch, (counts.get(branch) || 0) + 1);
   }
-  return counts;
+  for (const [filePath, entry] of Object.entries(locks)) {
+    const branch = typeof entry?.branch === 'string' ? entry.branch : '';
+    if (!branch) continue;
+    const branchFiles = files.get(branch) || [];
+    branchFiles.push(filePath);
+    files.set(branch, branchFiles);
+  }
+  return { counts, files };
 }
 
-function normalizeSessionForStatus(session, lockCounts) {
+function readChangedFiles(repoRoot, branch) {
+  if (!branch) return [];
+  try {
+    return changedFiles({ target: repoRoot, branch }).files || [];
+  } catch (_error) {
+    return [];
+  }
+}
+
+function normalizePr(session) {
+  const pr = session.pr && typeof session.pr === 'object' ? session.pr : {};
+  const evidence = session.finishEvidence && typeof session.finishEvidence === 'object' ? session.finishEvidence : {};
+  return {
+    url: pr.url || evidence.prUrl || '',
+    state: pr.state || evidence.mergeState || '',
+  };
+}
+
+function normalizeSessionForStatus(session, lockDetails, repoRoot) {
   const branch = session.branch || '';
   const worktreePath = session.worktreePath || '';
+  const claimedFiles = uniqueSorted([
+    ...((lockDetails.files.get(branch) || [])),
+    ...(Array.isArray(session.claims) ? session.claims : []),
+  ]);
+  const pr = normalizePr(session);
   return {
     id: session.id || '',
     agent: session.agent || '',
@@ -32,18 +68,27 @@ function normalizeSessionForStatus(session, lockCounts) {
     branch,
     base: session.base || '',
     status: session.status || '',
+    activity: session.activity || session.status || '',
     worktreePath,
     worktreeExists: worktreePath ? fs.existsSync(worktreePath) : false,
-    lockCount: lockCounts.get(branch) || 0,
+    lockCount: lockDetails.counts.get(branch) || 0,
+    claimedFiles,
+    changedFiles: readChangedFiles(repoRoot, branch),
+    metadata: session.metadata && typeof session.metadata === 'object' ? session.metadata : {},
+    launchCommand: session.launchCommand || '',
+    tmux: session.tmux && typeof session.tmux === 'object' ? session.tmux : null,
+    prUrl: pr.url,
+    prState: pr.state,
+    pr,
   };
 }
 
 function buildAgentsStatusPayload(repoRoot) {
-  const lockCounts = readLockCounts(repoRoot);
+  const lockDetails = readLockDetails(repoRoot);
   return {
     schemaVersion: 1,
     repoRoot,
-    sessions: listAgentSessions(repoRoot).map((session) => normalizeSessionForStatus(session, lockCounts)),
+    sessions: listAgentSessions(repoRoot).map((session) => normalizeSessionForStatus(session, lockDetails, repoRoot)),
   };
 }
 
@@ -52,6 +97,14 @@ const buildAgentsStatus = buildAgentsStatusPayload;
 function formatValue(value) {
   const text = String(value || '');
   return text || '-';
+}
+
+function metadataSummary(metadata) {
+  if (!metadata || typeof metadata !== 'object') return '';
+  return Object.entries(metadata)
+    .filter(([key, value]) => key.startsWith('colony.') && value !== null && value !== undefined && String(value) !== '')
+    .map(([key, value]) => `${key}=${value}`)
+    .join(' ');
 }
 
 function renderAgentsStatus(payload, options = {}) {
@@ -63,11 +116,15 @@ function renderAgentsStatus(payload, options = {}) {
 
   const lines = [`[${TOOL_NAME}] Agent sessions: ${payload.sessions.length} (${payload.repoRoot})`];
   for (const session of payload.sessions) {
+    const meta = metadataSummary(session.metadata);
+    const pr = session.prUrl || session.prState ? ` pr=${formatValue(session.prState)} ${formatValue(session.prUrl)}` : '';
     lines.push(
       `- ${formatValue(session.id)} ${formatValue(session.agent)} ${formatValue(session.status)} ` +
       `branch=${formatValue(session.branch)} base=${formatValue(session.base)} ` +
       `worktreeExists=${session.worktreeExists ? 'yes' : 'no'} locks=${session.lockCount} ` +
-      `task=${formatValue(session.task)} worktree=${formatValue(session.worktreePath)}`,
+      `changed=${Array.isArray(session.changedFiles) ? session.changedFiles.length : 0}${pr} ` +
+      `task=${formatValue(session.task)} worktree=${formatValue(session.worktreePath)}` +
+      `${meta ? ` meta=${meta}` : ''}`,
     );
   }
   return `${lines.join('\n')}\n`;
@@ -80,6 +137,7 @@ function runStatusCommand(repoRoot, options = {}) {
 module.exports = {
   buildAgentsStatusPayload,
   buildAgentsStatus,
+  readLockDetails,
   renderAgentsStatus,
   runStatusCommand,
 };

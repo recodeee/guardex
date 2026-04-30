@@ -3,6 +3,7 @@ const {
   assert,
   fs,
   path,
+  runCmd,
   runNode,
   initRepo,
   seedCommit,
@@ -52,7 +53,7 @@ test('agents status prints one canonical session with worktree and lock count', 
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.match(result.stdout, new RegExp(`Agent sessions: 1 \\(${repoDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\)`));
   assert.match(result.stdout, /session-1 codex working branch=agent\/codex\/status base=main/);
-  assert.match(result.stdout, /worktreeExists=yes locks=2 task=Build status/);
+  assert.match(result.stdout, /worktreeExists=yes locks=2 changed=0 task=Build status/);
   assert.match(result.stdout, new RegExp(`worktree=${worktreePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
 });
 
@@ -73,7 +74,7 @@ test('agents status marks missing worktrees', () => {
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.match(result.stdout, /session-missing claude stale branch=agent\/claude\/missing base=dev/);
-  assert.match(result.stdout, /worktreeExists=no locks=0 task=Missing worktree/);
+  assert.match(result.stdout, /worktreeExists=no locks=0 changed=0 task=Missing worktree/);
 });
 
 test('agents status --json emits stable cockpit-ready payload', () => {
@@ -104,9 +105,18 @@ test('agents status --json emits stable cockpit-ready payload', () => {
     'branch',
     'base',
     'status',
+    'activity',
     'worktreePath',
     'worktreeExists',
     'lockCount',
+    'claimedFiles',
+    'changedFiles',
+    'metadata',
+    'launchCommand',
+    'tmux',
+    'prUrl',
+    'prState',
+    'pr',
   ]);
   assert.deepEqual(payload.sessions[0], {
     id: 'session-json',
@@ -115,8 +125,68 @@ test('agents status --json emits stable cockpit-ready payload', () => {
     branch: 'agent/codex/json',
     base: 'main',
     status: 'active',
+    activity: 'active',
     worktreePath,
     worktreeExists: true,
     lockCount: 0,
+    claimedFiles: [],
+    changedFiles: [],
+    metadata: {},
+    launchCommand: '',
+    tmux: null,
+    prUrl: '',
+    prState: '',
+    pr: { url: '', state: '' },
   });
+});
+
+test('agents status --json includes Colony metadata, claimed files, changed files, and PR evidence', () => {
+  const repoDir = makeRepo();
+  const branch = 'agent/codex/colony-status';
+  const worktreePath = path.join(repoDir, '.omx', 'agent-worktrees', 'colony-status');
+  let result = runCmd('git', ['worktree', 'add', '-b', branch, worktreePath, 'dev'], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  result = runCmd('git', ['config', `branch.${branch}.guardexBase`, 'dev'], repoDir);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  fs.writeFileSync(path.join(worktreePath, 'status-change.txt'), 'changed\n', 'utf8');
+  createAgentSession(repoDir, {
+    id: 'session-colony',
+    agent: 'codex',
+    task: 'Colony status',
+    branch,
+    base: 'main',
+    status: 'active',
+    worktreePath,
+    claims: ['README.md'],
+    metadata: {
+      'colony.plan': 'queen-plan',
+      'colony.subtask': '3',
+      'colony.task_id': '99',
+    },
+    pr: {
+      url: 'https://github.com/example/repo/pull/7',
+      state: 'MERGED',
+    },
+  });
+  const lockPath = path.join(repoDir, '.omx', 'state', 'agent-file-locks.json');
+  fs.mkdirSync(path.dirname(lockPath), { recursive: true });
+  fs.writeFileSync(lockPath, `${JSON.stringify({
+    locks: {
+      'src/status.js': { branch },
+    },
+  }, null, 2)}\n`, 'utf8');
+
+  result = runNode(['agents', 'status', '--target', repoDir, '--json'], repoDir);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const session = JSON.parse(result.stdout).sessions[0];
+  assert.deepEqual(session.metadata, {
+    'colony.plan': 'queen-plan',
+    'colony.subtask': '3',
+    'colony.task_id': '99',
+  });
+  assert.deepEqual(session.claimedFiles, ['README.md', 'src/status.js']);
+  assert.deepEqual(session.changedFiles, ['status-change.txt']);
+  assert.equal(session.prUrl, 'https://github.com/example/repo/pull/7');
+  assert.equal(session.prState, 'MERGED');
 });

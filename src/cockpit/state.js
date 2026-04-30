@@ -42,8 +42,14 @@ function cockpitSessionFromStatus(session) {
     worktreePath: text(session.worktreePath, '(unknown worktree)'),
     worktreeExists: Boolean(session.worktreeExists),
     status: text(session.status, 'unknown'),
+    activity: text(session.activity),
     task: text(session.task),
     lockCount: Number.isFinite(session.lockCount) ? session.lockCount : 0,
+    claimedFiles: Array.isArray(session.claimedFiles) ? session.claimedFiles : [],
+    changedFiles: Array.isArray(session.changedFiles) ? session.changedFiles : [],
+    metadata: session.metadata && typeof session.metadata === 'object' ? session.metadata : {},
+    prUrl: text(session.prUrl),
+    prState: text(session.prState),
   };
 }
 

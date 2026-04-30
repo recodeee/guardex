@@ -60,6 +60,7 @@ function startAgentLane(options = {}, deps = {}) {
     agent: options.agent,
     base: options.base,
     claims: Array.isArray(options.claims) ? options.claims : [],
+    metadata: options.metadata && typeof options.metadata === 'object' ? options.metadata : {},
   };
   const startImplementation = resolveStartImplementation(deps);
   const result = startImplementation(repoRoot, normalizedOptions);
