@@ -3,6 +3,7 @@
 const { readCockpitState } = require('./state');
 const { renderSidebar } = require('./sidebar');
 const { renderSettingsScreen } = require('./settings-render');
+const { runCockpitAction } = require('./action-runner');
 
 const DEFAULT_REFRESH_MS = 2000;
 const DEFAULT_SETTINGS = {
@@ -64,6 +65,64 @@ function selectedSession(state = {}) {
   const sessions = Array.isArray(state.sessions) ? state.sessions : [];
   if (sessions.length === 0) return null;
   return sessions[clampIndex(state.selectedIndex, sessions.length)] || null;
+}
+
+function firstString(...values) {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+  return '';
+}
+
+function cockpitSessions(state = {}) {
+  if (Array.isArray(state.sessions)) return state.sessions;
+  if (state.agentsStatus && Array.isArray(state.agentsStatus.sessions)) return state.agentsStatus.sessions;
+  return [];
+}
+
+function resolveSelectedSession(state = {}, options = {}) {
+  if (options.session) return options.session;
+  if (options.selectedSession) return options.selectedSession;
+
+  const sessions = cockpitSessions(state);
+  const requestedSessionId = firstString(options.sessionId, state.selectedSessionId);
+  if (requestedSessionId) {
+    return sessions.find((session) => sessionId(session) === requestedSessionId) || null;
+  }
+
+  const requestedBranch = firstString(options.branch, state.selectedBranch);
+  if (requestedBranch) {
+    return sessions.find((session) => firstString(session.branch, session.lane && session.lane.branch) === requestedBranch) || null;
+  }
+
+  const selectedIndex = Number.isInteger(options.selectedIndex)
+    ? options.selectedIndex
+    : Number.isInteger(state.selectedIndex)
+      ? state.selectedIndex
+      : 0;
+  return sessions[selectedIndex] || null;
+}
+
+function buildCockpitActionContext(state = {}, options = {}) {
+  return {
+    ...options,
+    session: resolveSelectedSession(state, options),
+    repoRoot: firstString(options.repoRoot, options.repoPath, state.repoPath),
+    baseBranch: firstString(options.baseBranch, state.baseBranch),
+  };
+}
+
+function runCockpitControlAction(action, state = {}, options = {}) {
+  return runCockpitAction(action, buildCockpitActionContext(state, options));
+}
+
+function runSelectedLaneAction(action, context = {}) {
+  if (context.state) {
+    return runCockpitControlAction(action, context.state, context);
+  }
+  return runCockpitAction(action, context);
 }
 
 function normalizeSettings(settings) {
@@ -554,9 +613,14 @@ module.exports = {
   MENU_ITEMS,
   SETTINGS_FIELDS,
   applyCockpitAction,
+  buildCockpitActionContext,
   normalizeControlState,
   normalizeKey,
   readCockpitSettings,
   renderControlFrame,
+  resolveSelectedSession,
+  runCockpitAction,
+  runCockpitControlAction,
+  runSelectedLaneAction,
   startCockpitControl,
 };
