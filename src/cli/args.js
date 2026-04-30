@@ -285,11 +285,16 @@ function parseAgentsArgs(rawArgs) {
     json: false,
     sessionId: '',
     finishArgs: [],
+    metadata: {},
   };
 
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index];
     if (subcommand === 'finish') {
+      if (arg === '--json') {
+        options.json = true;
+        continue;
+      }
       if (arg === '--session') {
         const next = rest[index + 1];
         if (!next) {
@@ -468,6 +473,20 @@ function parseAgentsArgs(rawArgs) {
       index += 1;
       continue;
     }
+    if (arg === '--meta') {
+      const next = rest[index + 1];
+      if (!next || next.startsWith('-')) {
+        throw new Error('--meta requires a key=value pair');
+      }
+      const splitIndex = next.indexOf('=');
+      const key = splitIndex >= 0 ? next.slice(0, splitIndex).trim() : '';
+      if (!key) {
+        throw new Error('--meta requires a non-empty key=value pair');
+      }
+      options.metadata[key] = splitIndex >= 0 ? next.slice(splitIndex + 1) : '';
+      index += 1;
+      continue;
+    }
     if (!arg.startsWith('-') && options.subcommand === 'start' && !options.task) {
       options.task = arg;
       continue;
@@ -481,8 +500,11 @@ function parseAgentsArgs(rawArgs) {
   if (options.pid !== null && options.subcommand !== 'stop') {
     throw new Error('--pid is only supported with `gx agents stop`');
   }
-  if ((options.task || options.agent || options.base || options.claims.length > 0) && options.subcommand !== 'start') {
-    throw new Error('--task, --agent, --agents, --count, --base, --claim, and --panel are only supported with `gx agents start`');
+  if (
+    (options.task || options.agent || options.base || options.claims.length > 0 || Object.keys(options.metadata).length > 0) &&
+    options.subcommand !== 'start'
+  ) {
+    throw new Error('--task, --agent, --agents, --count, --base, --claim, --meta, and --panel are only supported with `gx agents start`');
   }
   if (
     (options.agentSelectionSpecs.length > 0 || options.count !== 1 || options.panel) &&
@@ -520,8 +542,15 @@ function parseAgentsArgs(rawArgs) {
   if (options.branch && !['files', 'diff', 'locks', 'finish'].includes(options.subcommand)) {
     throw new Error('--branch is only supported with `gx agents files|diff|locks|finish`');
   }
-  if (options.json && !['status', 'files', 'diff', 'locks', 'cleanup-sessions'].includes(options.subcommand)) {
-    throw new Error('--json is only supported with `gx agents status|files|diff|locks|cleanup-sessions`');
+  if (
+    options.json &&
+    !['status', 'files', 'diff', 'locks', 'cleanup-sessions', 'finish'].includes(options.subcommand) &&
+    !(options.subcommand === 'start' && options.dryRun)
+  ) {
+    throw new Error('--json is only supported with `gx agents start --dry-run|status|files|diff|locks|finish|cleanup-sessions`');
+  }
+  if (options.subcommand === 'start' && options.json && !options.dryRun) {
+    throw new Error('gx agents start --json requires --dry-run');
   }
   if (options.staleAgeMinutes !== 24 * 60 && options.subcommand !== 'cleanup-sessions') {
     throw new Error('--older-than-minutes is only supported with `gx agents cleanup-sessions`');

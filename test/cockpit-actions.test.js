@@ -18,6 +18,10 @@ test('startAgentLane delegates to the gx agents start implementation', () => {
       agent: 'codex',
       base: 'main',
       claims: ['src/foo.js', 'test/foo.test.js'],
+      metadata: {
+        'colony.plan': 'queen-plan',
+        'colony.subtask': '5',
+      },
     },
     {
       repoRoot: '/repo',
@@ -42,6 +46,10 @@ test('startAgentLane delegates to the gx agents start implementation', () => {
         agent: 'codex',
         base: 'main',
         claims: ['src/foo.js', 'test/foo.test.js'],
+        metadata: {
+          'colony.plan': 'queen-plan',
+          'colony.subtask': '5',
+        },
       },
     },
   ]);
@@ -87,6 +95,7 @@ test('startAgentLane falls back to cwd repo root and normalizes missing claims',
           agent: 'codex',
           base: 'main',
           claims: [],
+          metadata: {},
         },
       },
     ]);
@@ -128,6 +137,7 @@ test('startAgentLane normalizes async implementation results', async () => {
         agent: 'claude',
         base: 'dev',
         claims: [],
+        metadata: {},
       },
     },
   ]);

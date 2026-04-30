@@ -32,6 +32,10 @@ test('renderCockpit returns a readable terminal string', () => {
         task: 'implement cockpit',
         lastHeartbeatAt: '2026-04-29T19:00:00.000Z',
         locks: ['src/cockpit/render.js', 'src/cockpit/state.js', 'test/cockpit-render.test.js', 'README.md'],
+        metadata: {
+          'colony.plan': 'queen-plan',
+          'colony.subtask': '1',
+        },
       },
     ],
   });
@@ -44,6 +48,7 @@ test('renderCockpit returns a readable terminal string', () => {
   assert.match(output, /worktree: \/repo\/example\/\.omx\/agent-worktrees\/example \(present\)/);
   assert.match(output, /locks: 4 \(src\/cockpit\/render\.js, src\/cockpit\/state\.js, test\/cockpit-render\.test\.js, \+1 more\)/);
   assert.match(output, /task: implement cockpit/);
+  assert.match(output, /colony: colony\.plan=queen-plan colony\.subtask=1/);
 });
 
 test('agents status payload and cockpit state see the same session', () => {
@@ -57,6 +62,11 @@ test('agents status payload and cockpit state see the same session', () => {
     worktreePath,
     status: 'working',
     task: 'implement cockpit',
+    metadata: {
+      'colony.plan': 'queen-plan',
+      'colony.subtask': '4',
+      'colony.task_id': '88',
+    },
   });
   fs.mkdirSync(path.join(repoPath, '.omx', 'state'), { recursive: true });
   fs.writeFileSync(
@@ -85,6 +95,11 @@ test('agents status payload and cockpit state see the same session', () => {
   assert.equal(state.sessions[0].task, 'implement cockpit');
   assert.equal(state.sessions[0].worktreeExists, true);
   assert.equal(state.sessions[0].lockCount, 2);
+  assert.deepEqual(state.sessions[0].metadata, {
+    'colony.plan': 'queen-plan',
+    'colony.subtask': '4',
+    'colony.task_id': '88',
+  });
 });
 
 test('cockpit marks missing worktrees and renders lock count', () => {

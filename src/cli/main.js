@@ -2658,7 +2658,10 @@ function agents(rawArgs) {
   const statePath = agentsStatePathForRepo(repoRoot);
 
   if (options.subcommand === 'finish') {
-    finishAgentSession(repoRoot, options);
+    const result = finishAgentSession(repoRoot, options);
+    if (options.json) {
+      process.stdout.write(`${JSON.stringify(result.evidence, null, 2)}\n`);
+    }
     process.exitCode = 0;
     return;
   }
@@ -2671,7 +2674,8 @@ function agents(rawArgs) {
 
   if (options.subcommand === 'start') {
     if (options.dryRun) {
-      console.log(agentsStart.dryRunStart(options, repoRoot));
+      const output = agentsStart.dryRunStart(options, repoRoot);
+      process.stdout.write(output.endsWith('\n') ? output : `${output}\n`);
       process.exitCode = 0;
       return;
     }
