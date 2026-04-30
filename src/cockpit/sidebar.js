@@ -3,22 +3,23 @@ const path = require('node:path');
 const DEFAULT_WIDTH = 36;
 const MIN_WIDTH = 12;
 
-const STATUS_DOTS = new Map([
-  ['active', '*'],
-  ['running', '*'],
-  ['working', '*'],
-  ['thinking', 'o'],
-  ['idle', 'o'],
-  ['ready', 'o'],
-  ['done', '+'],
-  ['complete', '+'],
-  ['completed', '+'],
-  ['merged', '+'],
-  ['blocked', '!'],
-  ['error', '!'],
-  ['failed', '!'],
-  ['stalled', '!'],
-  ['dead', '!'],
+const STATUS_STATES = new Map([
+  ['active', 'active'],
+  ['running', 'active'],
+  ['working', 'active'],
+  ['thinking', 'waiting'],
+  ['idle', 'waiting'],
+  ['ready', 'waiting'],
+  ['waiting', 'waiting'],
+  ['done', 'done'],
+  ['complete', 'done'],
+  ['completed', 'done'],
+  ['merged', 'done'],
+  ['blocked', 'blocked'],
+  ['error', 'failed'],
+  ['failed', 'failed'],
+  ['stalled', 'stalled'],
+  ['dead', 'stalled'],
 ]);
 
 const ANSI = {
@@ -30,6 +31,15 @@ const ANSI = {
   cyan: '\x1b[36m',
   inverse: '\x1b[7m',
 };
+
+const AGENT_LABELS = new Map([
+  ['codex', 'cx'],
+  ['claude', 'cc'],
+  ['claude-code', 'cc'],
+  ['claudecode', 'cc'],
+  ['cursor', 'cu'],
+  ['gemini', 'gm'],
+]);
 
 function text(value, fallback = '') {
   if (typeof value === 'string') {
@@ -81,24 +91,60 @@ function repoName(state = {}, options = {}) {
 }
 
 function agentLabel(agentName) {
-  const compact = text(agentName, 'agent').replace(/[^a-z0-9]/gi, '').toUpperCase();
-  return truncate(compact || 'AGENT', 3).padEnd(3, ' ');
+  const raw = text(agentName, 'agent').toLowerCase();
+  const compact = raw.replace(/[^a-z0-9]/g, '');
+  if (AGENT_LABELS.has(raw)) {
+    return AGENT_LABELS.get(raw);
+  }
+  if (AGENT_LABELS.has(compact)) {
+    return AGENT_LABELS.get(compact);
+  }
+  if (compact.includes('codex')) {
+    return 'cx';
+  }
+  if (compact.includes('claude')) {
+    return 'cc';
+  }
+
+  const parts = raw.match(/[a-z0-9]+/g) || [];
+  if (parts.length >= 2) {
+    return `${parts[0][0]}${parts[1][0]}`;
+  }
+  return truncate(parts[0] || compact || 'ag', 2).padEnd(2, 'g');
 }
 
 function statusDot(session = {}) {
-  if (session.worktreeExists === false) {
+  const status = laneState(session);
+  if (status === 'active') {
+    return '*';
+  }
+  if (status === 'waiting') {
+    return 'o';
+  }
+  if (status === 'done') {
+    return '+';
+  }
+  if (status === 'missing') {
     return 'x';
   }
-  const status = text(session.status, 'unknown').toLowerCase();
-  return STATUS_DOTS.get(status) || '.';
+  if (status === 'blocked' || status === 'failed' || status === 'stalled') {
+    return '!';
+  }
+  return '.';
 }
 
-function lockCount(session = {}) {
-  if (Array.isArray(session.locks)) {
-    return session.locks.length;
+function laneState(session = {}) {
+  const status = text(session.status, 'unknown').toLowerCase();
+  if (session.hidden === true || session.visible === false || status === 'hidden') {
+    return 'hidden';
   }
-  const count = Number(session.lockCount);
-  return Number.isFinite(count) && count >= 0 ? count : 0;
+  if (session.closed === true || session.closedAt || status === 'closed') {
+    return 'closed';
+  }
+  if (session.worktreeExists === false || session.worktreeMissing === true || status === 'missing' || status === 'missing-worktree') {
+    return 'missing';
+  }
+  return STATUS_STATES.get(status) || status || 'unknown';
 }
 
 function sessionId(session = {}) {
@@ -120,51 +166,80 @@ function isSelected(session, index, state = {}, options = {}) {
   return Number.isInteger(selectedIndex) && selectedIndex === index;
 }
 
+function colorEnabled(options = {}) {
+  const env = options.env && typeof options.env === 'object' ? options.env : process.env;
+  return options.color === true && !options.noColor && !env.NO_COLOR;
+}
+
 function colorize(value, color, options = {}) {
-  if (options.noColor || options.color !== true) {
+  if (!colorEnabled(options)) {
     return value;
   }
   const code = ANSI[color];
   return code ? `${code}${value}${ANSI.reset}` : value;
 }
 
-function statusColor(dot) {
-  if (dot === '*') {
+function statusColor(status) {
+  if (status === 'active' || status === 'done') {
     return 'green';
   }
-  if (dot === '!') {
+  if (status === 'waiting') {
     return 'yellow';
   }
-  if (dot === 'x') {
+  if (status === 'blocked' || status === 'failed' || status === 'stalled' || status === 'missing') {
     return 'red';
   }
-  if (dot === '+') {
-    return 'cyan';
+  if (status === 'hidden' || status === 'closed') {
+    return 'dim';
   }
-  return 'dim';
+  return 'cyan';
+}
+
+function laneName(session = {}) {
+  const task = text(session.task || session.name || session.title);
+  if (task) {
+    return task;
+  }
+
+  const branch = text(session.branch);
+  if (!branch) {
+    return '(no task)';
+  }
+  return path.basename(branch);
+}
+
+function fitRow(left, right, width) {
+  if (width <= 0) {
+    return '';
+  }
+
+  if (right.length >= width - 2) {
+    return truncate(`${left}${right}`, width);
+  }
+
+  const leftWidth = width - right.length;
+  return `${truncate(left, leftWidth).padEnd(leftWidth, ' ')}${right}`;
+}
+
+function renderShortcutRows(width, options) {
+  const rows = [
+    '  [n]ew agent  [t]erminal',
+    '  [s]ettings   [?] shortcuts',
+  ];
+  return rows.map((row) => colorize(boundLine(row, width), 'dim', options));
 }
 
 function renderSessionRow(session, index, state, options) {
   const width = sidebarWidth(options);
   const selected = isSelected(session, index, state, options);
   const marker = selected ? '>' : ' ';
-  const dot = statusDot(session);
-  const label = agentLabel(session.agentName);
-  const branch = text(session.branch, '(no branch)');
-  const task = text(session.task, '(no task)');
-  const missing = session.worktreeExists === false ? ' missing worktree' : '';
+  const status = laneState(session);
+  const badge = `[${agentLabel(session.agentName || session.agent || session.owner)}] (${status})`;
+  const row = fitRow(`${marker} ${laneName(session)}`, ` ${badge}`, width);
 
-  const firstPrefix = `${marker} ${dot} ${label} `;
-  const first = `${firstPrefix}${truncate(branch, width - firstPrefix.length)}`;
-  const taskPrefix = '    ';
-  const taskLine = `${taskPrefix}${truncate(task, width - taskPrefix.length)}`;
-  const meta = `    locks: ${lockCount(session)}${missing}`;
-
-  return [
-    selected ? colorize(boundLine(first, width), 'inverse', options) : boundLine(first, width),
-    boundLine(taskLine, width),
-    colorize(boundLine(meta, width), statusColor(dot), options),
-  ];
+  return selected
+    ? colorize(row, 'inverse', options)
+    : colorize(row, statusColor(status), options);
 }
 
 function renderSidebar(state = {}, options = {}) {
@@ -174,26 +249,19 @@ function renderSidebar(state = {}, options = {}) {
     : text(options.title || state.title, 'gx cockpit');
   const sessions = Array.isArray(state.sessions) ? state.sessions : [];
   const lines = [
-    boundLine(title, width),
-    boundLine(`repo ${repoName(state, options)}`, width),
-    boundLine('-'.repeat(width), width),
-    boundLine('lanes', width),
+    colorize(boundLine(title, width), 'cyan', options),
+    colorize(boundLine(repoName(state, options), width), 'dim', options),
   ];
 
   if (sessions.length === 0) {
-    lines.push(boundLine('  no active lanes', width));
+    lines.push(boundLine('  no agent lanes', width));
   } else {
     sessions.forEach((session, index) => {
-      lines.push(...renderSessionRow(session, index, state, options));
+      lines.push(renderSessionRow(session, index, state, options));
     });
   }
 
-  lines.push(
-    boundLine('-'.repeat(width), width),
-    boundLine('[n] new agent', width),
-    boundLine('[t] terminal', width),
-    boundLine('[s] settings', width),
-  );
+  lines.push(...renderShortcutRows(width, options));
 
   return `${lines.join('\n')}\n`;
 }
@@ -201,6 +269,7 @@ function renderSidebar(state = {}, options = {}) {
 module.exports = {
   renderSidebar,
   agentLabel,
+  laneState,
   statusDot,
   truncate,
 };
