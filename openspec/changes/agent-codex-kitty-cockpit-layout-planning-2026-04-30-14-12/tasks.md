@@ -29,6 +29,9 @@ This change is complete only when all of the following are true:
 
 ## 4. Cleanup
 
-- [ ] 4.1 Run `gx branch finish --branch agent/codex/kitty-cockpit-layout-planning-2026-04-30-14-12 --base main --via-pr --wait-for-merge --cleanup`.
-- [ ] 4.2 Record PR URL and final merge state.
-- [ ] 4.3 Confirm sandbox worktree cleanup.
+- [x] 4.1 Run `gx branch finish --branch agent/codex/kitty-cockpit-layout-planning-2026-04-30-14-12 --base main --via-pr --wait-for-merge --cleanup`.
+  - Evidence: PR https://github.com/recodeee/gitguardex/pull/503 reached `MERGED` at 2026-04-30T12:22:16Z.
+- [x] 4.2 Record PR URL and final merge state.
+  - Evidence: `gh pr list --state all --head agent/codex/kitty-cockpit-layout-planning-2026-04-30-14-12 --json number,url,state,mergedAt,headRefName,baseRefName,title` returned PR #503 `MERGED`.
+- [x] 4.3 Confirm sandbox worktree cleanup.
+  - Evidence: `git worktree list` no longer shows `.omx/agent-worktrees/gitguardex__codex__kitty-cockpit-layout-planning-2026-04-30-14-12`; `git branch --list "agent/codex/kitty-cockpit-layout-planning-2026-04-30-14-12"` returned no local branch.
