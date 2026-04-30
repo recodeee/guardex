@@ -103,14 +103,18 @@ function createAgentSelectionPanelState(options = {}) {
   const selections = normalizeAgentSelections({ ...options, maxSelected });
   const counts = countsFromSelections(selections);
   const firstSelectedIndex = definitions.findIndex((agent) => (counts[agent.id] || 0) > 0);
+  const task = String(options.task || '');
   return {
-    task: options.task || '',
+    task,
     base: options.base || '',
     claims: Array.isArray(options.claims) ? [...options.claims] : [],
     maxSelected,
     focusIndex: firstSelectedIndex >= 0 ? firstSelectedIndex : 0,
     counts,
-    message: '',
+    taskInputActive: Object.prototype.hasOwnProperty.call(options, 'taskInputActive')
+      ? Boolean(options.taskInputActive)
+      : !task.trim(),
+    message: options.message || '',
   };
 }
 
@@ -144,15 +148,55 @@ function withCount(state, agentId, count, message = '') {
   };
 }
 
-function normalizePanelKey(value) {
+function rawPanelKey(value) {
   if (!value) return '';
-  const raw = Buffer.isBuffer(value) ? value.toString('utf8') : String(value);
+  return Buffer.isBuffer(value) ? value.toString('utf8') : String(value);
+}
+
+function normalizePanelKey(value) {
+  const raw = rawPanelKey(value);
   if (raw === '\u0003') return 'ctrl-c';
+  if (raw === '\u0015') return 'ctrl-u';
   if (raw === '\u001b') return 'escape';
   if (raw === '\r' || raw === '\n') return 'enter';
+  if (raw === '\u007f' || raw === '\b') return 'backspace';
   if (raw === '\u001b[A') return 'up';
   if (raw === '\u001b[B') return 'down';
   return raw.toLowerCase();
+}
+
+function printableTaskInput(value) {
+  const raw = rawPanelKey(value);
+  if (raw.length !== 1) return '';
+  const code = raw.charCodeAt(0);
+  if (code < 32 || code > 126) return '';
+  return raw;
+}
+
+function taskLaunchState(state) {
+  const task = String(state.task || '').trim();
+  if (!task) {
+    return {
+      state: {
+        ...state,
+        taskInputActive: true,
+        message: 'Type a task before launch.',
+      },
+      action: 'render',
+    };
+  }
+  if (selectedCountFromPanelState(state) <= 0) {
+    return { state: { ...state, message: 'Select at least one agent before launch.' }, action: 'render' };
+  }
+  return {
+    state: {
+      ...state,
+      task,
+      taskInputActive: false,
+      message: '',
+    },
+    action: 'launch',
+  };
 }
 
 function applyAgentSelectionKey(state = {}, rawKey) {
@@ -165,14 +209,45 @@ function applyAgentSelectionKey(state = {}, rawKey) {
   };
   const key = normalizePanelKey(rawKey);
 
-  if (key === 'ctrl-c' || key === 'escape' || key === 'q') {
+  if (key === 'ctrl-c' || key === 'escape' || (!current.taskInputActive && key === 'q')) {
     return { state: current, action: 'cancel' };
   }
-  if (key === 'enter' || key === 'n') {
-    if (selectedCountFromPanelState(current) <= 0) {
-      return { state: { ...current, message: 'Select at least one agent before launch.' }, action: 'render' };
+
+  if (current.taskInputActive) {
+    if (key === 'enter') {
+      return taskLaunchState(current);
     }
-    return { state: current, action: 'launch' };
+    if (key === 'backspace') {
+      return {
+        state: {
+          ...current,
+          task: String(current.task || '').slice(0, -1),
+          message: '',
+        },
+        action: 'render',
+      };
+    }
+    if (key === 'ctrl-u') {
+      return { state: { ...current, task: '', message: '' }, action: 'render' };
+    }
+
+    const input = printableTaskInput(rawKey);
+    if (input) {
+      return {
+        state: {
+          ...current,
+          task: `${current.task || ''}${input}`,
+          message: '',
+        },
+        action: 'render',
+      };
+    }
+
+    return { state: current, action: 'render' };
+  }
+
+  if (key === 'enter' || key === 'n') {
+    return taskLaunchState(current);
   }
   if (key === 'up' || key === 'k') {
     return {
@@ -289,6 +364,7 @@ function renderSidebarRows(options, selections, definitions, width, height) {
     ? options.claims.join(', ')
     : 'none';
   const topBars = '█'.repeat(Math.max(0, width - 13));
+  const taskText = options.task ? options.task : (options.taskInputActive ? '_' : '-');
   const rows = [
     `─ gx ${'─'.repeat(Math.max(0, width - 5))}`,
     `▦ gitguardex ${topBars}`.slice(0, width),
@@ -306,11 +382,13 @@ function renderSidebarRows(options, selections, definitions, width, height) {
     }),
     '',
     '  Settings',
-    `  task: ${options.task || '-'}`,
+    `  task: ${taskText}`,
     `  base: ${options.base || 'current branch'}`,
     `  Codex accounts: ${codexAccounts}`,
     `  claims: ${claims}`,
-    options.message ? `  status: ${options.message}` : '',
+    options.message
+      ? `  status: ${options.message}`
+      : (options.taskInputActive ? '  status: Type task, then Enter.' : ''),
   ];
 
   while (rows.length < height - 5) {
@@ -345,7 +423,9 @@ function renderLogoCardRows(options, selections, width) {
     centerLine('gitguardex', innerWidth),
     centerLine('AI developer agent guardrail multiplexer', innerWidth),
     centerLine(`Select Agent(s) · Selected: ${total}/${maxSelected}`, innerWidth),
-    centerLine('Press [n] or Enter to create a new agent', innerWidth),
+    centerLine(options.taskInputActive
+      ? 'Type task, then press Enter'
+      : 'Press [n] or Enter to create a new agent', innerWidth),
   ];
 
   return [
@@ -393,7 +473,10 @@ function renderDmuxAgentSelectionPanel(options = {}) {
   const mainWidth = Math.max(42, width - sidebarWidth - 1);
   const sidebar = renderSidebarRows({ ...options, maxSelected }, selections, definitions, sidebarWidth, height);
   const main = renderMainRows({ ...options, maxSelected }, selections, mainWidth, height);
-  const keyLine = padLine(' ↑/↓ navigate · Space toggle · +/- Codex accounts · [n]/Enter launch · ESC cancel ', width);
+  const keyText = options.taskInputActive
+    ? ' Type task · Backspace edit · Enter launch · ESC cancel '
+    : ' ↑/↓ navigate · Space toggle · +/- Codex accounts · [n]/Enter launch · ESC cancel ';
+  const keyLine = padLine(keyText, width);
   const lines = [];
 
   for (let index = 0; index < height; index += 1) {
@@ -438,7 +521,9 @@ function renderAgentSelectionPanel(options = {}) {
     `claims: ${claims}`,
     options.message ? `status: ${options.message}` : null,
     '',
-    '↑/↓ navigate · Space toggle · +/- Codex accounts · [n]/Enter launch · ESC cancel',
+    options.taskInputActive
+      ? 'Type task · Backspace edit · Enter launch · ESC cancel'
+      : '↑/↓ navigate · Space toggle · +/- Codex accounts · [n]/Enter launch · ESC cancel',
   ].filter((row) => row !== null);
   return `${framePanel('Select Agent(s)', rows)}\n`;
 }
@@ -452,6 +537,7 @@ function renderInteractiveAgentSelectionPanel(state = {}, options = {}) {
     selections: selectionsFromPanelState(state),
     focusedAgentId: focusedAgent(state)?.id,
     message: state.message,
+    taskInputActive: state.taskInputActive,
     ...options,
   });
 }

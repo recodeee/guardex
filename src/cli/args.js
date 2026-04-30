@@ -515,17 +515,18 @@ function parseAgentsArgs(rawArgs) {
   if (options.dryRun && !['start', 'cleanup-sessions'].includes(options.subcommand)) {
     throw new Error('--dry-run is only supported with `gx agents start|cleanup-sessions`');
   }
-  if (options.subcommand === 'start' && options.dryRun && !options.task) {
+  if (options.subcommand === 'start' && options.dryRun && !options.task && !(options.panel && !options.json)) {
     throw new Error('gx agents start --dry-run requires a task');
   }
   if (
     options.subcommand === 'start' &&
     !options.task &&
-    (options.agentSelectionSpecs.length > 0 || options.count !== 1 || options.panel)
+    !options.panel &&
+    (options.agentSelectionSpecs.length > 0 || options.count !== 1)
   ) {
-    throw new Error('gx agents start --agents|--count|--panel requires a task');
+    throw new Error('gx agents start --agents|--count requires a task');
   }
-  if (options.claims.length > 0 && !options.task) {
+  if (options.claims.length > 0 && !options.task && !options.panel) {
     throw new Error('gx agents start --claim requires a task');
   }
   if (['files', 'diff', 'locks'].includes(options.subcommand) && !options.branch) {

@@ -157,6 +157,17 @@ function renderDryRunPlan(plan) {
 }
 
 function dryRunStart(options, repoRoot) {
+  const hasTask = Boolean(String(options.task || '').trim());
+  if (options.panel && !hasTask && !options.json) {
+    return renderAgentSelectionPanel({
+      task: '',
+      base: options.base,
+      claims: options.claims,
+      selections: normalizeAgentSelections(options),
+      taskInputActive: true,
+    });
+  }
+
   const launchOptions = buildLaunchOptions(options);
   const plans = launchOptions.map((launchOption) => buildStartPlan(launchOption, repoRoot));
   if (options.json) {
@@ -196,6 +207,7 @@ function panelOptions(options, state) {
   const first = selectionsFromPanelState(state)[0];
   return {
     ...options,
+    task: String(state.task || '').trim(),
     agent: first ? first.agent.id : options.agent,
     count: 1,
     agentSelectionSpecs: specs,
@@ -204,6 +216,13 @@ function panelOptions(options, state) {
 
 function executePanelSelection(repoRoot, options, state, deps = {}) {
   const selectedOptions = panelOptions(options, state);
+  if (!selectedOptions.task) {
+    return {
+      status: 1,
+      stdout: '',
+      stderr: `[${TOOL_NAME}] Agent launch requires a task.\n`,
+    };
+  }
   if (selectedOptions.dryRun) {
     return {
       status: 0,
@@ -222,7 +241,7 @@ function writeStream(stream, value) {
 }
 
 function shouldUseInteractivePanel(options = {}, stdin = process.stdin, stdout = process.stdout) {
-  return Boolean(options.panel && options.task && stdin && stdin.isTTY && stdout && stdout.isTTY);
+  return Boolean(options.panel && stdin && stdin.isTTY && stdout && stdout.isTTY);
 }
 
 function startInteractiveAgentPanel(repoRoot, options, deps = {}) {

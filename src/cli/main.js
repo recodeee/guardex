@@ -2673,7 +2673,7 @@ function agents(rawArgs) {
   }
 
   if (options.subcommand === 'start') {
-    if (options.task && agentsStart.shouldUseInteractivePanel(options, process.stdin, process.stdout)) {
+    if (agentsStart.shouldUseInteractivePanel(options, process.stdin, process.stdout)) {
       agentsStart.startInteractiveAgentPanel(repoRoot, options, {
         onDone(result) {
           process.exitCode = result.status;
@@ -2685,6 +2685,11 @@ function agents(rawArgs) {
       const output = agentsStart.dryRunStart(options, repoRoot);
       process.stdout.write(output.endsWith('\n') ? output : `${output}\n`);
       process.exitCode = 0;
+      return;
+    }
+    if (options.panel && !options.task) {
+      process.stderr.write('[gitguardex] gx agents start --panel requires an interactive terminal when no task is provided.\n');
+      process.exitCode = 1;
       return;
     }
     if (options.task) {
@@ -3744,6 +3749,16 @@ async function main() {
   const args = process.argv.slice(2);
 
   if (args.length === 0) {
+    if (isInteractiveTerminal()) {
+      const options = parseAgentsArgs(['start', '--panel']);
+      const repoRoot = resolveRepoRoot(options.target);
+      agentsStart.startInteractiveAgentPanel(repoRoot, options, {
+        onDone(result) {
+          process.exitCode = result.status;
+        },
+      });
+      return;
+    }
     toolchainModule.maybeSelfUpdateBeforeStatus();
     toolchainModule.maybeOpenSpecUpdateBeforeStatus();
     const statusPayload = status([]);
