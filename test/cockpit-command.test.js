@@ -7,6 +7,7 @@ const {
   runNodeWithEnv,
   initRepo,
 } = require('./helpers/install-test-helpers');
+const cockpit = require('../src/cockpit');
 
 function fakeTmux(scriptBody) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'guardex-fake-tmux-'));
@@ -15,6 +16,21 @@ function fakeTmux(scriptBody) {
   fs.writeFileSync(bin, `#!/usr/bin/env bash\nset -euo pipefail\nLOG=${JSON.stringify(log)}\n${scriptBody}\n`, 'utf8');
   fs.chmodSync(bin, 0o755);
   return { bin, log };
+}
+
+function captureStdout() {
+  const chunks = [];
+  return {
+    stdout: {
+      isTTY: false,
+      write(chunk) {
+        chunks.push(String(chunk));
+      },
+    },
+    output() {
+      return chunks.join('');
+    },
+  };
 }
 
 test('cockpit creates the default tmux session in the repo root', () => {
@@ -101,4 +117,102 @@ test('cockpit reports a clear error for an invalid backend', () => {
 
   assert.equal(result.status, 1);
   assert.match(result.stderr, /--backend requires auto, kitty, or tmux/);
+});
+
+test('default cockpit launcher prefers Kitty when remote control is available', () => {
+  const repoDir = initRepo();
+  const { stdout, output } = captureStdout();
+  const calls = [];
+  const kittyBackend = {
+    name: 'kitty',
+    isAvailable: () => true,
+    openCockpitLayout(config) {
+      calls.push({ backend: 'kitty', config });
+      return { status: 0 };
+    },
+  };
+  const tmuxBackend = {
+    name: 'tmux',
+    openCockpitLayout() {
+      throw new Error('tmux should not be used when Kitty is available');
+    },
+  };
+
+  const result = cockpit.openDefaultCockpit({
+    target: repoDir,
+    resolveRepoRoot: (target) => target,
+    terminalBackends: { kitty: kittyBackend, tmux: tmuxBackend },
+    stdout,
+    env: {},
+  });
+
+  assert.equal(result.backend, 'kitty');
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].config.repoRoot, repoDir);
+  assert.match(calls[0].config.command, /gx cockpit control --target /);
+  assert.match(output(), /Created kitty cockpit window 'guardex'/);
+});
+
+test('default cockpit launcher falls back to tmux when Kitty is unavailable', () => {
+  const repoDir = initRepo();
+  const { stdout, output } = captureStdout();
+  const kittyBackend = {
+    name: 'kitty',
+    isAvailable: () => false,
+    openCockpitLayout() {
+      throw new Error('unavailable Kitty should not be opened');
+    },
+  };
+  const tmuxBackend = {
+    name: 'tmux',
+    openCockpitLayout(config) {
+      return { action: 'created', sessionName: config.sessionName };
+    },
+  };
+
+  const result = cockpit.openDefaultCockpit({
+    target: repoDir,
+    resolveRepoRoot: (target) => target,
+    terminalBackends: { kitty: kittyBackend, tmux: tmuxBackend },
+    stdout,
+    env: {},
+  });
+
+  assert.equal(result.backend, 'tmux');
+  assert.match(output(), /Created tmux session 'guardex'/);
+});
+
+test('default cockpit launcher renders inline when terminal backends fail', () => {
+  const repoDir = initRepo();
+  const { stdout, output } = captureStdout();
+  const tmuxBackend = {
+    name: 'tmux',
+    openCockpitLayout() {
+      throw new Error('tmux unavailable');
+    },
+  };
+
+  const result = cockpit.openDefaultCockpit({
+    target: repoDir,
+    resolveRepoRoot: (target) => target,
+    terminalBackends: {
+      kitty: { name: 'kitty', isAvailable: () => false },
+      tmux: tmuxBackend,
+    },
+    stdout,
+    stdin: { isTTY: false },
+    readState: () => ({
+      repoPath: repoDir,
+      baseBranch: 'main',
+      sessions: [],
+    }),
+    readSettings: () => ({ refreshMs: 0 }),
+    env: {},
+  });
+
+  result.control.stop();
+  assert.equal(result.backend, 'inline');
+  assert.deepEqual(result.failures, [{ backend: 'tmux', message: 'tmux unavailable' }]);
+  assert.match(output(), /gx cockpit/);
+  assert.match(output(), /no active lanes/);
 });

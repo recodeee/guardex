@@ -6,6 +6,7 @@ const { normalizeBackendName, selectTerminalBackend } = require('../terminal');
 
 const DEFAULT_SESSION_NAME = 'guardex';
 const DEFAULT_BACKEND = 'tmux';
+const DEFAULT_INTERACTIVE_BACKEND = 'auto';
 
 function parseCockpitArgs(rawArgs = []) {
   const options = {
@@ -122,6 +123,138 @@ function cockpitControlCommand(repoRoot, options = {}) {
   return `gx cockpit control --target ${shellQuote(repoRoot)}${refresh}`;
 }
 
+function terminalBackendOptionsFromDeps(deps = {}) {
+  const terminalBackendOptions = { ...(deps.terminalBackendOptions || {}) };
+  if (deps.terminalBackends && deps.terminalBackends.kitty) {
+    terminalBackendOptions.kittyBackend = deps.terminalBackends.kitty;
+  }
+  if (deps.terminalBackends && deps.terminalBackends.tmux) {
+    terminalBackendOptions.tmuxBackend = deps.terminalBackends.tmux;
+  }
+  if (deps.tmux) {
+    terminalBackendOptions.tmux = { tmux: deps.tmux };
+  }
+  return terminalBackendOptions;
+}
+
+function writeOpenedCockpitMessage({ backend, action, options, repoRoot, controlCommand, stdout, toolName }) {
+  if (backend.name === 'tmux' && action === 'attached') {
+    stdout.write(`[${toolName}] Attaching tmux session '${options.sessionName}'.\n`);
+    return;
+  }
+
+  if (backend.name === 'tmux') {
+    stdout.write(`[${toolName}] Created tmux session '${options.sessionName}' in ${repoRoot}.\n`);
+  } else {
+    stdout.write(`[${toolName}] Created ${backend.name} cockpit window '${options.sessionName}' in ${repoRoot}.\n`);
+  }
+  stdout.write(`[${toolName}] Control pane: ${controlCommand}\n`);
+}
+
+function openWithBackend(backend, options, repoRoot, controlCommand, deps = {}) {
+  const stdout = deps.stdout || process.stdout;
+  const toolName = deps.toolName || 'gitguardex';
+  const result = backend.openCockpitLayout({
+    repoRoot,
+    sessionName: options.sessionName,
+    command: controlCommand,
+    attach: options.attach,
+  });
+  const action = result && result.action ? result.action : 'created';
+
+  writeOpenedCockpitMessage({ backend, action, options, repoRoot, controlCommand, stdout, toolName });
+  return { action, backend: backend.name, sessionName: options.sessionName, repoRoot };
+}
+
+function backendAvailable(backend) {
+  if (!backend || typeof backend.isAvailable !== 'function') return true;
+  try {
+    return Boolean(backend.isAvailable());
+  } catch (_error) {
+    return false;
+  }
+}
+
+function defaultCockpitBackends(preferredBackend, terminalBackendOptions = {}) {
+  const preferred = normalizeBackendName(preferredBackend || DEFAULT_INTERACTIVE_BACKEND, DEFAULT_INTERACTIVE_BACKEND);
+  const seen = new Set();
+  const candidates = [];
+  const add = (name, options = {}) => {
+    if (seen.has(name)) return;
+    const backend = selectTerminalBackend(name, terminalBackendOptions);
+    if (!backend) return;
+    if (options.onlyIfAvailable && !backendAvailable(backend)) return;
+    seen.add(name);
+    candidates.push(backend);
+  };
+
+  if (preferred === 'auto') {
+    add('kitty', { onlyIfAvailable: true });
+    add('tmux');
+    return candidates;
+  }
+
+  add(preferred);
+  if (preferred !== 'tmux') add('tmux');
+  return candidates;
+}
+
+function inlineCockpit(repoRoot, deps = {}) {
+  const controlHandle = control.startCockpitControl({
+    repoPath: repoRoot,
+    stdin: deps.stdin,
+    stdout: deps.stdout || process.stdout,
+    readState: deps.readState,
+    readSettings: deps.readSettings,
+    setInterval: deps.setInterval,
+    clearInterval: deps.clearInterval,
+  });
+  return {
+    action: 'rendered',
+    backend: 'inline',
+    sessionName: DEFAULT_SESSION_NAME,
+    repoRoot,
+    control: controlHandle,
+  };
+}
+
+function openDefaultCockpit(deps = {}) {
+  const {
+    resolveRepoRoot,
+    env = process.env,
+  } = deps;
+  if (typeof resolveRepoRoot !== 'function') {
+    throw new Error('openDefaultCockpit requires resolveRepoRoot');
+  }
+
+  const target = deps.target || process.cwd();
+  const options = {
+    sessionName: DEFAULT_SESSION_NAME,
+    backend: env.GUARDEX_COCKPIT_BACKEND || DEFAULT_INTERACTIVE_BACKEND,
+    attach: false,
+    target,
+  };
+  const repoRoot = resolveRepoRoot(target);
+  const controlCommand = cockpitControlCommand(repoRoot);
+  const terminalBackendOptions = terminalBackendOptionsFromDeps(deps);
+  const failures = [];
+
+  for (const backend of defaultCockpitBackends(options.backend, terminalBackendOptions)) {
+    try {
+      return openWithBackend(backend, options, repoRoot, controlCommand, deps);
+    } catch (error) {
+      failures.push({
+        backend: backend.name,
+        message: error && error.message ? error.message : String(error),
+      });
+    }
+  }
+
+  const result = inlineCockpit(repoRoot, deps);
+  result.failures = failures;
+  return result;
+}
+
 function render(repoPath = process.cwd()) {
   return renderCockpit(readCockpitState(repoPath));
 }
@@ -168,39 +301,10 @@ function openCockpit(rawArgs = [], deps = {}) {
   const options = parseCockpitArgs(rawArgs);
   const repoRoot = resolveRepoRoot(options.target);
   const controlCommand = cockpitControlCommand(repoRoot);
-  const terminalBackendOptions = { ...(deps.terminalBackendOptions || {}) };
-  if (deps.terminalBackends && deps.terminalBackends.kitty) {
-    terminalBackendOptions.kittyBackend = deps.terminalBackends.kitty;
-  }
-  if (deps.terminalBackends && deps.terminalBackends.tmux) {
-    terminalBackendOptions.tmuxBackend = deps.terminalBackends.tmux;
-  }
-  if (deps.tmux) {
-    terminalBackendOptions.tmux = { tmux: deps.tmux };
-  }
+  const terminalBackendOptions = terminalBackendOptionsFromDeps(deps);
   const backend = selectTerminalBackend(options.backend, terminalBackendOptions);
 
-  const result = backend.openCockpitLayout({
-    repoRoot,
-    sessionName: options.sessionName,
-    command: controlCommand,
-    attach: options.attach,
-  });
-  const action = result && result.action ? result.action : 'created';
-
-  if (backend.name === 'tmux' && action === 'attached') {
-    stdout.write(`[${toolName}] Attaching tmux session '${options.sessionName}'.\n`);
-    return { action, backend: backend.name, sessionName: options.sessionName, repoRoot };
-  }
-
-  if (backend.name === 'tmux') {
-    stdout.write(`[${toolName}] Created tmux session '${options.sessionName}' in ${repoRoot}.\n`);
-  } else {
-    stdout.write(`[${toolName}] Created ${backend.name} cockpit window '${options.sessionName}' in ${repoRoot}.\n`);
-  }
-  stdout.write(`[${toolName}] Control pane: ${controlCommand}\n`);
-
-  return { action, backend: backend.name, sessionName: options.sessionName, repoRoot };
+  return openWithBackend(backend, options, repoRoot, controlCommand, { ...deps, stdout, toolName });
 }
 
 if (require.main === module) {
@@ -213,9 +317,12 @@ if (require.main === module) {
 module.exports = {
   DEFAULT_SESSION_NAME,
   DEFAULT_BACKEND,
+  DEFAULT_INTERACTIVE_BACKEND,
   cockpitControlCommand,
+  defaultCockpitBackends,
   parseCockpitArgs,
   parseCockpitControlArgs,
+  openDefaultCockpit,
   openCockpit,
   render,
   startCockpit,
