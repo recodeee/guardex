@@ -20,7 +20,7 @@ test('renderSettingsScreen shows settings sections and current values', () => {
 
   assert.match(output, /gx cockpit settings/);
   assert.match(output, /\[Appearance\]/);
-  assert.match(output, /Theme: dim \(available: default, dim, high-contrast\)/);
+  assert.match(output, /Theme: dim \(available: blue, amber, dim, high-contrast, none\)/);
   assert.match(output, /\[Layout\]/);
   assert.match(output, /Sidebar width: 44 \(available: 20-80 columns\)/);
   assert.match(output, /Refresh interval: 3000 \(available: 500-60000 ms\)/);
@@ -48,7 +48,7 @@ test('renderSettingsScreen includes fixed keyboard hints', () => {
 test('renderSettingsScreen uses defaults and can mark the selected setting', () => {
   const output = renderSettingsScreen(null, { selectedField: 'theme' });
 
-  assert.match(output, /> Theme: default \(available: default, dim, high-contrast\)/);
+  assert.match(output, /> Theme: blue \(available: blue, amber, dim, high-contrast, none\)/);
   assert.match(output, /Editor command: \(blank\) \(available: any shell command, blank\)/);
   assert.equal(output.endsWith('\n'), true);
 });

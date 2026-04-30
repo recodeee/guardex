@@ -1,7 +1,12 @@
 'use strict';
 
+const { SETTINGS_KEYBINDINGS } = require('./shortcuts');
+const { colorize, getCockpitTheme } = require('./theme');
+
+const AVAILABLE_THEMES = 'blue, amber, dim, high-contrast, none';
+
 const DEFAULT_SETTINGS = {
-  theme: 'default',
+  theme: 'blue',
   sidebarWidth: 32,
   refreshMs: 2000,
   defaultAgent: 'codex',
@@ -16,7 +21,7 @@ const SECTION_DEFINITIONS = [
   {
     title: 'Appearance',
     fields: [
-      ['theme', 'Theme', 'default, dim, high-contrast'],
+      ['theme', 'Theme', AVAILABLE_THEMES],
     ],
   },
   {
@@ -49,13 +54,6 @@ const SECTION_DEFINITIONS = [
   },
 ];
 
-const KEYBINDINGS = [
-  '↑/↓ navigate',
-  'Enter edit',
-  'Esc back',
-  'q quit',
-];
-
 function normalizeSettings(settings) {
   if (!settings || typeof settings !== 'object' || Array.isArray(settings)) {
     return { ...DEFAULT_SETTINGS };
@@ -77,9 +75,10 @@ function formatValue(value) {
   return String(value);
 }
 
-function fieldLine(field, label, available, settings, selectedField) {
+function fieldLine(field, label, available, settings, selectedField, theme) {
   const marker = field === selectedField ? '>' : ' ';
-  return `${marker} ${label}: ${formatValue(settings[field])} (available: ${available})`;
+  const line = `${marker} ${label}: ${formatValue(settings[field])} (available: ${available})`;
+  return field === selectedField ? colorize(line, 'selected', theme) : line;
 }
 
 function resolveSelectedField(options) {
@@ -93,31 +92,32 @@ function resolveSelectedField(options) {
   return null;
 }
 
-function renderSection(section, settings, selectedField) {
-  const lines = [`[${section.title}]`];
+function renderSection(section, settings, selectedField, theme) {
+  const lines = [colorize(`[${section.title}]`, 'heading', theme)];
   for (const [field, label, available] of section.fields) {
-    lines.push(fieldLine(field, label, available, settings, selectedField));
+    lines.push(fieldLine(field, label, available, settings, selectedField, theme));
   }
   return lines.join('\n');
 }
 
 function renderSettingsScreen(settings, options = {}) {
   const current = normalizeSettings(settings);
+  const theme = getCockpitTheme(options.theme || current.theme, options);
   const selectedField = resolveSelectedField(options);
   const lines = [
-    'gx cockpit settings',
-    'Plain terminal settings view',
+    colorize('gx cockpit settings', 'title', theme),
+    colorize('Plain terminal settings view', 'secondary', theme),
     '',
   ];
 
   for (const section of SECTION_DEFINITIONS) {
-    lines.push(renderSection(section, current, selectedField));
+    lines.push(renderSection(section, current, selectedField, theme));
     lines.push('');
   }
 
-  lines.push('[Keybindings]');
-  for (const keybinding of KEYBINDINGS) {
-    lines.push(`  ${keybinding}`);
+  lines.push(colorize('[Keybindings]', 'heading', theme));
+  for (const keybinding of SETTINGS_KEYBINDINGS) {
+    lines.push(colorize(`  ${keybinding}`, 'secondary', theme));
   }
 
   return `${lines.join('\n')}\n`;
