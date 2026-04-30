@@ -1,5 +1,6 @@
 const { readCockpitState } = require('./state');
 const { renderCockpit } = require('./render');
+const control = require('./control');
 const actions = require('./actions');
 const {
   ensureTmuxAvailable,
@@ -55,6 +56,59 @@ function parseCockpitArgs(rawArgs = []) {
   return options;
 }
 
+function parseCockpitControlArgs(rawArgs = []) {
+  const options = {
+    refreshMs: undefined,
+    target: process.cwd(),
+  };
+
+  for (let index = 0; index < rawArgs.length; index += 1) {
+    const arg = rawArgs[index];
+    if (arg === '--target' || arg === '-t') {
+      const next = rawArgs[index + 1];
+      if (!next || next.startsWith('-')) {
+        throw new Error(`${arg} requires a repo path`);
+      }
+      options.target = next;
+      index += 1;
+      continue;
+    }
+    if (arg === '--refresh-ms') {
+      const next = rawArgs[index + 1];
+      if (!next || next.startsWith('-')) {
+        throw new Error('--refresh-ms requires a positive integer');
+      }
+      options.refreshMs = Number.parseInt(next, 10);
+      if (!Number.isFinite(options.refreshMs) || options.refreshMs <= 0) {
+        throw new Error('--refresh-ms requires a positive integer');
+      }
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--refresh-ms=')) {
+      options.refreshMs = Number.parseInt(arg.slice('--refresh-ms='.length), 10);
+      if (!Number.isFinite(options.refreshMs) || options.refreshMs <= 0) {
+        throw new Error('--refresh-ms requires a positive integer');
+      }
+      continue;
+    }
+    throw new Error(`Unknown cockpit control option: ${arg}`);
+  }
+
+  return options;
+}
+
+function shellQuote(value) {
+  return `'${String(value).replace(/'/g, "'\\''")}'`;
+}
+
+function cockpitControlCommand(repoRoot, options = {}) {
+  const refresh = Number.isFinite(options.refreshMs) && options.refreshMs > 0
+    ? ` --refresh-ms ${Math.floor(options.refreshMs)}`
+    : '';
+  return `gx cockpit control --target ${shellQuote(repoRoot)}${refresh}`;
+}
+
 function render(repoPath = process.cwd()) {
   return renderCockpit(readCockpitState(repoPath));
 }
@@ -74,7 +128,7 @@ function startCockpit(options = {}) {
   return setInterval(paint, refreshMs);
 }
 
-function openCockpit(rawArgs, deps = {}) {
+function openCockpit(rawArgs = [], deps = {}) {
   const {
     resolveRepoRoot,
     toolName = 'gitguardex',
@@ -91,9 +145,23 @@ function openCockpit(rawArgs, deps = {}) {
     throw new Error('openCockpit requires resolveRepoRoot');
   }
 
+  if (rawArgs[0] === 'control') {
+    const controlOptions = parseCockpitControlArgs(rawArgs.slice(1));
+    return control.startCockpitControl({
+      repoPath: resolveRepoRoot(controlOptions.target),
+      refreshMs: controlOptions.refreshMs,
+      stdin: deps.stdin,
+      stdout,
+      readState: deps.readState,
+      readSettings: deps.readSettings,
+      setInterval: deps.setInterval,
+      clearInterval: deps.clearInterval,
+    });
+  }
+
   const options = parseCockpitArgs(rawArgs);
   const repoRoot = resolveRepoRoot(options.target);
-  const controlCommand = 'gx agents status';
+  const controlCommand = cockpitControlCommand(repoRoot);
 
   tmux.ensureTmuxAvailable();
 
@@ -116,7 +184,7 @@ function openCockpit(rawArgs, deps = {}) {
     throw new Error(`tmux could not start cockpit control pane${detail ? `: ${detail}` : '.'}`);
   }
   stdout.write(`[${toolName}] Created tmux session '${options.sessionName}' in ${repoRoot}.\n`);
-  stdout.write(`[${toolName}] Control pane: gx agents status\n`);
+  stdout.write(`[${toolName}] Control pane: ${controlCommand}\n`);
 
   if (options.attach) {
     tmux.attachSession(options.sessionName);
@@ -135,10 +203,14 @@ if (require.main === module) {
 
 module.exports = {
   DEFAULT_SESSION_NAME,
+  cockpitControlCommand,
   parseCockpitArgs,
+  parseCockpitControlArgs,
   openCockpit,
   render,
   startCockpit,
+  ...control,
   ...actions,
+  control,
   actions,
 };
