@@ -7,6 +7,7 @@ const test = require('node:test');
 const cockpit = require('../src/cockpit');
 const {
   applyCockpitAction,
+  applyCockpitKey,
   renderControlFrame,
   startCockpitControl,
 } = require('../src/cockpit/control');
@@ -71,6 +72,14 @@ test('applyCockpitAction selects sessions and preserves selection across refresh
   assert.equal(state.selectedIndex, 1);
   assert.equal(state.selectedSessionId, 'two');
 
+  state = applyCockpitAction(state, { type: 'key', key: 'j' });
+  assert.equal(state.selectedIndex, 0);
+  assert.equal(state.selectedSessionId, 'one');
+
+  state = applyCockpitAction(state, { type: 'key', key: 'up' });
+  assert.equal(state.selectedIndex, 1);
+  assert.equal(state.selectedSessionId, 'two');
+
   state = applyCockpitAction(state, {
     type: 'refresh',
     cockpitState: snapshot([session('two'), session('one')]),
@@ -122,8 +131,62 @@ test('applyCockpitAction closes pane menu with Escape', () => {
   const closedState = applyCockpitAction(menuState, { type: 'key', key: '\u001b' });
 
   assert.equal(menuState.mode, 'menu');
-  assert.equal(closedState.mode, 'details');
+  assert.equal(closedState.mode, 'main');
   assert.equal(closedState.lastIntent, null);
+});
+
+test('applyCockpitAction handles dmux shortcut modes without launching agents', () => {
+  const baseState = applyCockpitAction({}, {
+    type: 'refresh',
+    cockpitState: snapshot([session('one')]),
+  });
+
+  const newAgent = applyCockpitAction(baseState, { type: 'key', key: 'n' });
+  assert.equal(newAgent.mode, 'new-agent');
+  assert.equal(newAgent.lastIntent, null);
+
+  const terminal = applyCockpitAction(baseState, { type: 'key', key: 't' });
+  assert.equal(terminal.mode, 'terminal');
+  assert.equal(terminal.lastIntent, null);
+
+  assert.equal(applyCockpitAction(baseState, { type: 'key', key: '?' }).mode, 'shortcuts');
+  assert.equal(applyCockpitAction(newAgent, { type: 'key', key: 'esc' }).mode, 'main');
+  assert.equal(applyCockpitAction(terminal, { type: 'key', key: 'escape' }).mode, 'main');
+  assert.equal(applyCockpitAction(baseState, { type: 'key', key: 'q' }).shouldExit, true);
+});
+
+test('applyCockpitAction maps enter to view selected lane', () => {
+  const baseState = applyCockpitAction({}, {
+    type: 'refresh',
+    cockpitState: snapshot([session('one')]),
+  });
+
+  const state = applyCockpitAction(baseState, { type: 'key', key: 'enter' });
+  assert.deepEqual(state.lastIntent, {
+    type: 'view',
+    sessionId: 'one',
+    branch: 'agent/codex/one',
+    worktreePath: '/tmp/one',
+  });
+  assert.equal(state.mode, 'main');
+});
+
+test('applyCockpitAction keeps empty-lane navigation on action rows', () => {
+  let state = applyCockpitAction({}, {
+    type: 'refresh',
+    cockpitState: snapshot([]),
+  });
+
+  assert.equal(state.selectedScope, 'action');
+  assert.equal(state.actionIndex, 0);
+
+  state = applyCockpitAction(state, { type: 'key', key: 'k' });
+  assert.equal(state.selectedScope, 'action');
+  assert.equal(state.selectedIndex, 0);
+  assert.equal(state.actionIndex, 3);
+
+  state = applyCockpitAction(state, { type: 'key', key: 'j' });
+  assert.equal(state.actionIndex, 0);
 });
 
 test('applyCockpitAction routes pane menu hotkeys to pane action intents', () => {
@@ -157,7 +220,7 @@ test('renderControlFrame renders sidebar with details, menu, and settings modes'
 
   const details = renderControlFrame(baseState);
   assert.match(details, /gx cockpit/);
-  assert.match(details, /details/);
+  assert.match(details, /main/);
   assert.match(details, /session: one/);
 
   const menu = renderControlFrame(applyCockpitAction(baseState, { type: 'key', key: 'm' }));
@@ -168,6 +231,14 @@ test('renderControlFrame renders sidebar with details, menu, and settings modes'
   const settings = renderControlFrame(applyCockpitAction(baseState, { type: 'key', key: 's' }));
   assert.match(settings, /gx cockpit settings/);
   assert.match(settings, /> Theme: dim/);
+
+  const shortcuts = renderControlFrame(applyCockpitAction(baseState, { type: 'key', key: '?' }));
+  assert.match(shortcuts, /shortcuts/);
+  assert.match(shortcuts, /j\/down: next lane/);
+});
+
+test('control re-exports pure applyCockpitKey helper', () => {
+  assert.equal(applyCockpitKey({ mode: 'main' }, 's').mode, 'settings');
 });
 
 test('startCockpitControl reads state/settings, refreshes, and handles TTY keys', () => {
