@@ -93,3 +93,12 @@ test('cockpit reports a helpful error when tmux is unavailable', () => {
   assert.equal(result.status, 1);
   assert.match(result.stderr, /tmux is required for gx cockpit\. Install tmux and retry\./);
 });
+
+test('cockpit reports a clear error for an invalid backend', () => {
+  const repoDir = initRepo();
+
+  const result = runNodeWithEnv(['cockpit', '--backend', 'screen', '--target', repoDir], repoDir, {});
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /--backend requires auto, kitty, or tmux/);
+});

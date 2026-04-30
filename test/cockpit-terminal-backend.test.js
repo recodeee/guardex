@@ -10,6 +10,41 @@ const {
   kitty,
 } = require('../src/terminal');
 
+function cockpitBackendHarness({ kittyAvailable = true } = {}) {
+  const stdout = [];
+  const calls = {
+    kitty: [],
+    tmux: [],
+  };
+
+  const backend = (name) => ({
+    name,
+    isAvailable: () => (name === 'kitty' ? kittyAvailable : true),
+    openCockpitLayout(options) {
+      calls[name].push(options);
+      return { action: 'created' };
+    },
+  });
+
+  return {
+    stdout,
+    calls,
+    deps: {
+      resolveRepoRoot: (target) => target,
+      toolName: 'gx',
+      stdout: {
+        write(chunk) {
+          stdout.push(String(chunk));
+        },
+      },
+      terminalBackends: {
+        kitty: backend('kitty'),
+        tmux: backend('tmux'),
+      },
+    },
+  };
+}
+
 test('backend selection prefers kitty for auto when remote control is available', () => {
   const backend = selectTerminalBackend('auto', {
     kittyBackend: {
@@ -113,31 +148,14 @@ test('kitty command construction is stable', () => {
 });
 
 test('cockpit --backend kitty opens through the selected backend', () => {
-  const stdout = [];
-  const calls = [];
+  const { stdout, calls, deps } = cockpitBackendHarness();
   const result = cockpit.openCockpit(['--backend', 'kitty', '--session', 'guardex-dev', '--target', '/repo/gitguardex'], {
-    resolveRepoRoot: (target) => target,
-    toolName: 'gx',
-    stdout: {
-      write(chunk) {
-        stdout.push(String(chunk));
-      },
-    },
-    terminalBackends: {
-      kitty: {
-        name: 'kitty',
-        isAvailable: () => true,
-        openCockpitLayout(options) {
-          calls.push(options);
-          return { action: 'created' };
-        },
-      },
-    },
+    ...deps,
   });
 
   assert.equal(result.backend, 'kitty');
   assert.equal(result.sessionName, 'guardex-dev');
-  assert.deepEqual(calls, [
+  assert.deepEqual(calls.kitty, [
     {
       repoRoot: '/repo/gitguardex',
       sessionName: 'guardex-dev',
@@ -147,4 +165,46 @@ test('cockpit --backend kitty opens through the selected backend', () => {
   ]);
   assert.match(stdout.join(''), /Created kitty cockpit window 'guardex-dev'/);
   assert.match(stdout.join(''), /Control pane: gx cockpit control --target '\/repo\/gitguardex'/);
+});
+
+test('cockpit --backend tmux opens through the tmux backend when kitty is available', () => {
+  const { stdout, calls, deps } = cockpitBackendHarness();
+  const result = cockpit.openCockpit(['--backend=tmux', '--session', 'guardex-dev', '--target', '/repo/gitguardex'], {
+    ...deps,
+  });
+
+  assert.equal(result.backend, 'tmux');
+  assert.equal(result.sessionName, 'guardex-dev');
+  assert.deepEqual(calls.kitty, []);
+  assert.deepEqual(calls.tmux, [
+    {
+      repoRoot: '/repo/gitguardex',
+      sessionName: 'guardex-dev',
+      command: "gx cockpit control --target '/repo/gitguardex'",
+      attach: false,
+    },
+  ]);
+  assert.match(stdout.join(''), /Created tmux session 'guardex-dev'/);
+});
+
+test('cockpit --backend auto prefers kitty through the CLI option', () => {
+  const { calls, deps } = cockpitBackendHarness({ kittyAvailable: true });
+  const result = cockpit.openCockpit(['--backend', 'auto', '--target', '/repo/gitguardex'], {
+    ...deps,
+  });
+
+  assert.equal(result.backend, 'kitty');
+  assert.equal(calls.kitty.length, 1);
+  assert.equal(calls.tmux.length, 0);
+});
+
+test('cockpit --backend auto falls back to tmux when kitty is unavailable', () => {
+  const { calls, deps } = cockpitBackendHarness({ kittyAvailable: false });
+  const result = cockpit.openCockpit(['--backend', 'auto', '--target', '/repo/gitguardex'], {
+    ...deps,
+  });
+
+  assert.equal(result.backend, 'tmux');
+  assert.equal(calls.kitty.length, 0);
+  assert.equal(calls.tmux.length, 1);
 });
