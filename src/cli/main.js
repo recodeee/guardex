@@ -886,6 +886,10 @@ function isInteractiveTerminal() {
   return Boolean(process.stdin.isTTY && process.stdout.isTTY);
 }
 
+function legacyDefaultStatusEnabled() {
+  return envFlagIsTruthy(process.env.GUARDEX_LEGACY_STATUS);
+}
+
 function parseAutoApproval(name) {
   const raw = process.env[name];
   if (raw == null) return null;
@@ -3749,14 +3753,12 @@ async function main() {
   const args = process.argv.slice(2);
 
   if (args.length === 0) {
-    if (isInteractiveTerminal()) {
-      const options = parseAgentsArgs(['start', '--panel']);
-      const repoRoot = resolveRepoRoot(options.target);
-      agentsStart.startInteractiveAgentPanel(repoRoot, options, {
-        onDone(result) {
-          process.exitCode = result.status;
-        },
+    if (isInteractiveTerminal() && !legacyDefaultStatusEnabled()) {
+      cockpitModule.openDefaultCockpit({
+        resolveRepoRoot,
+        toolName: TOOL_NAME,
       });
+      process.exitCode = 0;
       return;
     }
     toolchainModule.maybeSelfUpdateBeforeStatus();
