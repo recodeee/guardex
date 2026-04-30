@@ -83,6 +83,15 @@ test('backend names reject unsupported cockpit backends', () => {
 });
 
 test('kitty command construction is stable', () => {
+  assert.deepEqual(kitty.buildVersionCommand(), {
+    cmd: 'kitty',
+    args: ['--version'],
+  });
+  assert.deepEqual(kitty.buildAvailabilityCommand(), {
+    cmd: 'kitty',
+    args: ['@', 'ls'],
+  });
+
   assert.deepEqual(
     kitty.buildOpenCockpitLayoutCommand({
       repoRoot: '/repo/gitguardex',
@@ -145,6 +154,146 @@ test('kitty command construction is stable', () => {
     args: ['@', 'send-text', '--match', 'id:12', '--stdin'],
   });
   assert.equal(kitty.sendTextInput('gx status', { submit: true }), 'gx status\n');
+});
+
+function fakeRuntime(results) {
+  const calls = [];
+  return {
+    calls,
+    run(cmd, args, options) {
+      calls.push({ cmd, args, options });
+      const result = results.shift();
+      if (typeof result === 'function') return result(cmd, args, options);
+      return result || { status: 0, stdout: '', stderr: '' };
+    },
+  };
+}
+
+test('kitty backend is unavailable when kitty binary is missing', () => {
+  const runtime = fakeRuntime([
+    { status: 127, error: new Error('spawn kitty ENOENT') },
+    { status: 127, error: new Error('spawn kitty ENOENT') },
+  ]);
+  const backend = kitty.createKittyBackend({ runtime });
+
+  assert.equal(backend.isAvailable(), false);
+  const status = backend.describe();
+  assert.equal(status.available, false);
+  assert.equal(status.installed, false);
+  assert.match(status.message, /Kitty is not installed/);
+  assert.match(status.error, /ENOENT/);
+  assert.deepEqual(runtime.calls.map((call) => call.args), [
+    ['--version'],
+    ['--version'],
+  ]);
+});
+
+test('kitty backend is unavailable when remote control probe fails', () => {
+  const runtime = fakeRuntime([
+    { status: 0, stdout: 'kitty 0.34.1\n', stderr: '' },
+    { status: 1, stdout: '', stderr: 'The remote control feature is disabled\n' },
+    { status: 0, stdout: 'kitty 0.34.1\n', stderr: '' },
+    { status: 1, stdout: '', stderr: 'The remote control feature is disabled\n' },
+  ]);
+  const backend = kitty.createKittyBackend({ runtime });
+
+  const status = backend.describe();
+  assert.equal(status.available, false);
+  assert.equal(status.installed, true);
+  assert.equal(status.remoteControl, false);
+  assert.equal(status.message, kitty.KITTY_REMOTE_CONTROL_MESSAGE);
+  assert.match(status.error, /remote control feature is disabled/);
+  assert.equal(backend.isAvailable(), false);
+});
+
+test('kitty backend is available when version and remote control probes pass', () => {
+  const runtime = fakeRuntime([
+    { status: 0, stdout: 'kitty 0.34.1\n', stderr: '' },
+    { status: 0, stdout: '[{\"id\":1}]\n', stderr: '' },
+  ]);
+  const backend = kitty.createKittyBackend({ runtime });
+
+  const status = backend.describe();
+  assert.equal(status.available, true);
+  assert.equal(status.installed, true);
+  assert.equal(status.remoteControl, true);
+  assert.equal(status.version, 'kitty 0.34.1');
+  assert.equal(status.checks.length, 2);
+});
+
+test('kitty backend execute path delegates commands to the runtime', () => {
+  const runtime = fakeRuntime([
+    { status: 0, stdout: '', stderr: '' },
+  ]);
+  const backend = kitty.createKittyBackend({ runtime });
+
+  assert.equal(backend.sendText({ id: '12' }, 'gx status', { submit: true }).status, 0);
+  assert.deepEqual(runtime.calls, [
+    {
+      cmd: 'kitty',
+      args: ['@', 'send-text', '--match', 'id:12', '--stdin'],
+      options: {
+        input: 'gx status\n',
+        stdio: 'pipe',
+        env: undefined,
+      },
+    },
+  ]);
+});
+
+test('kitty backend dry-run returns planned commands without executing', () => {
+  const runtime = fakeRuntime([]);
+  const backend = kitty.createKittyBackend({
+    runtime,
+    dryRun: true,
+    env: { GUARDEX_KITTY_BIN: '/opt/kitty/bin/kitty' },
+  });
+
+  assert.deepEqual(backend.isAvailable(), {
+    dryRun: true,
+    action: 'check-availability',
+    commands: [
+      { cmd: '/opt/kitty/bin/kitty', args: ['--version'] },
+      { cmd: '/opt/kitty/bin/kitty', args: ['@', 'ls'] },
+    ],
+  });
+  assert.deepEqual(
+    backend.openCockpitLayout({
+      repoRoot: '/repo/gitguardex',
+      command: 'gx cockpit control',
+    }),
+    {
+      dryRun: true,
+      action: 'open-cockpit-layout',
+      commands: [
+        {
+          cmd: '/opt/kitty/bin/kitty',
+          args: [
+            '@',
+            'launch',
+            '--type=window',
+            '--cwd',
+            '/repo/gitguardex',
+            '--title',
+            'gx cockpit',
+            '--',
+            'sh',
+            '-lc',
+            'gx cockpit control',
+          ],
+        },
+      ],
+      cwd: '/repo/gitguardex',
+    },
+  );
+  assert.deepEqual(backend.dryRunPlan('custom-check', kitty.buildAvailabilityCommand()), {
+    dryRun: true,
+    action: 'custom-check',
+    commands: [
+      { cmd: 'kitty', args: ['@', 'ls'] },
+    ],
+  });
+  assert.deepEqual(runtime.calls, []);
 });
 
 test('cockpit --backend kitty opens through the selected backend', () => {

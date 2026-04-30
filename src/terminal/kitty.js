@@ -6,6 +6,8 @@ const DEFAULT_KITTY_BIN = 'kitty';
 const DEFAULT_COCKPIT_TITLE = 'gx cockpit';
 const DEFAULT_AGENT_TITLE = 'agent';
 const DEFAULT_TERMINAL_TITLE = 'terminal';
+const KITTY_MISSING_MESSAGE = 'Kitty is not installed or not on PATH. Install Kitty or run gx cockpit --backend tmux.';
+const KITTY_REMOTE_CONTROL_MESSAGE = 'Kitty is installed, but remote control is not available. Enable allow_remote_control in kitty.conf or run gx cockpit --backend tmux.';
 
 function text(value, fallback = '') {
   if (typeof value === 'string') return value.trim() || fallback;
@@ -29,8 +31,14 @@ function firstText(...values) {
   return '';
 }
 
+function configEnv(config = {}) {
+  return config.env && typeof config.env === 'object' ? config.env : {};
+}
+
 function kittyBin(config = {}, options = {}) {
-  const envValue = options.allowEnv ? process.env.GUARDEX_KITTY_BIN : '';
+  const envValue = options.allowEnv
+    ? firstText(configEnv(config).GUARDEX_KITTY_BIN, process.env.GUARDEX_KITTY_BIN)
+    : '';
   return text(config.kittyBin || envValue, DEFAULT_KITTY_BIN);
 }
 
@@ -150,8 +158,19 @@ function buildKittyVersionCommand(options = {}) {
   return commandShape(['--version'], options);
 }
 
+function buildVersionCommand(config = {}) {
+  return commandShapeWithEnv(buildKittyVersionCommand().args, config);
+}
+
 function buildAvailabilityCommand(config = {}) {
   return commandShapeWithEnv(buildKittyLsCommand().args, config);
+}
+
+function buildAvailabilityCommands(config = {}) {
+  return [
+    buildVersionCommand(config),
+    buildAvailabilityCommand(config),
+  ];
 }
 
 function buildOpenCockpitLayoutCommand(options = {}, config = {}) {
@@ -255,6 +274,15 @@ function sendTextInput(value, options = {}) {
   return options.submit ? `${body}\n` : body;
 }
 
+function mergeEnv(config = {}, options = {}) {
+  const env = configEnv(config);
+  if (Object.keys(env).length === 0) return options.env;
+  return {
+    ...(options.env || {}),
+    ...env,
+  };
+}
+
 function defaultRunner(cmd, args, options = {}) {
   return cp.spawnSync(cmd, args, {
     cwd: options.cwd,
@@ -266,6 +294,61 @@ function defaultRunner(cmd, args, options = {}) {
   });
 }
 
+function runnerFor(config = {}) {
+  if (typeof config.runner === 'function') {
+    return {
+      run: config.runner,
+    };
+  }
+  if (config.runtime && typeof config.runtime.run === 'function') {
+    return config.runtime;
+  }
+  return {
+    run: defaultRunner,
+  };
+}
+
+function cloneCommand(shape) {
+  return {
+    cmd: shape.cmd,
+    args: [...shape.args],
+  };
+}
+
+function makeDryRunPlan(action, commands, extra = {}) {
+  const list = Array.isArray(commands) ? commands : [commands];
+  const plan = {
+    dryRun: true,
+    action,
+    commands: list.map(cloneCommand),
+  };
+  for (const [key, value] of Object.entries(extra)) {
+    if (value !== undefined) plan[key] = value;
+  }
+  return plan;
+}
+
+function resultText(result) {
+  if (!result) return '';
+  if (result.error && result.error.message) return result.error.message;
+  return String(result.stderr || result.stdout || '').trim();
+}
+
+function resultOutput(result) {
+  return String((result && (result.stdout || result.stderr)) || '').trim();
+}
+
+function checkResult(name, command, result) {
+  return {
+    name,
+    command: cloneCommand(command),
+    ok: Boolean(result && result.status === 0 && !result.error),
+    status: result && typeof result.status === 'number' ? result.status : null,
+    output: resultOutput(result),
+    error: resultText(result),
+  };
+}
+
 function assertResult(result, message) {
   if (result && result.error) throw result.error;
   if (!result || result.status === 0) return result;
@@ -273,55 +356,141 @@ function assertResult(result, message) {
   throw new Error(`${message}${detail ? `: ${detail}` : '.'}`);
 }
 
-function createBackend(config = {}) {
-  const runner = typeof config.runner === 'function' ? config.runner : defaultRunner;
-  const run = (shape, options = {}) => runner(shape.cmd, shape.args, options);
+function createKittyBackend(config = {}) {
+  const runtime = runnerFor(config);
+  const run = (shape, options = {}) => {
+    const input = Object.prototype.hasOwnProperty.call(shape, 'input') && options.input === undefined
+      ? shape.input
+      : options.input;
+    return runtime.run(shape.cmd, shape.args, {
+      ...options,
+      input,
+      env: mergeEnv(config, options),
+    });
+  };
+  const dryRun = Boolean(config.dryRun);
+
+  function describe() {
+    const commands = buildAvailabilityCommands(config);
+    if (dryRun) return makeDryRunPlan('check-availability', commands);
+
+    const versionResult = run(commands[0], { stdio: 'pipe' });
+    const versionCheck = checkResult('kitty --version', commands[0], versionResult);
+    if (!versionCheck.ok) {
+      return {
+        name: 'kitty',
+        available: false,
+        installed: false,
+        remoteControl: false,
+        binary: commands[0].cmd,
+        message: KITTY_MISSING_MESSAGE,
+        error: versionCheck.error,
+        checks: [versionCheck],
+      };
+    }
+
+    const remoteResult = run(commands[1], { stdio: 'pipe' });
+    const remoteCheck = checkResult('kitty @ ls', commands[1], remoteResult);
+    const remoteControl = remoteCheck.ok;
+    return {
+      name: 'kitty',
+      available: remoteControl,
+      installed: true,
+      remoteControl,
+      binary: commands[0].cmd,
+      version: versionCheck.output,
+      message: remoteControl ? 'Kitty remote control is available.' : KITTY_REMOTE_CONTROL_MESSAGE,
+      error: remoteControl ? '' : remoteCheck.error,
+      checks: [versionCheck, remoteCheck],
+    };
+  }
+
+  function execute(action, shape, options = {}, message) {
+    const input = Object.prototype.hasOwnProperty.call(shape, 'input') && options.input === undefined
+      ? shape.input
+      : options.input;
+    if (dryRun) {
+      return makeDryRunPlan(action, shape, {
+        cwd: options.cwd,
+        input,
+      });
+    }
+    return assertResult(run(shape, { ...options, input }), message);
+  }
 
   return {
     name: 'kitty',
     isAvailable() {
-      const result = run(buildAvailabilityCommand(config), { stdio: 'pipe' });
-      return Boolean(result && result.status === 0 && !result.error);
+      if (dryRun) return makeDryRunPlan('check-availability', buildAvailabilityCommands(config));
+      return describe().available;
+    },
+    describe,
+    remoteControlUnavailableMessage: KITTY_REMOTE_CONTROL_MESSAGE,
+    missingMessage: KITTY_MISSING_MESSAGE,
+    dryRunPlan(action, commands, extra = {}) {
+      return makeDryRunPlan(action, commands, extra);
     },
     openCockpitLayout(options = {}) {
-      const result = run(buildOpenCockpitLayoutCommand(options, config), { cwd: options.repoRoot });
-      return assertResult(result, 'kitty could not open cockpit layout');
+      return execute(
+        'open-cockpit-layout',
+        buildOpenCockpitLayoutCommand(options, config),
+        { cwd: options.repoRoot },
+        'kitty could not open cockpit layout',
+      );
     },
     launchAgentPane(options = {}) {
-      const result = run(buildLaunchAgentPaneCommand(options, config), { cwd: options.worktree });
-      return assertResult(result, 'kitty could not launch agent pane');
+      return execute(
+        'launch-agent-pane',
+        buildLaunchAgentPaneCommand(options, config),
+        { cwd: options.worktree },
+        'kitty could not launch agent pane',
+      );
     },
     launchTerminalPane(options = {}) {
-      const result = run(buildLaunchTerminalPaneCommand(options, config), { cwd: options.cwd });
-      return assertResult(result, 'kitty could not launch terminal pane');
+      return execute(
+        'launch-terminal-pane',
+        buildLaunchTerminalPaneCommand(options, config),
+        { cwd: options.cwd },
+        'kitty could not launch terminal pane',
+      );
     },
     focusPane(target) {
-      const result = run(buildFocusPaneCommand(target, config));
-      return assertResult(result, 'kitty could not focus pane');
+      return execute('focus-pane', buildFocusPaneCommand(target, config), {}, 'kitty could not focus pane');
     },
     closePane(target) {
-      const result = run(buildClosePaneCommand(target, config));
-      return assertResult(result, 'kitty could not close pane');
+      return execute('close-pane', buildClosePaneCommand(target, config), {}, 'kitty could not close pane');
     },
     sendText(target, value, options = {}) {
-      const result = run(buildSendTextCommand(target, config), {
-        input: sendTextInput(value, options),
-        stdio: 'pipe',
-      });
-      return assertResult(result, 'kitty could not send text');
+      return execute(
+        'send-text',
+        buildSendTextCommand(target, config),
+        {
+          input: sendTextInput(value, options),
+          stdio: 'pipe',
+        },
+        'kitty could not send text',
+      );
     },
   };
 }
 
+function createBackend(config = {}) {
+  return createKittyBackend(config);
+}
+
 module.exports = {
   DEFAULT_KITTY_BIN,
+  KITTY_MISSING_MESSAGE,
+  KITTY_REMOTE_CONTROL_MESSAGE,
   buildKittyLaunchCommand,
   buildKittyFocusCommand,
   buildKittyCloseCommand,
   buildKittySendTextCommand,
   buildKittyLsCommand,
   buildKittyVersionCommand,
+  buildVersionCommand,
   buildAvailabilityCommand,
+  buildAvailabilityCommands,
   buildOpenCockpitLayoutCommand,
   buildLaunchAgentPaneCommand,
   buildLaunchTerminalPaneCommand,
@@ -329,6 +498,7 @@ module.exports = {
   buildClosePaneCommand,
   buildSendTextCommand,
   createBackend,
+  createKittyBackend,
   sendTextInput,
   targetMatch,
 };
