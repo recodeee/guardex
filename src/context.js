@@ -452,6 +452,9 @@ const DOCTOR_AUTO_FINISH_MESSAGE_MAX = 160;
 const AI_SETUP_PART_ALIASES = new Map([
   ['task', 'task-loop'],
   ['loop', 'task-loop'],
+  ['compact-commands', 'rtk'],
+  ['command-compression', 'rtk'],
+  ['token-commands', 'rtk'],
   ['reviewbot', 'review-bot'],
   ['forksync', 'fork-sync'],
 ]);
@@ -501,6 +504,18 @@ const AI_SETUP_PARTS = [
     execLines: [
       'gx branch start "<task>" "<agent>"',
       'gx locks claim --branch "<agent-branch>" <file...>',
+    ],
+  },
+  {
+    name: 'rtk',
+    label: 'RTK command compression',
+    promptLines: [
+      'Prefer RTK wrappers for noisy shell discovery and verification when `rtk` is available; fall back to raw commands when missing.',
+      'Files: `rtk ls .`, `rtk read <file>`, `rtk read <file> -l aggressive`, `rtk smart <file>`, `rtk find "<glob>" .`, `rtk grep "<pattern>" .`, `rtk diff <a> <b>`.',
+      'Git/GitHub: `rtk git status`, `rtk git diff`, `rtk git log -n 10`, `rtk gh pr list`, `rtk gh pr view <id>`.',
+      'Tests/build: `rtk test <cmd>`, `rtk err <cmd>`, `rtk jest`, `rtk vitest`, `rtk playwright test`, `rtk pytest`, `rtk cargo test`, `rtk tsc`, `rtk lint`.',
+      'Use `rtk gain`, `rtk discover`, and `rtk session` to audit savings; use `rtk proxy <command>` only when raw passthrough is required.',
+      'Do not wrap machine-readable commands with RTK when code parses stdout (`--porcelain`, `--json`, NUL-delimited output, or exact stdout contracts).',
     ],
   },
   {
