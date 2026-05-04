@@ -246,6 +246,21 @@ test('renderControlFrame renders sidebar with details, menu, and settings modes'
   assert.match(shortcuts, /j\/down: next lane/);
 });
 
+test('renderControlFrame shows the GitGuardex welcome panel when no lanes exist', () => {
+  const state = applyCockpitAction({}, {
+    type: 'refresh',
+    cockpitState: snapshot([]),
+    settings: { sidebarWidth: 34, theme: 'none' },
+  });
+
+  const output = renderControlFrame(state);
+
+  assert.match(output, /gitguardex \| gx cockpit/);
+  assert.match(output, /Guardian cockpit ready/);
+  assert.match(output, /n new agent/);
+  assert.doesNotMatch(output, /No session selected/);
+});
+
 test('control re-exports pure applyCockpitKey helper', () => {
   assert.equal(applyCockpitKey({ mode: 'main' }, 's').mode, 'settings');
 });
@@ -308,10 +323,10 @@ test('startCockpitControl reads state/settings, refreshes, and handles TTY keys'
   assert.deepEqual(input.rawModes, [true, false]);
 });
 
-test('openCockpit sends the control loop command into the tmux control pane', () => {
+test('openCockpit --backend tmux sends the control loop command into the tmux control pane', () => {
   const stdout = [];
   const sent = [];
-  const result = cockpit.openCockpit(['--target', '/repo/gitguardex'], {
+  const result = cockpit.openCockpit(['--backend', 'tmux', '--target', '/repo/gitguardex'], {
     resolveRepoRoot: (target) => target,
     toolName: 'gx',
     stdout: {

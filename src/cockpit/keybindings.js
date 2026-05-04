@@ -2,7 +2,8 @@
 
 const { PANE_MENU_ACTION_IDS } = require('./pane-menu');
 
-const VALID_MODES = new Set(['main', 'menu', 'settings', 'prompt']);
+const DEFAULT_ACTION_ROWS = Object.freeze(['new-agent', 'terminal', 'settings', 'shortcuts']);
+const VALID_MODES = new Set(['main', 'menu', 'settings', 'shortcuts', 'new-agent', 'terminal', 'prompt']);
 
 function action(type, payload = {}) {
   return { type, payload };
@@ -22,6 +23,7 @@ const MAIN_BINDINGS = {
   m: action('menu'),
   'alt-shift-m': action('menu'),
   s: action('settings'),
+  '?': action('shortcuts'),
   x: action(PANE_MENU_ACTION_IDS.CLOSE),
   b: action(PANE_MENU_ACTION_IDS.CREATE_CHILD_WORKTREE),
   f: action(PANE_MENU_ACTION_IDS.BROWSE_FILES),
@@ -50,6 +52,20 @@ const BASE_BINDINGS = {
   settings: {
     ...NAVIGATION_BINDINGS,
     esc: action('close-settings'),
+    q: action('quit'),
+  },
+  shortcuts: {
+    esc: action('close-popup'),
+    q: action('quit'),
+  },
+  'new-agent': {
+    enter: action('agent:start'),
+    esc: action('close-popup'),
+    q: action('quit'),
+  },
+  terminal: {
+    enter: action('terminal:open'),
+    esc: action('close-popup'),
     q: action('quit'),
   },
   prompt: {},
@@ -120,7 +136,89 @@ function resolveKeyAction(key, context = {}) {
   });
 }
 
+function number(value, fallback) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function wrapIndex(index, length) {
+  if (length <= 0) return 0;
+  const next = Number.isInteger(index) ? index : 0;
+  return ((next % length) + length) % length;
+}
+
+function actionRows(state = {}) {
+  if (!Array.isArray(state.actionRows) || state.actionRows.length === 0) {
+    return [...DEFAULT_ACTION_ROWS];
+  }
+  return state.actionRows.map((row) => String(row || '').trim()).filter(Boolean);
+}
+
+function moveSelection(state = {}, direction) {
+  const sessions = Array.isArray(state.sessions) ? state.sessions : [];
+  if (sessions.length > 0) {
+    return {
+      ...state,
+      selectedScope: 'lane',
+      selectedIndex: wrapIndex(number(state.selectedIndex, 0) + direction, sessions.length),
+      selectedSessionId: '',
+    };
+  }
+
+  const rows = actionRows(state);
+  return {
+    ...state,
+    actionRows: rows,
+    selectedScope: 'action',
+    selectedIndex: 0,
+    actionIndex: wrapIndex(number(state.actionIndex, 0) + direction, rows.length),
+    selectedSessionId: '',
+  };
+}
+
+function closeMode(state = {}) {
+  return {
+    ...state,
+    mode: 'main',
+    lastIntent: null,
+  };
+}
+
+function applyCockpitKey(state = {}, key) {
+  const current = {
+    ...state,
+    mode: normalizeMode(state),
+  };
+  const resolved = resolveKeyAction(key, current);
+
+  switch (resolved.type) {
+    case 'next':
+      return moveSelection(current, 1);
+    case 'previous':
+      return moveSelection(current, -1);
+    case 'new-agent':
+      return { ...current, mode: 'new-agent', lastIntent: null };
+    case 'terminal':
+      return { ...current, mode: 'terminal', lastIntent: null };
+    case 'shortcuts':
+      return { ...current, mode: 'shortcuts', lastIntent: null };
+    case 'settings':
+      return { ...current, mode: 'settings', lastIntent: null };
+    case 'menu':
+      return { ...current, mode: 'menu', lastIntent: null };
+    case 'close-menu':
+    case 'close-settings':
+    case 'close-popup':
+      return closeMode(current);
+    case 'quit':
+      return { ...current, shouldExit: true };
+    default:
+      return current;
+  }
+}
+
 module.exports = {
+  applyCockpitKey,
   defaultKeybindings,
   resolveKeyAction,
 };

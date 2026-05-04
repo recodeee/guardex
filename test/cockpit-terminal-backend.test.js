@@ -41,6 +41,13 @@ function cockpitBackendHarness({ kittyAvailable = true } = {}) {
         kitty: backend('kitty'),
         tmux: backend('tmux'),
       },
+      dryRun: true,
+      readState: () => ({
+        repoPath: '/repo/gitguardex',
+        baseBranch: 'main',
+        sessions: [],
+      }),
+      readSettings: () => ({}),
     },
   };
 }
@@ -304,14 +311,11 @@ test('cockpit --backend kitty opens through the selected backend', () => {
 
   assert.equal(result.backend, 'kitty');
   assert.equal(result.sessionName, 'guardex-dev');
-  assert.deepEqual(calls.kitty, [
-    {
-      repoRoot: '/repo/gitguardex',
-      sessionName: 'guardex-dev',
-      command: "gx cockpit control --target '/repo/gitguardex'",
-      attach: false,
-    },
-  ]);
+  assert.equal(calls.kitty.length, 0);
+  assert.equal(result.plan.repoRoot, '/repo/gitguardex');
+  assert.equal(result.plan.sessionName, 'guardex-dev');
+  assert.equal(result.plan.layout.control.title, 'gx cockpit');
+  assert.equal(result.plan.controlPaneCommand, "gx cockpit control --target '/repo/gitguardex'");
   assert.match(stdout.join(''), /Created kitty cockpit window 'guardex-dev'/);
   assert.match(stdout.join(''), /Control pane: gx cockpit control --target '\/repo\/gitguardex'/);
 });
@@ -343,7 +347,20 @@ test('cockpit --backend auto prefers kitty through the CLI option', () => {
   });
 
   assert.equal(result.backend, 'kitty');
-  assert.equal(calls.kitty.length, 1);
+  assert.equal(result.plan.layout.control.title, 'gx cockpit');
+  assert.equal(calls.kitty.length, 0);
+  assert.equal(calls.tmux.length, 0);
+});
+
+test('cockpit defaults to auto backend and prefers kitty', () => {
+  const { calls, deps } = cockpitBackendHarness({ kittyAvailable: true });
+  const result = cockpit.openCockpit(['--target', '/repo/gitguardex'], {
+    ...deps,
+  });
+
+  assert.equal(result.backend, 'kitty');
+  assert.equal(result.plan.layout.control.title, 'gx cockpit');
+  assert.equal(calls.kitty.length, 0);
   assert.equal(calls.tmux.length, 0);
 });
 

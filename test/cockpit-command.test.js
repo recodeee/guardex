@@ -18,6 +18,15 @@ function fakeTmux(scriptBody) {
   return { bin, log };
 }
 
+function fakeKitty(scriptBody) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'guardex-fake-kitty-'));
+  const bin = path.join(dir, 'kitty');
+  const log = path.join(dir, 'kitty.log');
+  fs.writeFileSync(bin, `#!/usr/bin/env bash\nset -euo pipefail\nLOG=${JSON.stringify(log)}\n${scriptBody}\n`, 'utf8');
+  fs.chmodSync(bin, 0o755);
+  return { bin, log };
+}
+
 function captureStdout() {
   const chunks = [];
   return {
@@ -33,26 +42,31 @@ function captureStdout() {
   };
 }
 
-test('cockpit creates the default tmux session in the repo root', () => {
+test('cockpit opens Kitty by default when remote control is available', () => {
   const repoDir = initRepo();
-  const { bin, log } = fakeTmux(
+  const { bin, log } = fakeKitty(
     'printf "%s\\n" "$PWD :: $*" >> "$LOG"\n' +
-      'if [[ "$1" == "-V" ]]; then echo "tmux 3.4"; exit 0; fi\n' +
-      'if [[ "$1" == "has-session" ]]; then exit 1; fi\n' +
-      'if [[ "$1" == "new-session" ]]; then exit 0; fi\n' +
-      'if [[ "$1" == "send-keys" ]]; then exit 0; fi\n' +
+      'if [[ "${1:-}" == "--version" ]]; then echo "kitty 0.35.0"; exit 0; fi\n' +
+      'if [[ "${1:-}" == "@" && "${2:-}" == "ls" ]]; then exit 0; fi\n' +
+      'if [[ "${1:-}" == "@" && "${2:-}" == "launch" ]]; then exit 0; fi\n' +
+      'if [[ "${1:-}" == "@" && "${2:-}" == "focus-window" ]]; then exit 0; fi\n' +
       'exit 9\n',
   );
+  const missingTmux = path.join(os.tmpdir(), `missing-tmux-${process.pid}-${Date.now()}`);
 
-  const result = runNodeWithEnv(['cockpit', '--target', repoDir], repoDir, { GUARDEX_TMUX_BIN: bin });
+  const result = runNodeWithEnv(['cockpit', '--target', repoDir], repoDir, {
+    GUARDEX_KITTY_BIN: bin,
+    GUARDEX_TMUX_BIN: missingTmux,
+  });
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.match(result.stdout, /Created tmux session 'guardex'/);
+  assert.match(result.stdout, /Created kitty cockpit window 'guardex'/);
   assert.match(result.stdout, /Control pane: gx cockpit control --target/);
   const lines = fs.readFileSync(log, 'utf8').trim().split('\n');
-  assert.match(lines[1], /^.* :: has-session -t guardex$/);
-  assert.match(lines[2], new RegExp(`^${repoDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} :: new-session -d -s guardex -c ${repoDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`));
-  assert.match(lines[3], /^.* :: send-keys -t guardex gx cockpit control --target .* C-m$/);
+  assert.match(lines[0], /^.* :: --version$/);
+  assert.match(lines[1], /^.* :: @ ls$/);
+  assert.match(lines[2], /^.* :: @ launch --type=window --cwd .* --title gx cockpit -- sh -lc gx cockpit control --target .*$/);
+  assert.match(lines[3], /^.* :: @ focus-window --match title:gx cockpit$/);
 });
 
 test('cockpit attaches when the tmux session already exists', () => {
@@ -65,7 +79,7 @@ test('cockpit attaches when the tmux session already exists', () => {
       'exit 9\n',
   );
 
-  const result = runNodeWithEnv(['cockpit', '--session', 'guardex-dev', '--target', repoDir], repoDir, {
+  const result = runNodeWithEnv(['cockpit', '--backend', 'tmux', '--session', 'guardex-dev', '--target', repoDir], repoDir, {
     GUARDEX_TMUX_BIN: bin,
   });
 
@@ -89,7 +103,7 @@ test('cockpit --attach creates then attaches when the session is missing', () =>
       'exit 9\n',
   );
 
-  const result = runNodeWithEnv(['cockpit', '--session=guardex-dev', '--attach', '--target', repoDir], repoDir, {
+  const result = runNodeWithEnv(['cockpit', '--backend=tmux', '--session=guardex-dev', '--attach', '--target', repoDir], repoDir, {
     GUARDEX_TMUX_BIN: bin,
   });
 
@@ -104,7 +118,10 @@ test('cockpit reports a helpful error when tmux is unavailable', () => {
   const repoDir = initRepo();
   const missingTmux = path.join(os.tmpdir(), `missing-tmux-${process.pid}-${Date.now()}`);
 
-  const result = runNodeWithEnv(['cockpit', '--target', repoDir], repoDir, { GUARDEX_TMUX_BIN: missingTmux });
+  const result = runNodeWithEnv(['cockpit', '--target', repoDir], repoDir, {
+    GUARDEX_KITTY_BIN: path.join(os.tmpdir(), `missing-kitty-${process.pid}-${Date.now()}`),
+    GUARDEX_TMUX_BIN: missingTmux,
+  });
 
   assert.equal(result.status, 1);
   assert.match(result.stderr, /tmux is required for gx cockpit\. Install tmux and retry\./);
@@ -143,13 +160,20 @@ test('default cockpit launcher prefers Kitty when remote control is available', 
     resolveRepoRoot: (target) => target,
     terminalBackends: { kitty: kittyBackend, tmux: tmuxBackend },
     stdout,
+    dryRun: true,
+    readState: () => ({
+      repoPath: repoDir,
+      baseBranch: 'main',
+      sessions: [],
+    }),
+    readSettings: () => ({}),
     env: {},
   });
 
   assert.equal(result.backend, 'kitty');
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].config.repoRoot, repoDir);
-  assert.match(calls[0].config.command, /gx cockpit control --target /);
+  assert.equal(calls.length, 0);
+  assert.equal(result.plan.repoRoot, repoDir);
+  assert.match(result.plan.controlPaneCommand, /gx cockpit control --target /);
   assert.match(output(), /Created kitty cockpit window 'guardex'/);
 });
 
@@ -214,5 +238,5 @@ test('default cockpit launcher renders inline when terminal backends fail', () =
   assert.equal(result.backend, 'inline');
   assert.deepEqual(result.failures, [{ backend: 'tmux', message: 'tmux unavailable' }]);
   assert.match(output(), /gx cockpit/);
-  assert.match(output(), /no active lanes/);
+  assert.match(output(), /No active agent lanes|no agent lanes/);
 });

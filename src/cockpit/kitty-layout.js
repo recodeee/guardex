@@ -1,5 +1,9 @@
 'use strict';
 
+const { readCockpitSettings } = require('./settings');
+const { readCockpitState } = require('./state');
+const kittyRuntime = require('../kitty/runtime');
+
 const DEFAULT_SESSION_NAME = 'guardex';
 const DEFAULT_COLUMNS = 120;
 const DEFAULT_KITTY_BIN = 'kitty';
@@ -110,6 +114,93 @@ function agentTitle(agent, index) {
   return `${String(index + 1).padStart(2, '0')}: ${agentLabel(agent, index)}`;
 }
 
+function objectValue(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+function canonicalSessions(state = {}) {
+  const source = objectValue(state);
+  const agentsStatus = objectValue(source.agentsStatus);
+  if (Array.isArray(agentsStatus.sessions)) return agentsStatus.sessions;
+  if (Array.isArray(source.sessions)) return source.sessions;
+  if (Array.isArray(source.agents)) return source.agents;
+  return [];
+}
+
+function isInactiveSession(session = {}) {
+  const status = firstText(session.status, session.activity).toLowerCase();
+  return new Set([
+    'closed',
+    'complete',
+    'completed',
+    'dead',
+    'done',
+    'exited',
+    'finished',
+    'merged',
+    'stopped',
+  ]).has(status);
+}
+
+function repoRootFrom(state = {}, settings = {}) {
+  const agentsStatus = objectValue(state.agentsStatus);
+  return requireText(
+    firstText(settings.repoRoot, settings.repoPath, state.repoRoot, state.repoPath, agentsStatus.repoRoot),
+    'repoRoot',
+  );
+}
+
+function laneShellCommand(session = {}) {
+  const label = firstText(session.branch, session.id, session.sessionId, 'agent lane');
+  return `printf '%s\\n' ${shellQuote(`GitGuardex cockpit lane: ${label}`)}; exec \${SHELL:-bash}`;
+}
+
+function normalizeCockpitSession(session, index, repoRoot, total) {
+  const source = objectValue(session);
+  const worktree = firstText(source.worktreePath, source.worktree, source.path, source.cwd);
+  const missingWorktree = !worktree || source.worktreeExists === false;
+  const cwd = requireText(missingWorktree ? repoRoot : worktree, `sessions[${index}].cwd`);
+  const title = agentTitle({
+    ...source,
+    agentName: firstText(source.agentName, source.agent),
+  }, index);
+
+  return {
+    id: agentId(source, index),
+    index,
+    total,
+    role: 'agent',
+    title,
+    cwd,
+    worktree,
+    worktreeExists: !missingWorktree,
+    missingWorktree,
+    branch: text(source.branch),
+    status: text(source.status),
+    activity: text(source.activity),
+    task: text(source.task),
+    metadata: objectValue(source.metadata),
+    launchCommand: text(source.launchCommand),
+    command: laneShellCommand(source),
+    match: matchTitle(title),
+    location: index === 0 ? 'vsplit' : 'hsplit',
+  };
+}
+
+function shouldShowDetailsPane(settings = {}) {
+  return Boolean(
+    settings.showDetailsPane ||
+    settings.detailsPane ||
+    settings.showLogPane ||
+    settings.logPane ||
+    settings.bottomPane,
+  );
+}
+
+function detailsPaneCommand(repoRoot, settings = {}) {
+  return text(settings.detailsCommand || settings.logCommand, `gx agents status --target ${shellQuote(repoRoot)}`);
+}
+
 function normalizeAgent(agent, index, repoRoot, total) {
   const source = agent && typeof agent === 'object' ? agent : {};
   const cwd = requireText(
@@ -127,6 +218,130 @@ function normalizeAgent(agent, index, repoRoot, total) {
     command: firstText(source.command, source.launchCommand, source.shellCommand, 'exec ${SHELL:-bash}'),
     branch: text(source.branch),
     match: matchTitle(title),
+  };
+}
+
+function buildKittyCockpitPlan(state = {}, settings = {}) {
+  const normalizedState = objectValue(state);
+  const normalizedSettings = objectValue(settings);
+  const repoRoot = repoRootFrom(normalizedState, normalizedSettings);
+  const sessionName = text(normalizedSettings.sessionName, DEFAULT_SESSION_NAME);
+  const columns = positiveInteger(normalizedSettings.columns, DEFAULT_COLUMNS);
+  const kittyBin = text(normalizedSettings.kittyBin, DEFAULT_KITTY_BIN);
+  const controlCommand = text(
+    normalizedSettings.controlCommand,
+    `gx cockpit control --target ${shellQuote(repoRoot)}`,
+  );
+  const activeSessions = canonicalSessions(normalizedState).filter((session) => !isInactiveSession(session));
+  const agentWindows = activeSessions.map((session, index) => (
+    normalizeCockpitSession(session, index, repoRoot, activeSessions.length)
+  ));
+  const hasAgents = agentWindows.length > 0;
+  const controlTitle = text(
+    normalizedSettings.controlTitle,
+    hasAgents ? `${sessionName}: control` : `${sessionName}: welcome`,
+  );
+  const controlWindow = {
+    id: 'control',
+    role: 'control',
+    title: controlTitle,
+    cwd: repoRoot,
+    command: controlCommand,
+    match: matchTitle(controlTitle),
+    persistent: true,
+    welcome: !hasAgents,
+  };
+
+  const detailWindow = hasAgents && shouldShowDetailsPane(normalizedSettings)
+    ? {
+        id: 'details',
+        role: 'details',
+        title: `${sessionName}: details`,
+        cwd: repoRoot,
+        command: detailsPaneCommand(repoRoot, normalizedSettings),
+        match: matchTitle(`${sessionName}: details`),
+        location: 'hsplit',
+      }
+    : null;
+
+  const steps = [
+    {
+      id: 'launch-control',
+      role: 'control',
+      action: 'launch',
+      window: controlWindow,
+      command: launchCommand(controlWindow, kittyBin),
+    },
+    ...agentWindows.map((window) => ({
+      id: `launch-agent-${window.index + 1}`,
+      role: 'agent',
+      action: 'launch',
+      agentId: window.id,
+      window,
+      command: launchCommand(window, kittyBin),
+    })),
+  ];
+
+  if (detailWindow) {
+    steps.push({
+      id: 'launch-details',
+      role: 'details',
+      action: 'launch',
+      window: detailWindow,
+      command: launchCommand(detailWindow, kittyBin),
+    });
+  }
+
+  if (normalizedSettings.focusControl !== false) {
+    steps.push({
+      id: 'focus-control',
+      role: 'control',
+      action: 'focus',
+      window: controlWindow,
+      command: focusCommand(controlWindow, kittyBin),
+    });
+  }
+
+  const panes = [controlWindow, ...agentWindows, ...(detailWindow ? [detailWindow] : [])];
+
+  return {
+    schemaVersion: 1,
+    backend: 'kitty',
+    dryRun: Boolean(normalizedSettings.dryRun),
+    sessionName,
+    repoRoot,
+    columns,
+    welcome: !hasAgents,
+    controlPaneCommand: controlWindow.command,
+    agentPaneCommands: agentWindows.map((window) => ({
+      id: window.id,
+      title: window.title,
+      cwd: window.cwd,
+      worktree: window.worktree,
+      command: window.command,
+      missingWorktree: window.missingWorktree,
+    })),
+    titles: panes.map((pane) => pane.title),
+    workingDirectories: panes.map((pane) => ({
+      id: pane.id,
+      role: pane.role,
+      cwd: pane.cwd,
+      worktree: pane.worktree || '',
+    })),
+    layout: {
+      control: controlWindow,
+      agentArea: {
+        id: 'agent-area',
+        role: 'agent-area',
+        title: `${sessionName}: agents`,
+        cwd: repoRoot,
+        panes: agentWindows.length,
+      },
+      agents: agentWindows,
+      details: detailWindow,
+    },
+    steps,
+    commands: steps.map((step) => step.command),
   };
 }
 
@@ -220,8 +435,50 @@ function createKittyCockpitPlan(options = {}) {
   };
 }
 
+function openKittyCockpit(options = {}) {
+  const repoRoot = requireText(
+    firstText(options.repoRoot, options.repoPath, options.target, process.cwd()),
+    'repoRoot',
+  );
+  const readState = typeof options.readState === 'function' ? options.readState : readCockpitState;
+  const readSettings = typeof options.readSettings === 'function' ? options.readSettings : readCockpitSettings;
+  const state = options.state || readState(repoRoot);
+  const settings = {
+    ...readSettings(repoRoot),
+    ...(options.settings || {}),
+    repoRoot,
+    sessionName: options.sessionName,
+    controlCommand: options.controlCommand,
+    controlTitle: options.controlTitle,
+    columns: options.columns,
+    kittyBin: options.kittyBin,
+    dryRun: options.dryRun,
+    focusControl: options.focusControl,
+  };
+  const plan = buildKittyCockpitPlan(state, settings);
+  const execution = kittyRuntime.openKittyCockpit({
+    plan,
+    dryRun: plan.dryRun,
+    runner: options.runner,
+    env: options.env,
+    timeout: options.timeout,
+  });
+
+  return {
+    action: 'created',
+    backend: 'kitty',
+    sessionName: plan.sessionName,
+    repoRoot: plan.repoRoot,
+    dryRun: plan.dryRun,
+    plan,
+    execution,
+  };
+}
+
 module.exports = {
+  buildKittyCockpitPlan,
   DEFAULT_COLUMNS,
   DEFAULT_SESSION_NAME,
   createKittyCockpitPlan,
+  openKittyCockpit,
 };

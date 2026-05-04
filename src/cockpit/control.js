@@ -5,6 +5,7 @@ const { renderSidebar } = require('./sidebar');
 const { renderSettingsScreen } = require('./settings-render');
 const { CONTROL_KEY_HELP } = require('./shortcuts');
 const { stripAnsi } = require('./theme');
+const { renderWelcomePage } = require('./welcome');
 const { runCockpitAction } = require('./action-runner');
 const {
   PANE_MENU_ITEMS,
@@ -22,7 +23,8 @@ const DEFAULT_SETTINGS = {
   defaultBase: 'main',
 };
 
-const MODES = new Set(['details', 'menu', 'settings']);
+const MODES = new Set(['main', 'menu', 'settings', 'shortcuts', 'new-agent', 'terminal']);
+const EMPTY_ACTION_ROWS = Object.freeze(['new-agent', 'terminal', 'settings', 'shortcuts']);
 const SETTINGS_FIELDS = [
   'theme',
   'sidebarWidth',
@@ -150,8 +152,17 @@ function normalizeSettings(settings) {
   };
 }
 
+function normalizeActionRows(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return [...EMPTY_ACTION_ROWS];
+  }
+  const normalized = rows.map((row) => text(row)).filter(Boolean);
+  return normalized.length > 0 ? normalized : [...EMPTY_ACTION_ROWS];
+}
+
 function normalizeMode(mode) {
-  return MODES.has(mode) ? mode : 'details';
+  if (mode === 'details') return 'main';
+  return MODES.has(mode) ? mode : 'main';
 }
 
 function normalizeControlState(state = {}) {
@@ -163,8 +174,10 @@ function normalizeControlState(state = {}) {
     : Array.isArray(cockpitState.sessions)
       ? cockpitState.sessions
       : [];
+  const actionRows = normalizeActionRows(state.actionRows);
   const selectedIndex = clampIndex(number(state.selectedIndex, 0), sessions.length);
   const selected = sessions[selectedIndex] || null;
+  const selectedScope = sessions.length > 0 ? 'lane' : 'action';
 
   return {
     ...state,
@@ -174,6 +187,9 @@ function normalizeControlState(state = {}) {
     sessions,
     selectedIndex,
     selectedSessionId: text(state.selectedSessionId || (selected && sessionId(selected))),
+    selectedScope,
+    actionRows,
+    actionIndex: wrapIndex(number(state.actionIndex, 0), actionRows.length),
     mode: normalizeMode(state.mode),
     menuIndex: wrapIndex(number(state.menuIndex, 0), MENU_ITEMS.length),
     settingsIndex: wrapIndex(number(state.settingsIndex, 0), SETTINGS_FIELDS.length),
@@ -266,7 +282,7 @@ function chooseMenuItem(state) {
   const intent = buildIntent(current, result.actionId);
   return normalizeControlState({
     ...current,
-    mode: 'details',
+    mode: 'main',
     paneMenuMessage: '',
     shouldExit: intent.type === 'quit',
     lastIntent: intent,
@@ -290,7 +306,52 @@ function normalizeKey(value) {
   if (raw === '\u001b[B') return 'down';
   if (raw === '\t') return 'tab';
   if (/^alt(?:\+|-)?shift(?:\+|-)?m$/i.test(raw)) return 'alt-shift-m';
+  if (/^(esc|escape)$/i.test(raw)) return 'escape';
   return raw.toLowerCase();
+}
+
+function moveSelection(state, direction) {
+  const current = normalizeControlState(state);
+  if (current.sessions.length > 0) {
+    return normalizeControlState({
+      ...current,
+      selectedScope: 'lane',
+      selectedIndex: wrapIndex(current.selectedIndex + direction, current.sessions.length),
+      selectedSessionId: '',
+      lastIntent: null,
+    });
+  }
+
+  return normalizeControlState({
+    ...current,
+    selectedScope: 'action',
+    selectedIndex: 0,
+    actionIndex: wrapIndex(current.actionIndex + direction, current.actionRows.length),
+    selectedSessionId: '',
+    lastIntent: null,
+  });
+}
+
+function openActionRow(state, actionId) {
+  const current = normalizeControlState(state);
+  if (actionId === 'new-agent') {
+    return normalizeControlState({ ...current, mode: 'new-agent', lastIntent: null });
+  }
+  if (actionId === 'terminal') {
+    return normalizeControlState({ ...current, mode: 'terminal', lastIntent: null });
+  }
+  if (actionId === 'settings') {
+    return normalizeControlState({ ...current, mode: 'settings', lastIntent: null });
+  }
+  if (actionId === 'shortcuts') {
+    return normalizeControlState({ ...current, mode: 'shortcuts', lastIntent: null });
+  }
+  return normalizeControlState({ ...current, lastIntent: null });
+}
+
+function openSelectedActionRow(state) {
+  const current = normalizeControlState(state);
+  return openActionRow(current, current.actionRows[current.actionIndex] || current.actionRows[0]);
 }
 
 function applyKey(state, rawKey) {
@@ -303,7 +364,7 @@ function applyKey(state, rawKey) {
     if (result.action === 'cancel') {
       return normalizeControlState({
         ...current,
-        mode: 'details',
+        mode: 'main',
         paneMenuMessage: '',
         lastIntent: null,
       });
@@ -311,7 +372,7 @@ function applyKey(state, rawKey) {
     if (result.action === 'select') {
       return normalizeControlState({
         ...current,
-        mode: 'details',
+        mode: 'main',
         menuIndex: result.state.selectedIndex,
         paneMenuMessage: '',
         lastIntent: buildIntent(current, result.actionId),
@@ -335,26 +396,11 @@ function applyKey(state, rawKey) {
   if (key === 'escape') {
     return normalizeControlState({
       ...current,
-      mode: 'details',
+      mode: 'main',
       lastIntent: null,
     });
   }
-  if (key === 's') {
-    return normalizeControlState({
-      ...current,
-      mode: 'settings',
-      lastIntent: null,
-    });
-  }
-  if (key === 'm' || key === 'tab' || key === 'alt-shift-m') {
-    return normalizeControlState({
-      ...current,
-      mode: 'menu',
-      paneMenuMessage: '',
-      lastIntent: null,
-    });
-  }
-  if (DIRECT_DETAIL_PANE_KEYS.has(normalizePaneMenuKey(rawKey))) {
+  if (mode === 'main' && DIRECT_DETAIL_PANE_KEYS.has(normalizePaneMenuKey(rawKey))) {
     const result = applyPaneMenuKey(paneMenuStateFromControl(current), rawKey);
     if (result.action === 'select') {
       return normalizeControlState({
@@ -369,6 +415,26 @@ function applyKey(state, rawKey) {
       lastIntent: null,
     });
   }
+  if (key === 'n') {
+    return openActionRow(current, 'new-agent');
+  }
+  if (key === 't') {
+    return openActionRow(current, 'terminal');
+  }
+  if (key === '?') {
+    return openActionRow(current, 'shortcuts');
+  }
+  if (key === 's') {
+    return openActionRow(current, 'settings');
+  }
+  if (key === 'm' || key === 'tab' || key === 'alt-shift-m') {
+    return normalizeControlState({
+      ...current,
+      mode: 'menu',
+      paneMenuMessage: '',
+      lastIntent: null,
+    });
+  }
   if (key === 'enter') {
     if (mode === 'menu') return chooseMenuItem(current);
     if (mode === 'settings') {
@@ -377,10 +443,27 @@ function applyKey(state, rawKey) {
         lastIntent: buildIntent(current, 'settings:edit'),
       });
     }
+    if (mode === 'new-agent') {
+      return normalizeControlState({
+        ...current,
+        mode: 'main',
+        lastIntent: buildIntent(current, 'agent:start'),
+      });
+    }
+    if (mode === 'terminal') {
+      return normalizeControlState({
+        ...current,
+        mode: 'main',
+        lastIntent: buildIntent(current, 'terminal:open'),
+      });
+    }
+    if (current.sessions.length === 0 && current.selectedScope === 'action') {
+      return openSelectedActionRow(current);
+    }
     return normalizeControlState({
       ...current,
-      mode: 'menu',
-      lastIntent: null,
+      mode: 'main',
+      lastIntent: buildIntent(current, 'view'),
     });
   }
   if (key === 'down' || key === 'j') {
@@ -390,7 +473,7 @@ function applyKey(state, rawKey) {
     if (mode === 'settings') {
       return normalizeControlState({ ...current, settingsIndex: current.settingsIndex + 1, lastIntent: null });
     }
-    return normalizeControlState({ ...current, selectedIndex: current.selectedIndex + 1, selectedSessionId: '', lastIntent: null });
+    return moveSelection(current, 1);
   }
   if (key === 'up' || key === 'k') {
     if (mode === 'menu') {
@@ -399,7 +482,7 @@ function applyKey(state, rawKey) {
     if (mode === 'settings') {
       return normalizeControlState({ ...current, settingsIndex: current.settingsIndex - 1, lastIntent: null });
     }
-    return normalizeControlState({ ...current, selectedIndex: current.selectedIndex - 1, selectedSessionId: '', lastIntent: null });
+    return moveSelection(current, -1);
   }
 
   return current;
@@ -481,11 +564,21 @@ function selectedField(state) {
   return SETTINGS_FIELDS[current.settingsIndex] || SETTINGS_FIELDS[0];
 }
 
+function welcomeState(state) {
+  const current = normalizeControlState(state);
+  return {
+    ...current.cockpitState,
+    repoPath: current.repoPath,
+    baseBranch: current.baseBranch,
+    sessions: current.sessions,
+  };
+}
+
 function renderDetailsPanel(state) {
   const current = normalizeControlState(state);
   const session = selectedSession(current);
   const lines = [
-    'details',
+    'main',
     `repo: ${current.repoPath || '-'}`,
     `base: ${current.baseBranch || '-'}`,
     `mode: ${current.mode}`,
@@ -517,6 +610,54 @@ function renderDetailsPanel(state) {
   return `${lines.join('\n')}\n`;
 }
 
+function renderShortcutsPanel() {
+  return [
+    'shortcuts',
+    '',
+    'j/down: next lane',
+    'k/up: previous lane',
+    'enter: view selected lane / open selected action',
+    'n: new agent',
+    't: terminal',
+    'm or Alt+Shift+M: pane menu',
+    's: settings',
+    'v/h/x/p/r/c/o/a/b/f/T/A: pane actions',
+    'esc: back to main',
+    'q: quit',
+    '',
+  ].join('\n');
+}
+
+function renderNewAgentPanel(state) {
+  const current = normalizeControlState(state);
+  return [
+    'new agent',
+    '',
+    `agent: ${current.settings.defaultAgent}`,
+    `base: ${current.settings.defaultBase}`,
+    '',
+    'Enter: open a guarded agent lane in Kitty',
+    'Esc: back to main',
+    '',
+  ].join('\n');
+}
+
+function renderTerminalPanel(state) {
+  const current = normalizeControlState(state);
+  const session = selectedSession(current);
+  return [
+    'terminal',
+    '',
+    session
+      ? `target: ${sessionId(session) || text(session.branch, 'selected lane')}`
+      : `target: ${current.repoPath || 'repo'}`,
+    '',
+    'Enter: open Kitty terminal',
+    'Esc: back to main',
+    '',
+  ].join('\n');
+}
+
 function renderMenuPanel(state) {
   const current = normalizeControlState(state);
   return renderPaneMenu(paneMenuStateFromControl(current), { width: 72, theme: current.settings.theme });
@@ -534,6 +675,12 @@ function renderPanel(state) {
   const current = normalizeControlState(state);
   if (current.mode === 'menu') return renderMenuPanel(current);
   if (current.mode === 'settings') return renderSettingsPanel(current);
+  if (current.mode === 'shortcuts') return renderShortcutsPanel(current);
+  if (current.mode === 'new-agent') return renderNewAgentPanel(current);
+  if (current.mode === 'terminal') return renderTerminalPanel(current);
+  if (current.sessions.length === 0) {
+    return renderWelcomePage(welcomeState(current), current.settings);
+  }
   return renderDetailsPanel(current);
 }
 
@@ -542,7 +689,7 @@ function renderControlFrame(state) {
   const width = number(current.settings.sidebarWidth, DEFAULT_SETTINGS.sidebarWidth);
   const sidebar = splitLines(renderSidebar(current, { width, theme: current.settings.theme }));
   const framePanelState = current.mode === 'menu'
-    ? normalizeControlState({ ...current, mode: 'details' })
+    ? normalizeControlState({ ...current, mode: 'main' })
     : current;
   const panel = splitLines(renderPanel(framePanelState));
   const leftWidth = Math.max(width, ...sidebar.map((line) => stripAnsi(line).length));
@@ -704,6 +851,7 @@ module.exports = {
   MENU_ITEMS,
   SETTINGS_FIELDS,
   applyCockpitAction,
+  applyCockpitKey: applyKey,
   buildCockpitActionContext,
   normalizeControlState,
   normalizeKey,
