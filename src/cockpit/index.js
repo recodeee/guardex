@@ -1,11 +1,13 @@
 const { readCockpitState } = require('./state');
+const { readCockpitSettings } = require('./settings');
 const { renderCockpit } = require('./render');
+const { openKittyCockpit } = require('./kitty-layout');
 const control = require('./control');
 const actions = require('./actions');
 const { normalizeBackendName, selectTerminalBackend } = require('../terminal');
 
 const DEFAULT_SESSION_NAME = 'guardex';
-const DEFAULT_BACKEND = 'tmux';
+const DEFAULT_BACKEND = 'auto';
 const DEFAULT_INTERACTIVE_BACKEND = 'auto';
 
 function parseCockpitArgs(rawArgs = []) {
@@ -20,6 +22,10 @@ function parseCockpitArgs(rawArgs = []) {
     const arg = rawArgs[index];
     if (arg === '--attach') {
       options.attach = true;
+      continue;
+    }
+    if (arg === '--kitty') {
+      options.backend = 'kitty';
       continue;
     }
     if (arg === '--session') {
@@ -154,6 +160,28 @@ function writeOpenedCockpitMessage({ backend, action, options, repoRoot, control
 function openWithBackend(backend, options, repoRoot, controlCommand, deps = {}) {
   const stdout = deps.stdout || process.stdout;
   const toolName = deps.toolName || 'gitguardex';
+  const env = deps.env || process.env;
+  if (backend.name === 'kitty') {
+    const result = openKittyCockpit({
+      repoRoot,
+      sessionName: options.sessionName,
+      controlCommand,
+      state: deps.state,
+      settings: deps.settings,
+      readState: deps.readState || readCockpitState,
+      readSettings: deps.readSettings || readCockpitSettings,
+      dryRun: deps.dryRun,
+      controlTitle: options.controlTitle || 'gx cockpit',
+      focusControl: deps.focusControl === undefined ? true : deps.focusControl,
+      runner: deps.kittyRunner || deps.runner,
+      kittyBin: deps.kittyBin || env.GUARDEX_KITTY_BIN,
+      env,
+    });
+    const action = result && result.action ? result.action : 'created';
+    writeOpenedCockpitMessage({ backend, action, options, repoRoot, controlCommand, stdout, toolName });
+    return { action, backend: backend.name, sessionName: options.sessionName, repoRoot, plan: result.plan };
+  }
+
   const result = backend.openCockpitLayout({
     repoRoot,
     sessionName: options.sessionName,
@@ -324,6 +352,7 @@ module.exports = {
   parseCockpitControlArgs,
   openDefaultCockpit,
   openCockpit,
+  openKittyCockpit,
   render,
   startCockpit,
   ...control,

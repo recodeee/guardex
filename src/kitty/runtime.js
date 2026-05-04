@@ -112,6 +112,68 @@ function runCommand(command, action, options = {}) {
   return runKitty(command.args, runOptions);
 }
 
+function cloneCommand(command) {
+  if (!command || typeof command !== 'object' || !Array.isArray(command.args)) {
+    throw new TypeError('kitty cockpit command must include args');
+  }
+  const clone = {
+    cmd: requireText(command.cmd, 'kitty cockpit command cmd'),
+    args: command.args.map((arg) => {
+      if (arg === undefined || arg === null) {
+        throw new TypeError('kitty cockpit command args must be strings');
+      }
+      return String(arg);
+    }),
+  };
+  if (Object.prototype.hasOwnProperty.call(command, 'input')) {
+    clone.input = command.input === undefined || command.input === null ? '' : String(command.input);
+  }
+  return clone;
+}
+
+function cockpitCommands(plan = {}) {
+  if (!plan || typeof plan !== 'object') {
+    throw new TypeError('kitty cockpit plan must be an object');
+  }
+  const commands = Array.isArray(plan.commands)
+    ? plan.commands
+    : Array.isArray(plan.steps)
+      ? plan.steps.map((step) => step && step.command).filter(Boolean)
+      : [];
+  return commands.map(cloneCommand);
+}
+
+function assertCommandResult(command, result) {
+  if (result && result.error) throw result.error;
+  if (!result || result.status === 0) return result;
+  const detail = String(result.stderr || result.stdout || '').trim();
+  throw new Error(`kitty cockpit command failed: ${command.cmd} ${command.args.join(' ')}${detail ? `: ${detail}` : ''}`);
+}
+
+function openKittyCockpit(options = {}) {
+  const plan = options.plan && typeof options.plan === 'object' ? options.plan : options;
+  const commands = cockpitCommands(plan);
+  const dryRun = Boolean(options.dryRun || plan.dryRun);
+
+  if (dryRun) {
+    return {
+      dryRun: true,
+      action: 'open-kitty-cockpit',
+      commands,
+      plan,
+    };
+  }
+
+  const results = commands.map((command) => (
+    assertCommandResult(command, runCommand(command, 'open-kitty-cockpit', options))
+  ));
+  return {
+    action: 'open-kitty-cockpit',
+    commands,
+    results,
+  };
+}
+
 function launchKittyWindow(options = {}) {
   return runCommand(
     buildKittyLaunchCommand({
@@ -182,6 +244,7 @@ module.exports = {
   launchKittyWindow,
   launchKittyTab,
   launchKittyPane,
+  openKittyCockpit,
   sendTextToKitty,
   setKittyWindowTitle,
 };

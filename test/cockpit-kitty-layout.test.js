@@ -3,25 +3,71 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 
-const { createKittyCockpitPlan } = require('../src/cockpit/kitty-layout');
+const cockpit = require('../src/cockpit');
+const {
+  buildKittyCockpitPlan,
+  openKittyCockpit,
+} = require('../src/cockpit/kitty-layout');
 
-function agent(id, extra = {}) {
+function session(id, extra = {}) {
   return {
     id,
     agent: 'codex',
-    worktree: `/repo/.omx/agent-worktrees/${id}`,
-    command: `cd /repo/.omx/agent-worktrees/${id} && exec codex`,
+    branch: `agent/codex/${id}`,
+    status: 'active',
+    worktreePath: `/repo/.omx/agent-worktrees/${id}`,
+    worktreeExists: true,
+    metadata: {
+      'colony.task': id,
+    },
+    launchCommand: 'exec codex',
     ...extra,
   };
 }
 
-test('one agent creates control and agent launch commands', () => {
-  const plan = createKittyCockpitPlan({
+function state(sessions) {
+  return {
+    repoPath: '/repo/gitguardex',
+    baseBranch: 'main',
+    agentsStatus: {
+      schemaVersion: 1,
+      repoRoot: '/repo/gitguardex',
+      sessions,
+    },
+  };
+}
+
+test('empty state opens welcome/control only in dry-run mode', () => {
+  let called = false;
+  const result = openKittyCockpit({
     repoRoot: '/repo/gitguardex',
+    state: state([]),
+    settings: {},
+    readSettings: () => ({}),
     sessionName: 'guardex-dev',
-    agents: [agent('alpha')],
-    controlCommand: "gx cockpit control --target '/repo/gitguardex'",
-    welcomeCommand: 'gx',
+    dryRun: true,
+    runner() {
+      called = true;
+    },
+  });
+
+  assert.equal(called, false);
+  assert.equal(result.dryRun, true);
+  assert.equal(result.plan.welcome, true);
+  assert.deepEqual(
+    result.plan.steps.map((step) => step.id),
+    ['launch-control', 'focus-control'],
+  );
+  assert.equal(result.plan.layout.control.title, 'guardex-dev: welcome');
+  assert.deepEqual(result.plan.layout.agents, []);
+  assert.equal(result.plan.controlPaneCommand, "gx cockpit control --target '/repo/gitguardex'");
+  assert.deepEqual(result.plan.titles, ['guardex-dev: welcome']);
+  assert.deepEqual(result.execution.commands, result.plan.commands);
+});
+
+test('one agent gets one safe lane pane without launching an agent', () => {
+  const plan = buildKittyCockpitPlan(state([session('alpha')]), {
+    sessionName: 'guardex-dev',
     dryRun: true,
   });
 
@@ -29,25 +75,17 @@ test('one agent creates control and agent launch commands', () => {
   assert.equal(plan.dryRun, true);
   assert.deepEqual(
     plan.steps.map((step) => step.id),
-    ['launch-control', 'launch-agent-area', 'launch-agent-1', 'focus-control'],
+    ['launch-control', 'launch-agent-1', 'focus-control'],
   );
-  assert.deepEqual(plan.steps[0].command, {
-    cmd: 'kitty',
-    args: [
-      '@',
-      'launch',
-      '--type=window',
-      '--cwd',
-      '/repo/gitguardex',
-      '--title',
-      'guardex-dev: control',
-      '--',
-      'sh',
-      '-lc',
-      "gx cockpit control --target '/repo/gitguardex'",
-    ],
-  });
-  assert.deepEqual(plan.steps[2].command.args, [
+  assert.equal(plan.welcome, false);
+  assert.equal(plan.layout.agents.length, 1);
+  assert.equal(plan.layout.agents[0].title, '01: codex alpha');
+  assert.equal(plan.layout.agents[0].cwd, '/repo/.omx/agent-worktrees/alpha');
+  assert.equal(plan.layout.agents[0].metadata['colony.task'], 'alpha');
+  assert.equal(plan.layout.agents[0].launchCommand, 'exec codex');
+  assert.match(plan.layout.agents[0].command, /exec \$\{SHELL:-bash\}/);
+  assert.doesNotMatch(plan.layout.agents[0].command, /exec codex/);
+  assert.deepEqual(plan.steps[1].command.args, [
     '@',
     'launch',
     '--type=window',
@@ -59,72 +97,95 @@ test('one agent creates control and agent launch commands', () => {
     '--',
     'sh',
     '-lc',
-    'cd /repo/.omx/agent-worktrees/alpha && exec codex',
+    "printf '%s\\n' 'GitGuardex cockpit lane: agent/codex/alpha'; exec ${SHELL:-bash}",
   ]);
 });
 
-test('many agents create stable titles', () => {
-  const agents = Array.from({ length: 12 }, (_, index) => agent(`agent-${index + 1}`, {
-    agent: index % 2 === 0 ? 'codex' : 'claude',
-  }));
-  const plan = createKittyCockpitPlan({
-    repoRoot: '/repo/gitguardex',
+test('two agents create one pane per active lane with stable titles and cwd', () => {
+  const plan = buildKittyCockpitPlan(state([
+    session('alpha'),
+    session('beta', { agent: 'claude' }),
+  ]), {
     sessionName: 'guardex',
-    agents,
+    dryRun: true,
   });
 
+  assert.equal(plan.layout.agentArea.panes, 2);
   assert.deepEqual(
-    plan.layout.agents.map((entry) => entry.title),
+    plan.titles,
+    ['guardex: control', '01: codex alpha', '02: claude beta'],
+  );
+  assert.deepEqual(
+    plan.agentPaneCommands.map((pane) => ({ title: pane.title, cwd: pane.cwd, worktree: pane.worktree })),
     [
-      '01: codex agent-1',
-      '02: claude agent-2',
-      '03: codex agent-3',
-      '04: claude agent-4',
-      '05: codex agent-5',
-      '06: claude agent-6',
-      '07: codex agent-7',
-      '08: claude agent-8',
-      '09: codex agent-9',
-      '10: claude agent-10',
-      '11: codex agent-11',
-      '12: claude agent-12',
+      {
+        title: '01: codex alpha',
+        cwd: '/repo/.omx/agent-worktrees/alpha',
+        worktree: '/repo/.omx/agent-worktrees/alpha',
+      },
+      {
+        title: '02: claude beta',
+        cwd: '/repo/.omx/agent-worktrees/beta',
+        worktree: '/repo/.omx/agent-worktrees/beta',
+      },
     ],
   );
-  assert.equal(new Set(plan.layout.agents.map((entry) => entry.match)).size, 12);
+  assert.equal(plan.layout.agents[0].location, 'vsplit');
+  assert.equal(plan.layout.agents[1].location, 'hsplit');
+  assert.deepEqual(
+    plan.workingDirectories.map((entry) => [entry.role, entry.cwd]),
+    [
+      ['control', '/repo/gitguardex'],
+      ['agent', '/repo/.omx/agent-worktrees/alpha'],
+      ['agent', '/repo/.omx/agent-worktrees/beta'],
+    ],
+  );
 });
 
-test('repoRoot and worktree cwd are preserved', () => {
-  const plan = createKittyCockpitPlan({
-    repoRoot: '/repo/gitguardex',
-    agents: [
-      agent('alpha', {
-        cwd: '/repo/worktrees/alpha',
-        worktree: '/repo/worktrees/alpha',
-        title: 'alpha lane',
-      }),
-    ],
+test('missing worktree falls back to repo root cwd', () => {
+  const plan = buildKittyCockpitPlan(state([
+    session('missing', {
+      worktreePath: '/repo/.omx/agent-worktrees/missing',
+      worktreeExists: false,
+    }),
+  ]), {
+    sessionName: 'guardex',
+    dryRun: true,
   });
 
   assert.equal(plan.layout.control.cwd, '/repo/gitguardex');
-  assert.equal(plan.layout.agentArea.cwd, '/repo/gitguardex');
-  assert.equal(plan.layout.agents[0].cwd, '/repo/worktrees/alpha');
-  assert.equal(plan.layout.agents[0].worktree, '/repo/worktrees/alpha');
-  assert.equal(plan.steps[2].command.args[5], '/repo/worktrees/alpha');
+  assert.equal(plan.layout.agents[0].cwd, '/repo/gitguardex');
+  assert.equal(plan.layout.agents[0].worktree, '/repo/.omx/agent-worktrees/missing');
+  assert.equal(plan.layout.agents[0].missingWorktree, true);
+  assert.deepEqual(plan.agentPaneCommands[0], {
+    id: 'missing',
+    title: '01: codex missing',
+    cwd: '/repo/gitguardex',
+    worktree: '/repo/.omx/agent-worktrees/missing',
+    command: "printf '%s\\n' 'GitGuardex cockpit lane: agent/codex/missing'; exec ${SHELL:-bash}",
+    missingWorktree: true,
+  });
+  assert.deepEqual(plan.steps[1].command.args.slice(4, 6), ['--cwd', '/repo/gitguardex']);
 });
 
-test('plan is deterministic', () => {
-  const input = {
-    repoRoot: '/repo/gitguardex',
-    sessionName: 'guardex-dev',
-    agents: [agent('alpha'), agent('beta', { agent: 'claude' })],
-    controlCommand: 'gx cockpit control',
-    welcomeCommand: 'gx',
-    columns: 160,
+test('cockpit index exports Kitty opener and parses --kitty', () => {
+  const stdout = [];
+  const result = cockpit.openCockpit(['--kitty', '--target', '/repo/gitguardex'], {
+    resolveRepoRoot: (target) => target,
+    toolName: 'gx',
+    stdout: {
+      write(chunk) {
+        stdout.push(String(chunk));
+      },
+    },
     dryRun: true,
-  };
+    readState: () => state([session('alpha')]),
+    readSettings: () => ({}),
+  });
 
-  assert.deepEqual(
-    createKittyCockpitPlan(JSON.parse(JSON.stringify(input))),
-    createKittyCockpitPlan(JSON.parse(JSON.stringify(input))),
-  );
+  assert.equal(result.action, 'created');
+  assert.equal(result.backend, 'kitty');
+  assert.equal(result.plan.layout.agents.length, 1);
+  assert.equal(typeof cockpit.openKittyCockpit, 'function');
+  assert.match(stdout.join(''), /Created kitty cockpit window 'guardex'/);
 });

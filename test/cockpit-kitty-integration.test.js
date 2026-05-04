@@ -37,6 +37,7 @@ function fakeKitty() {
     'if [[ "${1:-}" == "--version" ]]; then echo "kitty 0.35.0"; exit 0; fi',
     'if [[ "${1:-}" == "@" && "${2:-}" == "ls" ]]; then exit 0; fi',
     'if [[ "${1:-}" == "@" && "${2:-}" == "launch" ]]; then exit 0; fi',
+    'if [[ "${1:-}" == "@" && "${2:-}" == "focus-window" ]]; then exit 0; fi',
     'exit 9',
   ].join('\n'));
 }
@@ -63,12 +64,12 @@ function assertKittyLaunchLine(line, repoDir) {
   assert.match(line, /-- sh -lc gx cockpit control --target /);
 }
 
-test('gx cockpit --backend auto command path opens Kitty when remote control answers', () => {
+test('gx cockpit command path opens Kitty by default when remote control answers', () => {
   const repoDir = initRepo();
   const kitty = fakeKitty();
   const missingTmux = path.join(os.tmpdir(), `guardex-missing-tmux-${process.pid}-${Date.now()}`);
 
-  const result = runNodeWithEnv(['cockpit', '--backend', 'auto', '--session', 'guardex-auto', '--target', repoDir], repoDir, {
+  const result = runNodeWithEnv(['cockpit', '--session', 'guardex-auto', '--target', repoDir], repoDir, {
     GUARDEX_KITTY_BIN: kitty.bin,
     GUARDEX_TMUX_BIN: missingTmux,
   });
@@ -76,10 +77,11 @@ test('gx cockpit --backend auto command path opens Kitty when remote control ans
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.match(result.stdout, /Created kitty cockpit window 'guardex-auto'/);
   const lines = readLogLines(kitty.log);
-  assert.equal(lines.length, 3);
+  assert.equal(lines.length, 4);
   assert.match(lines[0], / :: --version$/);
   assert.match(lines[1], / :: @ ls$/);
   assertKittyLaunchLine(lines[2], repoDir);
+  assert.match(lines[3], / :: @ focus-window --match title:gx cockpit$/);
 });
 
 test('gx cockpit --backend kitty dry-run layout plan is deterministic and does not execute Kitty', () => {
