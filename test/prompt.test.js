@@ -77,6 +77,10 @@ test('prompt outputs AI setup instructions', () => {
   assert.match(result.stdout, /avoid repeated peeks or stdin loops/);
   assert.match(result.stdout, /checkpoint after each milestone: Task -> Done -> Current status -> Next/);
   assert.match(result.stdout, /keep execution log separate from reasoning context/);
+  assert.match(result.stdout, /RTK command compression/);
+  assert.match(result.stdout, /rtk git status/);
+  assert.match(result.stdout, /rtk test <cmd>/);
+  assert.match(result.stdout, /Do not wrap machine-readable commands with RTK/);
   assert.match(result.stdout, /gx finish --all/);
   assert.match(result.stdout, /\/opsx:propose/);
   assert.match(result.stdout, /https:\/\/github\.com\/apps\/pull/);
@@ -133,6 +137,7 @@ test('prompt --list-parts prints the available prompt slices', () => {
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.match(result.stdout, /^install$/m);
   assert.match(result.stdout, /^task-loop$/m);
+  assert.match(result.stdout, /^rtk$/m);
   assert.match(result.stdout, /^openspec$/m);
   assert.match(result.stdout, /^review-bot$/m);
 });
@@ -156,6 +161,9 @@ test('prompt --snippet prints the managed AGENTS template with token budget and 
   assert.match(result.stdout, /Default: less word, same proof\./);
   assert.match(result.stdout, /Keep raw terminal interaction out of long-lived context/);
   assert.match(result.stdout, /Keep execution log separate from reasoning context/);
+  assert.match(result.stdout, /### RTK command compression/);
+  assert.match(result.stdout, /rtk git status/);
+  assert.match(result.stdout, /Do not wrap machine-readable commands with RTK/);
   assert.match(result.stdout, /### Caveman style/);
   assert.match(result.stdout, /Answer order stays fixed: answer first, cause next, fix or next step last\./);
 });

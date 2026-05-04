@@ -134,6 +134,19 @@ Default: less word, same proof.
 - Treat local edit/commit, remote publish/PR, CI diagnosis, and cleanup as bounded phases.
 - Do not spend fresh narration or approval turns on obvious safe follow-ons inside an already authorized phase unless the risk changes.
 
+### RTK command compression
+
+When `rtk` is available, prefer it for noisy shell discovery and verification.
+
+- Files: `rtk ls .`, `rtk read <file>`, `rtk read <file> -l aggressive`, `rtk smart <file>`, `rtk find "<glob>" .`, `rtk grep "<pattern>" .`, `rtk diff <a> <b>`.
+- Git and GitHub: `rtk git status`, `rtk git diff`, `rtk git log -n 10`, `rtk gh pr list`, `rtk gh pr view <id>`.
+- Tests and builds: `rtk test <cmd>`, `rtk err <cmd>`, `rtk jest`, `rtk vitest`, `rtk playwright test`, `rtk pytest`, `rtk cargo test`, `rtk tsc`, `rtk lint`.
+- Runtime and data probes: `rtk docker ps`, `rtk docker logs <container>`, `rtk kubectl pods`, `rtk json <file>`, `rtk log <file>`, `rtk curl <url>`.
+- Savings checks: `rtk gain`, `rtk discover`, and `rtk session`.
+- Use `rtk proxy <command>` only when raw passthrough is required.
+- Do not wrap machine-readable commands with RTK when code parses stdout (`--porcelain`, `--json`, NUL-delimited output, or exact stdout contracts).
+- If `rtk` is missing, use raw commands and summarize only meaningful lines.
+
 ### Caveman style
 
 Commentary and progress updates use smart-caveman `ultra` by default:
