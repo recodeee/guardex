@@ -58,6 +58,12 @@ gx setup   # hooks, state, OMX / OpenSpec / caveman wiring — one shot
 > feels rough — especially around **cleanup**, **finish**, **merge**, or
 > **recovery** flows — sorry. We're patching as we find things.
 
+> [!CAUTION]
+> **Recommended default: macOS or Linux with Codex CLI.** OMX is primarily
+> designed and actively tuned for that path. Native Windows and Codex App are
+> not the default experience, may break or behave inconsistently, and currently
+> receive less support.
+
 ---
 
 ## The problem
