@@ -77,30 +77,12 @@ test('default invocation runs non-mutating status output', () => {
   const serviceIdx = result.stdout.indexOf('[gitguardex] Repo safety service:');
   const repoIdx = result.stdout.indexOf('[gitguardex] Repo:');
   const branchIdx = result.stdout.indexOf('[gitguardex] Branch:');
-  const helpIdx = result.stdout.indexOf('gx help:');
   assert.equal(serviceIdx >= 0, true);
   assert.equal(repoIdx > serviceIdx, true);
   assert.equal(branchIdx > repoIdx, true);
-  assert.equal(
-    helpIdx > branchIdx,
-    true,
-    `Expected 'gx help:' banner to appear after Branch line.\nstdout=\n${result.stdout}`,
-  );
-  assert.match(result.stdout, /gx help:/);
-  assert.match(result.stdout, /USAGE\n\s+\$ gx <command> \[options\]/);
-  assert.match(result.stdout, /COMMANDS\n\s+Setup & health/);
-  assert.match(
-    result.stdout,
-    /status\s+Show GitGuardex CLI \+ service health without modifying files/,
-  );
-  assert.match(
-    result.stdout,
-    /AGENT BOT\n\s+agents\s+Start\/stop review \+ cleanup bots for this repo/,
-  );
-  assert.match(
-    result.stdout,
-    /REPO TOGGLE\n\s+Set repo-root \.env: GUARDEX_ON=0 disables Guardex, GUARDEX_ON=1 enables it again/,
-  );
+  assert.match(result.stdout, /\[gitguardex\] Global services: \d+\/\d+ ● active/);
+  assert.doesNotMatch(result.stdout, /gx help:/);
+  assert.doesNotMatch(result.stdout, /USAGE\n\s+\$ gx <command> \[options\]/);
   assert.match(
     result.stdout,
     /\[gitguardex\] Next:/,
@@ -110,12 +92,10 @@ test('default invocation runs non-mutating status output', () => {
 });
 
 
-test('GUARDEX_COMPACT_STATUS=1 suppresses the full help tree and emits a Next hint', () => {
+test('status suppresses the full help tree by default and emits a Next hint', () => {
   const repoDir = initRepo();
 
-  const result = runNodeWithEnv([], repoDir, {
-    GUARDEX_COMPACT_STATUS: '1',
-  });
+  const result = runNode([], repoDir);
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.match(result.stdout, /\[gitguardex\] CLI:/);
   assert.match(
@@ -133,10 +113,8 @@ test('GUARDEX_COMPACT_STATUS=1 suppresses the full help tree and emits a Next hi
 test('--verbose forces the expanded services list even when every service is active', () => {
   const repoDir = initRepo();
 
-  const compactResult = runNodeWithEnv([], repoDir, {
-    GUARDEX_COMPACT_STATUS: '1',
-  });
-  // sanity: compact mode collapses by default when the env flag is set
+  const compactResult = runNode([], repoDir);
+  // sanity: compact mode collapses by default
   assert.match(compactResult.stdout, /Global services: \d+\/\d+ ● active/);
 
   const verbose = runNodeWithEnv(['status', '--verbose'], repoDir, {

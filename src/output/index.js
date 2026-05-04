@@ -347,7 +347,7 @@ REPO TOGGLE
 ${repoToggleLines().join('\n')}
 
 NOTES
-  - No command = ${invoked} status (compact in a TTY; pass --verbose for full services + help tree).
+  - No command = ${invoked} status (compact by default; pass --verbose for full services + help tree).
   - ${invoked} init is an alias of ${invoked} setup.
   - Global installs need Y/N approval; GitHub CLI (gh) is required for PR automation.
   - Target another repo: ${invoked} <cmd> --target <repo-path>.

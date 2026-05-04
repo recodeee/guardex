@@ -2026,9 +2026,7 @@ function status(rawArgs) {
     target: process.cwd(),
     json: false,
   });
-  const forceCompact = envFlagIsTruthy(process.env.GUARDEX_COMPACT_STATUS);
   const forceExpand = envFlagIsTruthy(process.env.GUARDEX_VERBOSE_STATUS) || verboseFlag;
-  const interactive = Boolean(process.stdout.isTTY);
   const invokedBasename = getInvokedCliName();
 
   let snapshot = collectServicesSnapshot();
@@ -2081,8 +2079,9 @@ function status(rawArgs) {
     return payload;
   }
 
-  const allServicesActive = toolchain.ok && services.every((service) => service.status === 'active');
-  const compact = !forceExpand && (forceCompact || (interactive && allServicesActive));
+  const compact = !forceExpand;
+  const activeServiceCount = services.filter((service) => service.status === 'active').length;
+  const inactiveServiceCount = services.length - activeServiceCount;
 
   console.log(`[${TOOL_NAME}] CLI: ${payload.cli.runtime}`);
   if (!toolchain.ok) {
@@ -2090,8 +2089,11 @@ function status(rawArgs) {
   }
 
   if (compact) {
+    const serviceSummary = inactiveServiceCount === 0
+      ? `${activeServiceCount}/${services.length} ${statusDot('active')} active`
+      : `${activeServiceCount}/${services.length} ${statusDot('degraded')} active (${inactiveServiceCount} inactive)`;
     console.log(
-      `[${TOOL_NAME}] Global services: ${services.length}/${services.length} ${statusDot('active')} active`,
+      `[${TOOL_NAME}] Global services: ${serviceSummary}`,
     );
   } else {
     console.log(`[${TOOL_NAME}] Global services:`);
